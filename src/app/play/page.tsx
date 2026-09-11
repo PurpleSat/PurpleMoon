@@ -62,6 +62,44 @@ function PlayPageClient() {
     blockAdEnabledRef.current = blockAdEnabled;
   }, [blockAdEnabled]);
 
+  // ==========================================
+  // 新增：跳过片头/片尾时长状态 (单位：秒)
+  // 从 localStorage 继承上次设置
+  // ==========================================
+  const [skipIntroTime, setSkipIntroTime] = useState<number>(() => {
+    if (typeof window !== 'undefined') {
+      const v = localStorage.getItem('skip_intro_time');
+      return v ? parseInt(v, 10) : 0;
+    }
+    return 0;
+  });
+  const [skipOutroTime, setSkipOutroTime] = useState<number>(() => {
+    if (typeof window !== 'undefined') {
+      const v = localStorage.getItem('skip_outro_time');
+      return v ? parseInt(v, 10) : 0;
+    }
+    return 0;
+  });
+
+  const skipIntroTimeRef = useRef(skipIntroTime);
+  const skipOutroTimeRef = useRef(skipOutroTime);
+
+  useEffect(() => {
+    skipIntroTimeRef.current = skipIntroTime;
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('skip_intro_time', skipIntroTime.toString());
+    }
+  }, [skipIntroTime]);
+
+  useEffect(() => {
+    skipOutroTimeRef.current = skipOutroTime;
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('skip_outro_time', skipOutroTime.toString());
+    }
+  }, [skipOutroTime]);
+  // ==========================================
+
+
   // 视频基本信息
   const [videoTitle, setVideoTitle] = useState(searchParams.get('title') || '');
   const [videoYear, setVideoYear] = useState(searchParams.get('year') || '');
@@ -121,6 +159,9 @@ function PlayPageClient() {
   const resumeTimeRef = useRef<number | null>(null);
   // 上次使用的音量，默认 0.7
   const lastVolumeRef = useRef<number>(0.7);
+  
+  // 记录本集是否已经跳过一次片头，防止在跳过后用户手动拖回片头又被强行跳过
+  const hasSkippedIntroRef = useRef<boolean>(false);
 
   // 换源相关状态
   const [availableSources, setAvailableSources] = useState<SearchResult[]>([]);
@@ -460,6 +501,8 @@ function PlayPageClient() {
 
   // 当集数索引变化时自动更新视频地址
   useEffect(() => {
+    // 每次切换集数时重置已跳过片头的标记
+    hasSkippedIntroRef.current = false;
     updateVideoUrl(detail, currentEpisodeIndex);
   }, [detail, currentEpisodeIndex]);
 
@@ -1097,6 +1140,80 @@ function PlayPageClient() {
         moreVideoAttr: {
           crossOrigin: 'anonymous',
         },
+        // ===============================================
+        // 新增/修改：自定义设置面板中加入跳过片头片尾的设置
+        // ===============================================
+        settings: [
+          {
+            html: '去广告',
+            icon: '<text x="50%" y="50%" font-size="20" font-weight="bold" text-anchor="middle" dominant-baseline="middle" fill="#ffffff">AD</text>',
+            tooltip: blockAdEnabled ? '已开启' : '已关闭',
+            onClick() {
+              const newVal = !blockAdEnabled;
+              try {
+                localStorage.setItem('enable_blockad', String(newVal));
+                if (artPlayerRef.current) {
+                  resumeTimeRef.current = artPlayerRef.current.currentTime;
+                  if (
+                    artPlayerRef.current.video &&
+                    artPlayerRef.current.video.hls
+                  ) {
+                    artPlayerRef.current.video.hls.destroy();
+                  }
+                  artPlayerRef.current.destroy();
+                  artPlayerRef.current = null;
+                }
+                setBlockAdEnabled(newVal);
+              } catch (_) {
+                // ignore
+              }
+              return newVal ? '当前开启' : '当前关闭';
+            },
+          },
+          {
+            html: '跳过片头',
+            tooltip: `${skipIntroTimeRef.current}秒`,
+            selector: [
+              { html: '不跳过', time: 0 },
+              { html: '30秒', time: 30 },
+              { html: '60秒', time: 60 },
+              { html: '90秒', time: 90 },
+              { html: '120秒', time: 120 },
+            ],
+            onSelect: function (item: any) {
+              setSkipIntroTime(item.time);
+              return `${item.time}秒`;
+            },
+          },
+          {
+            html: '跳过片尾',
+            tooltip: `${skipOutroTimeRef.current}秒`,
+            selector: [
+              { html: '不跳过', time: 0 },
+              { html: '30秒', time: 30 },
+              { html: '60秒', time: 60 },
+              { html: '90秒', time: 90 },
+              { html: '120秒', time: 120 },
+            ],
+            onSelect: function (item: any) {
+              setSkipOutroTime(item.time);
+              return `${item.time}秒`;
+            },
+          },
+        ],
+        // ===============================================
+        // 控制栏配置
+        controls: [
+          {
+            position: 'left',
+            index: 13,
+            html: '<i class="art-icon flex"><svg width="22" height="22" viewBox="0 0 22 22" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z" fill="currentColor"/></svg></i>',
+            tooltip: '播放下一集',
+            click: function () {
+              handleNextEpisode();
+            },
+          },
+        ],
         // HLS 支持配置
         customType: {
           m3u8: function (video: HTMLVideoElement, url: string) {
@@ -1155,46 +1272,6 @@ function PlayPageClient() {
           loading:
             '<img src="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI1MCIgaGVpZ2h0PSI1MCIgdmlld0JveD0iMCAwIDUwIDUwIj48cGF0aCBkPSJNMjUuMjUxIDYuNDYxYy0xMC4zMTggMC0xOC42ODMgOC4zNjUtMTguNjgzIDE4LjY4M2g0LjA2OGMwLTguMDcgNi41NDUtMTQuNjE1IDE0LjYxNS0xNC42MTVWNi40NjF6IiBmaWxsPSIjMDA5Njg4Ij48YW5pbWF0ZVRyYW5zZm9ybSBhdHRyaWJ1dGVOYW1lPSJ0cmFuc2Zvcm0iIGF0dHJpYnV0ZVR5cGU9IlhNTCIgZHVyPSIxcyIgZnJvbT0iMCAyNSAyNSIgcmVwZWF0Q291bnQ9ImluZGVmaW5pdGUiIHRvPSIzNjAgMjUgMjUiIHR5cGU9InJvdGF0ZSIvPjwvcGF0aD48L3N2Zz4=">',
         },
-        settings: [
-          {
-            html: '去广告',
-            icon: '<text x="50%" y="50%" font-size="20" font-weight="bold" text-anchor="middle" dominant-baseline="middle" fill="#ffffff">AD</text>',
-            tooltip: blockAdEnabled ? '已开启' : '已关闭',
-            onClick() {
-              const newVal = !blockAdEnabled;
-              try {
-                localStorage.setItem('enable_blockad', String(newVal));
-                if (artPlayerRef.current) {
-                  resumeTimeRef.current = artPlayerRef.current.currentTime;
-                  if (
-                    artPlayerRef.current.video &&
-                    artPlayerRef.current.video.hls
-                  ) {
-                    artPlayerRef.current.video.hls.destroy();
-                  }
-                  artPlayerRef.current.destroy();
-                  artPlayerRef.current = null;
-                }
-                setBlockAdEnabled(newVal);
-              } catch (_) {
-                // ignore
-              }
-              return newVal ? '当前开启' : '当前关闭';
-            },
-          },
-        ],
-        // 控制栏配置
-        controls: [
-          {
-            position: 'left',
-            index: 13,
-            html: '<i class="art-icon flex"><svg width="22" height="22" viewBox="0 0 22 22" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z" fill="currentColor"/></svg></i>',
-            tooltip: '播放下一集',
-            click: function () {
-              handleNextEpisode();
-            },
-          },
-        ],
       });
 
       // 监听播放器事件
@@ -1218,6 +1295,8 @@ function PlayPageClient() {
             }
             artPlayerRef.current.currentTime = target;
             console.log('成功恢复播放进度到:', resumeTimeRef.current);
+            // 恢复进度意味着不是从头播放，将已跳过片头标记为 true
+            hasSkippedIntroRef.current = true;
           } catch (err) {
             console.warn('恢复播放进度失败:', err);
           }
@@ -1255,7 +1334,51 @@ function PlayPageClient() {
         }
       });
 
+      // ===============================================
+      // 新增/修改：在播放时间更新时，检测是否需要跳过片头片尾
+      // ===============================================
       artPlayerRef.current.on('video:timeupdate', () => {
+        if (!artPlayerRef.current) return;
+        
+        const currentTime = artPlayerRef.current.currentTime || 0;
+        const duration = artPlayerRef.current.duration || 0;
+        const introTime = skipIntroTimeRef.current;
+        const outroTime = skipOutroTimeRef.current;
+        
+        // --- 逻辑 1：跳过片头 ---
+        // 只有当有设置片头时长、尚未跳过，且当前时间在 [0, introTime] 区间，且视频总长度合法
+        if (
+          introTime > 0 &&
+          !hasSkippedIntroRef.current &&
+          currentTime > 0 && 
+          currentTime < introTime &&
+          duration > introTime // 确保视频不是非常短导致异常
+        ) {
+          artPlayerRef.current.currentTime = introTime;
+          hasSkippedIntroRef.current = true;
+          artPlayerRef.current.notice.show = `已自动跳过片头 ${introTime} 秒`;
+        }
+
+        // --- 逻辑 2：跳过片尾 ---
+        // 如果有设置片尾时长，且当前时间进入了片尾区域，且不是已经结束状态
+        if (
+          outroTime > 0 && 
+          duration > outroTime + 10 && // 确保视频够长
+          currentTime >= duration - outroTime &&
+          currentTime < duration - 1 // 避免与自动下一集的 ended 事件冲突
+        ) {
+          const d = detailRef.current;
+          const idx = currentEpisodeIndexRef.current;
+          // 如果有下一集，直接触发下一集；如果是最后一集，则让其自然结束或手动退出
+          if (d && d.episodes && idx < d.episodes.length - 1) {
+             artPlayerRef.current.notice.show = `已跳过片尾，即将播放下一集`;
+             // 手动触发结束，利用现有的 ended 逻辑或者直接切集
+             // 这里直接强行修改时间到最后1秒，触发 ended 事件
+             artPlayerRef.current.currentTime = duration - 0.5;
+          }
+        }
+        
+        // -- 原有的保存播放进度逻辑 --
         const now = Date.now();
         let interval = 5000;
         if (process.env.NEXT_PUBLIC_STORAGE_TYPE === 'd1') {
@@ -1493,7 +1616,7 @@ function PlayPageClient() {
                 <path
                   strokeLinecap='round'
                   strokeLinejoin='round'
-                  strokeWidth='2'
+                  strokeLineWidth='2'
                   d='M9 5l7 7-7 7'
                 />
               </svg>
