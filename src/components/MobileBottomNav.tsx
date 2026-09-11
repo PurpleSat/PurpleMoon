@@ -26,24 +26,14 @@ const MobileBottomNav = ({ activePath }: MobileBottomNavProps) => {
       href: '/source-browser',
     },
     {
+      icon: Film,
+      label: 'New',
+      href: '/release-calendar',
+    },
+    {
       icon: Radio,
       label: '红月解析UI',
       href: 'https://400821.xyz/vip',
-    },
-    {
-      icon: History,
-      label: 'My-CMS',
-      href: 'https://today.400823.xyz',
-    },
-    {
-      icon: Rocket,
-      label: 'My-Cloud',
-      href: 'https://200805.xyz',
-    },
-    {
-      icon: Clapperboard,
-      label: 'API中转代理服务',
-      href: 'https://timis.dpdns.org',
     },
   ];
 
