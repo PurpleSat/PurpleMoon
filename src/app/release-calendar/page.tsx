@@ -247,12 +247,12 @@ function ReleaseCalendarClient() {
     });
   };
 
-  const getTypeIcon = (type: 'movie' | 'tv') => {
+  const getTypeIcon = (type: 'movie' | 'tv' | string) => {
     return type === 'movie' ? <Film className="w-4 h-4" /> : <Tv className="w-4 h-4" />;
   };
 
-  const getTypeLabel = (type: 'movie' | 'tv') => {
-    return type === 'movie' ? '电影' : '电视剧';
+  const getTypeLabel = (type: 'movie' | 'tv' | string) => {
+    return type === 'movie' ? '电影' : type === 'tv' ? '电视剧' : '未知';
   };
 
   return (
