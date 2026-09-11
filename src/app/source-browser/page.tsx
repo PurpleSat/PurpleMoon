@@ -2,13 +2,13 @@
 
 'use client';
 
-import { ExternalLink, Play, Server, Tv } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Play, Server, Tv } from 'lucide-react';
 import { useRouter } from 'next/navigation';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, Suspense } from 'react';
 
-import { ClientCache } from '@/lib/client-cache';
+import type { SearchResult as GlobalSearchResult } from '@/lib/types';
+
 import PageLayout from '@/components/PageLayout';
-import type { DoubanItem, SearchResult as GlobalSearchResult } from '@/lib/types';
 
 type Source = { key: string; name: string; api: string };
 type Category = { type_id: string | number; type_name: string };
@@ -21,7 +21,7 @@ type Item = {
   remarks?: string;
 };
 
-export default function SourceBrowserPage() {
+function SourceBrowserClient() {
   const router = useRouter();
 
   const [sources, setSources] = useState<Source[]>([]);
@@ -55,26 +55,50 @@ export default function SourceBrowserPage() {
   const [previewError, setPreviewError] = useState<string | null>(null);
   const [previewData, setPreviewData] = useState<GlobalSearchResult | null>(null);
   const [previewItem, setPreviewItem] = useState<Item | null>(null);
-  const [previewDouban, setPreviewDouban] = useState<DoubanItem | null>(null);
-  const [previewDoubanLoading, setPreviewDoubanLoading] = useState(false);
-  const [previewDoubanId, setPreviewDoubanId] = useState<number | null>(null);
-  type BangumiTag = { name: string };
-  type BangumiInfoboxValue = string | { v: string } | Array<string | { v: string }>;
-  type BangumiInfoboxEntry = { key: string; value: BangumiInfoboxValue };
-  type BangumiSubject = {
-    name?: string;
-    name_cn?: string;
-    date?: string;
-    rating?: { score?: number };
-    tags?: BangumiTag[];
-    infobox?: BangumiInfoboxEntry[];
-    summary?: string;
+
+  // ================= 导航滚动控制 =================
+  const sourceScrollRef = useRef<HTMLDivElement>(null);
+  const categoryScrollRef = useRef<HTMLDivElement>(null);
+
+  const [canScrollSource, setCanScrollSource] = useState({ left: false, right: true });
+  const [canScrollCategory, setCanScrollCategory] = useState({ left: false, right: true });
+
+  const checkScroll = (
+    ref: React.RefObject<HTMLDivElement>,
+    setter: React.Dispatch<React.SetStateAction<{ left: boolean; right: boolean }>>
+  ) => {
+    if (ref.current) {
+      const { scrollLeft, scrollWidth, clientWidth } = ref.current;
+      setter({
+        left: scrollLeft > 0,
+        right: Math.ceil(scrollLeft + clientWidth) < scrollWidth - 2,
+      });
+    }
   };
-  const [previewBangumi, setPreviewBangumi] = useState<BangumiSubject | null>(null);
-  const [previewBangumiLoading, setPreviewBangumiLoading] = useState(false);
-  const [previewSearchPick, setPreviewSearchPick] = useState<GlobalSearchResult | null>(null);
+
+  const handleScroll = (ref: React.RefObject<HTMLDivElement>, direction: 'left' | 'right') => {
+    if (ref.current) {
+      const amount = direction === 'left' ? -350 : 350;
+      ref.current.scrollBy({ left: amount, behavior: 'smooth' });
+    }
+  };
+
+  useEffect(() => {
+    checkScroll(sourceScrollRef, setCanScrollSource);
+  }, [sources]);
+
+  useEffect(() => {
+    checkScroll(categoryScrollRef, setCanScrollCategory);
+  }, [categories]);
 
   // ================= 获取数据逻辑 =================
+
+  const handleSourceChange = (key: string) => {
+    setActiveSourceKey(key);
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('last_active_source', key);
+    }
+  };
 
   const fetchSources = useCallback(async () => {
     setLoadingSources(true);
@@ -87,7 +111,20 @@ export default function SourceBrowserPage() {
       const data = await res.json();
       const list: Source[] = data.sources || [];
       setSources(list);
-      if (list.length > 0) setActiveSourceKey(list[0].key);
+      
+      if (list.length > 0) {
+        const savedSource = typeof window !== 'undefined' ? localStorage.getItem('last_active_source') : null;
+        // 如果需要修改默认选中的源，修改这里的 'aiqiyi' 为你的目标 key 即可
+        const defaultPreferredKey = 'aiqiyi'; 
+
+        if (savedSource && list.some((s) => s.key === savedSource)) {
+          setActiveSourceKey(savedSource);
+        } else if (list.some((s) => s.key === defaultPreferredKey)) {
+          setActiveSourceKey(defaultPreferredKey);
+        } else {
+          setActiveSourceKey(list[0].key);
+        }
+      }
     } catch (e: unknown) {
       setSourceError(e instanceof Error ? e.message : '获取源失败');
     } finally {
@@ -235,109 +272,18 @@ export default function SourceBrowserPage() {
 
   // ================= 详情预览相关 =================
 
-  const fetchDoubanDetails = async (doubanId: number) => {
-    try {
-      setPreviewDoubanLoading(true);
-      setPreviewDouban(null);
-      const keyRaw = `douban-details-id=${doubanId}`;
-      const cached = (await ClientCache.get(keyRaw)) as DoubanItem | null;
-      if (cached) {
-        setPreviewDouban(cached);
-        return;
-      }
-
-      const fallback = await fetch(`/api/douban/details?id=${encodeURIComponent(String(doubanId))}`);
-      if (fallback.ok) {
-        const dbData = (await fallback.json()) as { code: number; message: string; data?: DoubanItem } | DoubanItem;
-        const normalized = (dbData as { data?: DoubanItem }).data || (dbData as DoubanItem);
-        setPreviewDouban(normalized);
-        try {
-          await ClientCache.set(keyRaw, normalized, 14400);
-        } catch (err) {
-          void err;
-        }
-      } else {
-        setPreviewDouban(null);
-      }
-    } catch (e) {
-      // ignore
-    } finally {
-      setPreviewDoubanLoading(false);
-    }
-  };
-
-  const isBangumiId = (id: number): boolean => id > 0 && id.toString().length === 6;
-  
-  const fetchBangumiDetails = async (bangumiId: number) => {
-    try {
-      setPreviewBangumiLoading(true);
-      setPreviewBangumi(null);
-      const res = await fetch(`/api/proxy/bangumi?path=v0/subjects/${bangumiId}`);
-      if (res.ok) {
-        const data = (await res.json()) as BangumiSubject;
-        setPreviewBangumi(data);
-      }
-    } catch (e) {
-      // ignore
-    } finally {
-      setPreviewBangumiLoading(false);
-    }
-  };
-
   const openPreview = async (item: Item) => {
     setPreviewItem(item);
     setPreviewOpen(true);
     setPreviewLoading(true);
     setPreviewError(null);
     setPreviewData(null);
-    setPreviewDouban(null);
-    setPreviewDoubanId(null);
-    setPreviewBangumi(null);
-    setPreviewSearchPick(null);
+
     try {
       const res = await fetch(`/api/detail?source=${encodeURIComponent(activeSourceKey)}&id=${encodeURIComponent(item.id)}`);
       if (!res.ok) throw new Error('获取详情失败');
       const data = (await res.json()) as GlobalSearchResult;
       setPreviewData(data);
-      
-      let dId: number | null = data?.douban_id ? Number(data.douban_id) : null;
-      if (!dId) {
-        const normalize = (s: string) => (s || '').replace(/\s+/g, '').toLowerCase();
-        const variants = Array.from(new Set([item.title, (item.title || '').replace(/\s+/g, '')])).filter(Boolean) as string[];
-
-        for (const v of variants) {
-          try {
-            const res = await fetch(`/api/search/one?resourceId=${encodeURIComponent(activeSourceKey)}&q=${encodeURIComponent(v)}`);
-            if (!res.ok) continue;
-            const payload = (await res.json()) as { results?: GlobalSearchResult[] };
-            const list: GlobalSearchResult[] = payload.results || [];
-            
-            const tNorm = normalize(item.title);
-            const matchStrict = list.find((r) =>
-                normalize(r.title) === tNorm &&
-                (!item.year || (r.year && String(r.year).toLowerCase() === String(item.year).toLowerCase())) &&
-                r.douban_id
-            );
-            const matchTitleOnly = list.find((r) => normalize(r.title) === tNorm && r.douban_id);
-            const pick = matchStrict || matchTitleOnly || null;
-            if (pick && pick.douban_id) {
-              dId = Number(pick.douban_id);
-              setPreviewSearchPick(pick);
-              break;
-            }
-          } catch {
-            // ignore
-          }
-        }
-      }
-      if (dId && dId > 0) {
-        setPreviewDoubanId(dId);
-        if (isBangumiId(dId)) {
-          await fetchBangumiDetails(dId);
-        } else {
-          await fetchDoubanDetails(dId);
-        }
-      }
     } catch (e: unknown) {
       setPreviewError(e instanceof Error ? e.message : '获取详情失败');
     } finally {
@@ -353,7 +299,6 @@ export default function SourceBrowserPage() {
     const mergedYear = (previewData?.year || item.year || '').toString();
     if (mergedTitle) params.set('title', mergedTitle);
     if (mergedYear) params.set('year', mergedYear);
-    if (previewDoubanId) params.set('douban_id', String(previewDoubanId));
     params.set('prefer', 'true');
     router.push(`/play?${params.toString()}`);
   };
@@ -367,52 +312,118 @@ export default function SourceBrowserPage() {
           <div className='max-w-7xl mx-auto px-4 py-3 space-y-3'>
             
             {/* 1. 源站选择 */}
-            <div className='flex items-center gap-3 overflow-x-auto scrollbar-hide pb-1'>
-              <Server className='w-4 h-4 shrink-0 text-emerald-500' />
-              {loadingSources ? (
-                <span className='text-xs text-gray-500'>加载源站中...</span>
-              ) : sources.length === 0 ? (
-                <span className='text-xs text-gray-500'>{sourceError || '暂无可用源'}</span>
-              ) : (
-                sources.map((s) => (
-                  <button
-                    key={s.key}
-                    onClick={() => setActiveSourceKey(s.key)}
-                    className={`shrink-0 px-3 py-1.5 rounded-full text-xs font-medium transition-all ${
-                      activeSourceKey === s.key
-                        ? 'bg-emerald-500 text-white shadow-md shadow-emerald-500/20'
-                        : 'bg-gray-100 text-gray-600 hover:bg-gray-200 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700'
-                    }`}
-                  >
-                    {s.name}
-                  </button>
-                ))
-              )}
+            <div className='flex items-center gap-2'>
+              <div className='shrink-0 p-1.5 bg-emerald-50 dark:bg-emerald-900/30 rounded-lg mr-1'>
+                <Server className='w-4 h-4 text-emerald-500' />
+              </div>
+              
+              <div className='relative flex-1 min-w-0'>
+                {canScrollSource.left && (
+                  <div className='absolute left-0 top-0 bottom-0 w-12 bg-gradient-to-r from-white dark:from-gray-900 to-transparent z-10 flex items-center justify-start pointer-events-none'>
+                    <button
+                      onClick={() => handleScroll(sourceScrollRef, 'left')}
+                      className='pointer-events-auto w-6 h-6 flex items-center justify-center rounded-full bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 shadow-sm text-gray-500 hover:text-emerald-500 transition-colors'
+                    >
+                      <ChevronLeft className='w-4 h-4' />
+                    </button>
+                  </div>
+                )}
+
+                <div 
+                  ref={sourceScrollRef}
+                  onScroll={() => checkScroll(sourceScrollRef, setCanScrollSource)}
+                  className='flex items-center gap-2.5 overflow-x-auto scrollbar-hide scroll-smooth px-1 py-1'
+                >
+                  {loadingSources ? (
+                    <span className='text-xs text-gray-500'>加载源站中...</span>
+                  ) : sources.length === 0 ? (
+                    <span className='text-xs text-gray-500'>{sourceError || '暂无可用源'}</span>
+                  ) : (
+                    sources.map((s) => (
+                      <button
+                        key={s.key}
+                        onClick={() => handleSourceChange(s.key)}
+                        className={`shrink-0 px-3 py-1.5 rounded-full text-xs font-medium transition-all ${
+                          activeSourceKey === s.key
+                            ? 'bg-emerald-500 text-white shadow-md shadow-emerald-500/20'
+                            : 'bg-gray-100 text-gray-600 hover:bg-gray-200 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700'
+                        }`}
+                      >
+                        {s.name}
+                      </button>
+                    ))
+                  )}
+                </div>
+
+                {canScrollSource.right && sources.length > 0 && (
+                  <div className='absolute right-0 top-0 bottom-0 w-12 bg-gradient-to-l from-white dark:from-gray-900 to-transparent z-10 flex items-center justify-end pointer-events-none'>
+                    <button
+                      onClick={() => handleScroll(sourceScrollRef, 'right')}
+                      className='pointer-events-auto w-6 h-6 flex items-center justify-center rounded-full bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 shadow-sm text-gray-500 hover:text-emerald-500 transition-colors'
+                    >
+                      <ChevronRight className='w-4 h-4' />
+                    </button>
+                  </div>
+                )}
+              </div>
             </div>
 
             {/* 2. 分类选择 */}
             {activeSourceKey && (
-              <div className='flex items-center gap-3 overflow-x-auto scrollbar-hide pb-1'>
-                <Tv className='w-4 h-4 shrink-0 text-blue-500' />
-                {loadingCategories ? (
-                  <span className='text-xs text-gray-500'>加载分类中...</span>
-                ) : categories.length === 0 ? (
-                  <span className='text-xs text-gray-500'>{categoryError || '暂无分类'}</span>
-                ) : (
-                  categories.map((c) => (
-                    <button
-                      key={String(c.type_id)}
-                      onClick={() => setActiveCategory(c.type_id)}
-                      className={`shrink-0 px-3 py-1.5 rounded-full text-xs font-medium transition-all ${
-                        activeCategory === c.type_id
-                          ? 'bg-blue-500 text-white shadow-md shadow-blue-500/20'
-                          : 'bg-gray-100 text-gray-600 hover:bg-gray-200 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700'
-                      }`}
-                    >
-                      {c.type_name}
-                    </button>
-                  ))
-                )}
+              <div className='flex items-center gap-2'>
+                <div className='shrink-0 p-1.5 bg-blue-50 dark:bg-blue-900/30 rounded-lg mr-1'>
+                  <Tv className='w-4 h-4 text-blue-500' />
+                </div>
+                
+                <div className='relative flex-1 min-w-0'>
+                  {canScrollCategory.left && (
+                    <div className='absolute left-0 top-0 bottom-0 w-12 bg-gradient-to-r from-white dark:from-gray-900 to-transparent z-10 flex items-center justify-start pointer-events-none'>
+                      <button
+                        onClick={() => handleScroll(categoryScrollRef, 'left')}
+                        className='pointer-events-auto w-6 h-6 flex items-center justify-center rounded-full bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 shadow-sm text-gray-500 hover:text-blue-500 transition-colors'
+                      >
+                        <ChevronLeft className='w-4 h-4' />
+                      </button>
+                    </div>
+                  )}
+
+                  <div 
+                    ref={categoryScrollRef}
+                    onScroll={() => checkScroll(categoryScrollRef, setCanScrollCategory)}
+                    className='flex items-center gap-2.5 overflow-x-auto scrollbar-hide scroll-smooth px-1 py-1'
+                  >
+                    {loadingCategories ? (
+                      <span className='text-xs text-gray-500'>加载分类中...</span>
+                    ) : categories.length === 0 ? (
+                      <span className='text-xs text-gray-500'>{categoryError || '暂无分类'}</span>
+                    ) : (
+                      categories.map((c) => (
+                        <button
+                          key={String(c.type_id)}
+                          onClick={() => setActiveCategory(c.type_id)}
+                          className={`shrink-0 px-3 py-1.5 rounded-full text-xs font-medium transition-all ${
+                            activeCategory === c.type_id
+                              ? 'bg-blue-500 text-white shadow-md shadow-blue-500/20'
+                              : 'bg-gray-100 text-gray-600 hover:bg-gray-200 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700'
+                          }`}
+                        >
+                          {c.type_name}
+                        </button>
+                      ))
+                    )}
+                  </div>
+
+                  {canScrollCategory.right && categories.length > 0 && (
+                    <div className='absolute right-0 top-0 bottom-0 w-12 bg-gradient-to-l from-white dark:from-gray-900 to-transparent z-10 flex items-center justify-end pointer-events-none'>
+                      <button
+                        onClick={() => handleScroll(categoryScrollRef, 'right')}
+                        className='pointer-events-auto w-6 h-6 flex items-center justify-center rounded-full bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 shadow-sm text-gray-500 hover:text-blue-500 transition-colors'
+                      >
+                        <ChevronRight className='w-4 h-4' />
+                      </button>
+                    </div>
+                  )}
+                </div>
               </div>
             )}
           </div>
@@ -536,21 +547,11 @@ export default function SourceBrowserPage() {
                     
                     {/* 信息区 */}
                     <div className='flex-1 space-y-3 min-w-0'>
-                      {/* 标题 & 评分 */}
+                      {/* 标题 */}
                       <div className='flex items-center gap-2 flex-wrap'>
                         <h2 className='text-xl font-bold text-gray-900 dark:text-white'>
                           {previewData.title || previewItem?.title}
                         </h2>
-                        {previewDouban?.rate && (
-                          <span className='px-1.5 py-0.5 rounded text-[10px] bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400'>
-                            豆瓣 {previewDouban.rate}
-                          </span>
-                        )}
-                        {previewBangumi?.rating?.score && (
-                          <span className='px-1.5 py-0.5 rounded text-[10px] bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400'>
-                            Bangumi {previewBangumi.rating.score}
-                          </span>
-                        )}
                       </div>
 
                       {/* 基础信息 */}
@@ -562,7 +563,7 @@ export default function SourceBrowserPage() {
 
                       {/* 简介 */}
                       {(() => {
-                        const desc = (previewData?.desc?.trim()) || (previewSearchPick?.desc?.trim()) || (previewItem?.remarks?.trim());
+                        const desc = (previewData?.desc?.trim()) || (previewItem?.remarks?.trim());
                         return desc ? (
                           <div className='text-xs sm:text-sm text-gray-600 dark:text-gray-300 bg-gray-50 dark:bg-gray-800/50 p-3 rounded-lg leading-relaxed max-h-32 overflow-y-auto whitespace-pre-line border border-gray-100 dark:border-gray-800'>
                             {desc}
@@ -570,37 +571,6 @@ export default function SourceBrowserPage() {
                         ) : null;
                       })()}
 
-                      {/* 豆瓣/Bangumi 扩展数据 */}
-                      <div className='space-y-2 pt-2'>
-                        {previewDoubanLoading && <div className='text-xs text-gray-400'>正在获取影片元数据...</div>}
-                        
-                        {previewDouban && (
-                          <div className='text-xs text-gray-600 dark:text-gray-400 space-y-1'>
-                            {previewDouban.directors && previewDouban.directors.length > 0 && <div>导演：{previewDouban.directors.join(' / ')}</div>}
-                            {previewDouban.cast && previewDouban.cast.length > 0 && <div className='truncate'>主演：{previewDouban.cast.join(' / ')}</div>}
-                            <div className='flex gap-2 mt-1'>
-                              {previewDouban.id && (
-                                <a href={`https://movie.douban.com/subject/${previewDouban.id}/`} target='_blank' rel='noreferrer' className='text-blue-500 hover:underline inline-flex items-center gap-1'>
-                                  <ExternalLink className='w-3 h-3' /> 豆瓣页面
-                                </a>
-                              )}
-                            </div>
-                          </div>
-                        )}
-
-                        {previewBangumi && (
-                          <div className='text-xs text-gray-600 dark:text-gray-400 space-y-1'>
-                            {previewBangumi.date && <div>首播：{previewBangumi.date}</div>}
-                            <div className='flex gap-2 mt-1'>
-                              {previewDoubanId && (
-                                <a href={`https://bgm.tv/subject/${previewDoubanId}`} target='_blank' rel='noreferrer' className='text-purple-500 hover:underline inline-flex items-center gap-1'>
-                                  <ExternalLink className='w-3 h-3' /> Bangumi页面
-                                </a>
-                              )}
-                            </div>
-                          </div>
-                        )}
-                      </div>
                     </div>
                   </div>
                 )}
@@ -628,5 +598,17 @@ export default function SourceBrowserPage() {
 
       </div>
     </PageLayout>
+  );
+}
+
+export default function SourceBrowserPage() {
+  return (
+    <Suspense fallback={
+      <div className="flex items-center justify-center min-h-screen bg-gray-50 dark:bg-[#0a0a0a]">
+        <div className="w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
+      </div>
+    }>
+      <SourceBrowserClient />
+    </Suspense>
   );
 }
