@@ -95,3 +95,27 @@ export interface DoubanResult {
   message: string;
   list: DoubanItem[];
 }
+
+// --- 追加在 src/lib/types.ts 末尾 ---
+export type ReleaseCalendarItem = {
+  id: string;
+  title: string;
+  type: 'movie' | 'tv' | '';
+  region: string;
+  genre: string;
+  releaseDate: string; // 格式: YYYY-MM-DD
+  director: string;
+  actors: string;
+  poster?: string;
+};
+
+export type ReleaseCalendarResult = {
+  items: ReleaseCalendarItem[];
+  total: number;
+  hasMore: boolean;
+  filters: {
+    types: { label: string; value: string; count: number }[];
+    regions: { label: string; value: string; count: number }[];
+    genres: { label: string; value: string; count: number }[];
+  };
+};
