@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
-
 import config from '@/../config.json';
+
+export const runtime = 'edge';
 
 export async function GET() {
   try {
