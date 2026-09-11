@@ -57,23 +57,22 @@ export async function GET(req: NextRequest) {
 
     const regions: Record<string, number> = {};
     const genres: Record<string, number> = {};
-    let movieCount = 0;
-    let tvCount = 0;
 
-    const items = rawListToCalendarItems(rawItems, regions, genres, &movieCount, &tvCount);
+    // 接收处理后的结构数据
+    const parsedData = rawListToCalendarItems(rawItems, regions, genres);
 
     const filters = {
       types: [
-        { label: '电影', value: 'movie', count: movieCount },
-        { label: '电视剧', value: 'tv', count: tvCount },
+        { label: '电影', value: 'movie', count: parsedData.movieCount },
+        { label: '电视剧', value: 'tv', count: parsedData.tvCount },
       ],
       regions: Object.entries(regions).map(([label, count]) => ({ label, value: label, count })),
       genres: Object.entries(genres).map(([label, count]) => ({ label, value: label, count })),
     };
 
     return NextResponse.json({
-      items,
-      total: items.length,
+      items: parsedData.items,
+      total: parsedData.items.length,
       hasMore: false,
       filters
     });
@@ -86,15 +85,12 @@ export async function GET(req: NextRequest) {
 function rawListToCalendarItems(
   rawItems: any[], 
   regions: Record<string, number>, 
-  genres: Record<string, number>,
-  movieCount: { value?: number } | any,
-  tvCount: { value?: number } | any
+  genres: Record<string, number>
 ) {
-  // 规避严格模式下的指针传参，使用局部变量并在外层计算
-  let mCount = 0;
-  let tCount = 0;
+  let movieCount = 0;
+  let tvCount = 0;
 
-  const result = rawItems.map((item: any) => {
+  const items = rawItems.map((item: any) => {
     const type = item.media_type;
     const region = REGION_MAP[item.original_language] || item.original_language?.toUpperCase() || '未知';
     
@@ -106,8 +102,8 @@ function rawListToCalendarItems(
     const releaseDate = item.release_date || item.first_air_date || new Date().toISOString().split('T')[0];
 
     // 统计过滤器数据
-    if (type === 'movie') mCount++;
-    else tCount++;
+    if (type === 'movie') movieCount++;
+    else tvCount++;
     regions[region] = (regions[region] || 0) + 1;
     
     genreNames.forEach((g: string) => {
@@ -128,8 +124,5 @@ function rawListToCalendarItems(
     };
   });
 
-  movieCount.value = mCount;
-  tvCount.value = tCount;
-
-  return result;
+  return { items, movieCount, tvCount };
 }
