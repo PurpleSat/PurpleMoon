@@ -212,25 +212,6 @@ export const SettingsButton: React.FC = () => {
             </label>
           </div>
 
-          {/* 豆瓣代理设置 */}
-          <div className='space-y-3'>
-            <div>
-              <h4 className='text-sm font-medium text-gray-700 dark:text-gray-300'>
-                豆瓣数据代理
-              </h4>
-              <p className='text-xs text-gray-500 dark:text-gray-400 mt-1'>
-                设置代理URL以绕过豆瓣访问限制，留空则使用服务端API
-              </p>
-            </div>
-            <input
-              type='text'
-              className='w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md text-sm bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 placeholder-gray-500 dark:placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent'
-              placeholder='例如: https://proxy.example.com/fetch?url='
-              value={doubanProxyUrl}
-              onChange={(e) => handleDoubanProxyUrlChange(e.target.value)}
-            />
-          </div>
-
           {/* 图片代理开关 */}
           <div className='flex items-center justify-between'>
             <div>
