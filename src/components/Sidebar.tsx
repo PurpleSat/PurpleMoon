@@ -132,6 +132,11 @@ const Sidebar = ({ onToggle, activePath = '/' }: SidebarProps) => {
       href: '/source-browser',
     },
     {
+      icon: Radio,
+      label: '红月解析UI',
+      href: 'https://400821.xyz/vip',
+    },
+    {
       icon: History,
       label: 'My-CMS',
       href: 'https://today.400823.xyz',
@@ -140,11 +145,6 @@ const Sidebar = ({ onToggle, activePath = '/' }: SidebarProps) => {
       icon: Rocket,
       label: 'My-Cloud',
       href: 'https://200805.xyz',
-    },
-    {
-      icon: Radio,
-      label: '红月解析UI',
-      href: 'https://400821.xyz/vip',
     },
     {
       icon: Clapperboard,
