@@ -100,13 +100,14 @@ export interface DoubanResult {
 export type ReleaseCalendarItem = {
   id: string;
   title: string;
-  type: 'movie' | 'tv' | '';
+  type: 'movie' | 'tv' | string;
   region: string;
   genre: string;
   releaseDate: string; // 格式: YYYY-MM-DD
   director: string;
   actors: string;
   poster?: string;
+  episodes?: number | string; // <--- 补上这个缺失的属性
 };
 
 export type ReleaseCalendarResult = {
