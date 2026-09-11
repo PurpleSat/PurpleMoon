@@ -1,6 +1,6 @@
 'use client';
 
-import { ChevronUp, Clover, Film, Home, Search, Tv, History, Rocket, Radio, Clapperboard } from 'lucide-react';
+import { ChevronUp, Clapperboard, Clover, Film, Globe,History, Home, Radio, Rocket, Search, Tv } from 'lucide-react';
 import Link from 'next/link';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import {
@@ -126,6 +126,11 @@ const Sidebar = ({ onToggle, activePath = '/' }: SidebarProps) => {
   };
 
   const menuItems = [
+    {
+      icon: Globe,
+      label: '浏览',
+      href: '/source-browser',
+    },
     {
       icon: Film,
       label: '电影',
