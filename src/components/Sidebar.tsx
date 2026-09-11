@@ -132,6 +132,11 @@ const Sidebar = ({ onToggle, activePath = '/' }: SidebarProps) => {
       href: '/source-browser',
     },
     {
+      icon: Film,
+      label: 'New',
+      href: '/release-calendar',
+    },
+    {
       icon: Radio,
       label: '红月解析UI',
       href: 'https://400821.xyz/vip',
