@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
-
 import config from '@/../config.json';
+
+export const runtime = 'edge';
 
 export async function GET(req: NextRequest) {
   try {
@@ -20,7 +21,6 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: 'Source not found' }, { status: 404 });
     }
 
-    // MacCMS 接口：ac=detail 获取详细数据，wd=搜索关键词，pg=页码
     const targetUrl = `${source.api}?ac=detail&wd=${encodeURIComponent(keyword)}&pg=${page}`;
     const res = await fetch(targetUrl, { next: { revalidate: 300 } });
     
@@ -29,7 +29,6 @@ export async function GET(req: NextRequest) {
     const data = await res.json();
     const rawList = data.list || [];
 
-    // 映射为前端 Item 类型所需字段
     const items = rawList.map((item: any) => ({
       id: item.vod_id,
       title: item.vod_name,
