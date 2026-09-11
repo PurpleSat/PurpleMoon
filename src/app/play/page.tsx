@@ -62,6 +62,42 @@ function PlayPageClient() {
     blockAdEnabledRef.current = blockAdEnabled;
   }, [blockAdEnabled]);
 
+  // 跳过时间状态（单位：秒）
+  const [skipIntro, setSkipIntro] = useState<number>(() => {
+    if (typeof window !== 'undefined') {
+      return Number(localStorage.getItem('skip_intro') || 0);
+    }
+    return 0;
+  });
+  const [skipOutro, setSkipOutro] = useState<number>(() => {
+    if (typeof window !== 'undefined') {
+      return Number(localStorage.getItem('skip_outro') || 0);
+    }
+    return 0;
+  });
+
+  const skipIntroRef = useRef(skipIntro);
+  const skipOutroRef = useRef(skipOutro);
+  const hasSkippedIntroRef = useRef(false);
+
+  useEffect(() => {
+    skipIntroRef.current = skipIntro;
+    if (skipIntro > 0) {
+      localStorage.setItem('skip_intro', String(skipIntro));
+    } else {
+      localStorage.removeItem('skip_intro');
+    }
+  }, [skipIntro]);
+
+  useEffect(() => {
+    skipOutroRef.current = skipOutro;
+    if (skipOutro > 0) {
+      localStorage.setItem('skip_outro', String(skipOutro));
+    } else {
+      localStorage.removeItem('skip_outro');
+    }
+  }, [skipOutro]);
+
   // 视频基本信息
   const [videoTitle, setVideoTitle] = useState(searchParams.get('title') || '');
   const [videoYear, setVideoYear] = useState(searchParams.get('year') || '');
@@ -110,6 +146,11 @@ function PlayPageClient() {
     videoTitle,
     videoYear,
   ]);
+
+  // 切换集数时，重置片头跳过防抖状态
+  useEffect(() => {
+    hasSkippedIntroRef.current = false;
+  }, [currentEpisodeIndex]);
 
   // 视频播放地址
   const [videoUrl, setVideoUrl] = useState('');
@@ -1182,6 +1223,24 @@ function PlayPageClient() {
               return newVal ? '当前开启' : '当前关闭';
             },
           },
+          // 新增：点击清除已设定的跳过片头时间
+          {
+            html: '跳过片头',
+            tooltip: skipIntroRef.current > 0 ? `${skipIntroRef.current}s (点击清除)` : '未设置',
+            click: function () {
+              setSkipIntro(0);
+              return '未设置';
+            },
+          },
+          // 新增：点击清除已设定的跳过片尾时间
+          {
+            html: '跳过片尾',
+            tooltip: skipOutroRef.current > 0 ? `倒数${skipOutroRef.current}s (点击清除)` : '未设置',
+            click: function () {
+              setSkipOutro(0);
+              return '未设置';
+            },
+          }
         ],
         // 控制栏配置
         controls: [
@@ -1194,6 +1253,36 @@ function PlayPageClient() {
               handleNextEpisode();
             },
           },
+          // 新增：一键捕获当前进度设为片头
+          {
+            position: 'right',
+            index: 11,
+            html: '<div class="text-xs px-2 py-1 text-white/80 hover:text-white bg-white/10 hover:bg-white/20 rounded transition-colors whitespace-nowrap cursor-pointer">设为片头</div>',
+            tooltip: '拖动进度条到此处，点击设为跳过片头',
+            click: function () {
+              if (!artPlayerRef.current) return;
+              const time = Math.floor(artPlayerRef.current.currentTime);
+              if (time <= 0) return;
+              setSkipIntro(time);
+              artPlayerRef.current.notice.show = `✅ 已将片头跳过时间设为 ${time} 秒`;
+            },
+          },
+          // 新增：一键捕获当前进度设为片尾
+          {
+            position: 'right',
+            index: 10,
+            html: '<div class="text-xs px-2 py-1 text-white/80 hover:text-white bg-white/10 hover:bg-white/20 rounded transition-colors whitespace-nowrap cursor-pointer">设为片尾</div>',
+            tooltip: '拖动进度条到此处，点击设为跳过片尾',
+            click: function () {
+              if (!artPlayerRef.current || !artPlayerRef.current.duration) return;
+              const duration = artPlayerRef.current.duration;
+              const currentTime = artPlayerRef.current.currentTime;
+              const timeLeft = Math.floor(duration - currentTime);
+              if (timeLeft <= 0 || timeLeft >= duration) return;
+              setSkipOutro(timeLeft);
+              artPlayerRef.current.notice.show = `✅ 已将片尾跳过时间设为倒数 ${timeLeft} 秒`;
+            },
+          }
         ],
       });
 
@@ -1256,6 +1345,40 @@ function PlayPageClient() {
       });
 
       artPlayerRef.current.on('video:timeupdate', () => {
+        const player = artPlayerRef.current;
+        if (!player) return;
+
+        const currentTime = player.currentTime || 0;
+        const duration = player.duration || 0;
+
+        // 1. 自动跳过片头
+        if (
+          skipIntroRef.current > 0 &&
+          currentTime < skipIntroRef.current &&
+          !hasSkippedIntroRef.current
+        ) {
+          player.currentTime = skipIntroRef.current;
+          hasSkippedIntroRef.current = true;
+          player.notice.show = `已自动跳过片头 ${skipIntroRef.current} 秒`;
+        }
+
+        // 2. 自动跳过片尾
+        if (
+          skipOutroRef.current > 0 &&
+          duration > 0 &&
+          currentTime >= duration - skipOutroRef.current
+        ) {
+          const d = detailRef.current;
+          const idx = currentEpisodeIndexRef.current;
+          if (d && d.episodes && idx < d.episodes.length - 1 && !player.paused) {
+            player.notice.show = '已自动跳过片尾，即将播放下一集';
+            player.pause(); // 暂停以防止连串触发
+            setCurrentEpisodeIndex(idx + 1);
+            return; // 跳转后直接退出，避免无效的状态保存
+          }
+        }
+
+        // 3. 原有的播放进度持久化保存逻辑
         const now = Date.now();
         let interval = 5000;
         if (process.env.NEXT_PUBLIC_STORAGE_TYPE === 'd1') {
