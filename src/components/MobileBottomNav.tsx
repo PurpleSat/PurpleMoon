@@ -1,6 +1,6 @@
 'use client';
 
-import { Clover, Film, Home, Search, Tv } from 'lucide-react';
+import { Clover, Film, Home, Search, Tv, Radio, History, Rocket, Clapperboard } from 'lucide-react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 
@@ -21,19 +21,29 @@ const MobileBottomNav = ({ activePath }: MobileBottomNavProps) => {
     { icon: Home, label: '首页', href: '/' },
     { icon: Search, label: '搜索', href: '/search' },
     {
-      icon: Film,
-      label: '电影',
-      href: '/douban?type=movie',
-    },
-    {
-      icon: Tv,
-      label: '剧集',
-      href: '/douban?type=tv',
-    },
-    {
       icon: Clover,
-      label: '综艺',
-      href: '/douban?type=show',
+      label: '浏览',
+      href: '/source-browser',
+    },
+    {
+      icon: Radio,
+      label: '红月解析UI',
+      href: 'https://400821.xyz/vip',
+    },
+    {
+      icon: History,
+      label: 'My-CMS',
+      href: 'https://today.400823.xyz',
+    },
+    {
+      icon: Rocket,
+      label: 'My-Cloud',
+      href: 'https://200805.xyz',
+    },
+    {
+      icon: Clapperboard,
+      label: 'API中转代理服务',
+      href: 'https://timis.dpdns.org',
     },
   ];
 
