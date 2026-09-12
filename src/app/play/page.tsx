@@ -200,8 +200,7 @@ function PlayPageClient() {
     'initing' | 'sourceChanging'
   >('initing');
 
-  // 播放进度保存相关
-  const saveIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  // 播放进度保存节流控制
   const lastSaveTimeRef = useRef<number>(0);
 
   const artPlayerRef = useRef<any>(null);
@@ -579,8 +578,6 @@ function PlayPageClient() {
         detailData = await preferBestSource(sourcesInfo);
       }
 
-      console.log(detailData.source, detailData.id);
-
       setNeedPrefer(false);
       setCurrentSource(detailData.source);
       setCurrentId(detailData.id);
@@ -892,15 +889,9 @@ function PlayPageClient() {
     };
   }, [currentEpisodeIndex, detail, artPlayerRef.current]);
 
-// 组件卸载清理：拦截内存泄漏与后台幽灵发声
+  // 组件卸载清理：彻底销毁解析引擎防内存泄漏
   useEffect(() => {
     return () => {
-      // 1. 清理可能存在的定时器
-      if (saveIntervalRef.current) {
-        clearInterval(saveIntervalRef.current);
-      }
-      
-      // 2. 彻底销毁 Artplayer 及底层的 HLS WebWorker 解析线程
       if (artPlayerRef.current) {
         const videoElement = artPlayerRef.current.video;
         if (videoElement && videoElement.hls) {
@@ -1375,14 +1366,6 @@ function PlayPageClient() {
       setError('播放器初始化失败');
     }
   }, [videoUrl, loading, blockAdEnabled]); // 移除了无关的依赖 Artplayer 和 Hls
-
-  useEffect(() => {
-    return () => {
-      if (saveIntervalRef.current) {
-        clearInterval(saveIntervalRef.current);
-      }
-    };
-  }, []);
 
   if (loading) {
     return (
