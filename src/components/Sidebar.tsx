@@ -25,19 +25,22 @@ const SidebarContext = createContext<SidebarContextType>({
 
 export const useSidebar = () => useContext(SidebarContext);
 
-// 2. 替换为图片 Logo
+// 2. 替换为图片+文字 Logo
 const Logo = () => {
   const { siteName } = useSite();
   return (
     <Link
       href='/'
-      className='flex items-center justify-center h-full select-none hover:opacity-80 transition-opacity duration-200'
+      className='flex items-center justify-center h-full select-none hover:opacity-80 transition-opacity duration-200 gap-2.5'
     >
       <img
         src='/logo.png'
         alt={siteName || 'Site Logo'}
-        className='h-8 w-auto object-contain' // 限制高度，宽度自适应
+        className='h-10 w-auto object-contain drop-shadow-sm' // 增大了图片尺寸 (从 h-8 变为 h-10)
       />
+      <span className="text-lg font-black text-red-600 dark:text-red-500 tracking-wider hidden sm:block">
+        {siteName}
+      </span>
     </Link>
   );
 };
