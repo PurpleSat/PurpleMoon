@@ -43,6 +43,41 @@ export const API_CONFIG = {
 let fileConfig: ConfigFileStruct;
 let cachedConfig: AdminConfig;
 
+// ================== 核心同步逻辑抽离 ==================
+// 用于将真实的底层用户列表与 JSON 配置中的权限/封禁状态进行动态合并
+function syncUsers(jsonUsers: any[] = [], dbUserNames: string[] = []): any[] {
+  const userMap = new Map();
+  jsonUsers.forEach((u) => userMap.set(u.username, u));
+
+  const syncedUsers: any[] = [];
+  const ownerUser = process.env.USERNAME;
+
+  // 1. 确保站长绝对在第一位
+  if (ownerUser) {
+    syncedUsers.push({ username: ownerUser, role: 'owner' });
+    userMap.delete(ownerUser);
+  }
+
+  // 2. 遍历底层数据库中的所有真实用户
+  dbUserNames.forEach((uname) => {
+    if (uname === ownerUser) return;
+    if (userMap.has(uname)) {
+      // 如果 JSON 中已有该用户，保留其原有状态（如被封禁、特殊权限等）
+      syncedUsers.push(userMap.get(uname));
+      userMap.delete(uname);
+    } else {
+      // 发现新注册的用户，动态赋予默认的 user 角色
+      syncedUsers.push({ username: uname, role: 'user' });
+    }
+  });
+
+  // 3. 将残留的（可能在 JSON 中但底层表已被删的异常数据）追加回去
+  userMap.forEach((u) => syncedUsers.push(u));
+
+  return syncedUsers;
+}
+// ====================================================
+
 async function initConfig() {
   if (cachedConfig) {
     return;
@@ -74,7 +109,7 @@ async function initConfig() {
         adminConfig = await (storage as any).getAdminConfig();
       }
 
-      // 获取所有用户名，用于补全 Users
+      // 获取所有真实的用户名
       let userNames: string[] = [];
       if (storage && typeof (storage as any).getAllUsers === 'function') {
         try {
@@ -84,7 +119,6 @@ async function initConfig() {
         }
       }
 
-      // 从文件中获取源信息，用于补全源
       const apiSiteEntries = Object.entries(fileConfig.api_site);
 
       if (adminConfig) {
@@ -113,42 +147,11 @@ async function initConfig() {
           }
         });
 
-        const existedUsers = new Set(
-          (adminConfig.UserConfig.Users || []).map((u) => u.username)
-        );
-        userNames.forEach((uname) => {
-          if (!existedUsers.has(uname)) {
-            adminConfig!.UserConfig.Users.push({
-              username: uname,
-              role: 'user',
-            });
-          }
-        });
-        // 站长
-        const ownerUser = process.env.USERNAME;
-        if (ownerUser) {
-          adminConfig!.UserConfig.Users = adminConfig!.UserConfig.Users.filter(
-            (u) => u.username !== ownerUser
-          );
-          adminConfig!.UserConfig.Users.unshift({
-            username: ownerUser,
-            role: 'owner',
-          });
-        }
+        // 动态合并补全 Users (自我修复)
+        adminConfig.UserConfig.Users = syncUsers(adminConfig.UserConfig.Users, userNames);
+
       } else {
         // 数据库中没有配置，创建新的管理员配置
-        let allUsers = userNames.map((uname) => ({
-          username: uname,
-          role: 'user',
-        }));
-        const ownerUser = process.env.USERNAME;
-        if (ownerUser) {
-          allUsers = allUsers.filter((u) => u.username !== ownerUser);
-          allUsers.unshift({
-            username: ownerUser,
-            role: 'owner',
-          });
-        }
         adminConfig = {
           SiteConfig: {
             SiteName: process.env.SITE_NAME || 'MoonTV',
@@ -162,7 +165,7 @@ async function initConfig() {
           },
           UserConfig: {
             AllowRegister: process.env.NEXT_PUBLIC_ENABLE_REGISTER === 'true',
-            Users: allUsers as any,
+            Users: syncUsers([], userNames) as any,
           },
           SourceConfig: apiSiteEntries.map(([key, site]) => ({
             key,
@@ -220,12 +223,14 @@ export async function getConfig(): Promise<AdminConfig> {
     await initConfig();
     return cachedConfig;
   }
+  
   // 非 docker 环境且 DB 存储，直接读 db 配置
   const storage = getStorage();
   let adminConfig: AdminConfig | null = null;
   if (storage && typeof (storage as any).getAdminConfig === 'function') {
     adminConfig = await (storage as any).getAdminConfig();
   }
+
   if (adminConfig) {
     // 合并一些环境变量配置
     adminConfig.SiteConfig.SiteName = process.env.SITE_NAME || 'MoonTV';
@@ -236,6 +241,18 @@ export async function getConfig(): Promise<AdminConfig> {
       process.env.NEXT_PUBLIC_ENABLE_REGISTER === 'true';
     adminConfig.SiteConfig.ImageProxy =
       process.env.NEXT_PUBLIC_IMAGE_PROXY || '';
+
+    // ================= 修复后台用户列表缺失问题 =================
+    if (typeof (storage as any).getAllUsers === 'function') {
+      try {
+        const userNames: string[] = await (storage as any).getAllUsers();
+        // 自动合并底层真实数据与 JSON 状态
+        adminConfig.UserConfig.Users = syncUsers(adminConfig.UserConfig.Users, userNames);
+      } catch (e) {
+        console.error('动态同步用户列表失败:', e);
+      }
+    }
+    // ============================================================
 
     // 合并文件中的源信息
     fileConfig = runtimeConfig as unknown as ConfigFileStruct;
@@ -254,7 +271,6 @@ export async function getConfig(): Promise<AdminConfig> {
       }
     });
 
-    // 检查现有源是否在 fileConfig.api_site 中，如果不在则标记为 custom
     const apiSiteKeys = new Set(apiSiteEntries.map(([key]) => key));
     adminConfig.SourceConfig.forEach((source) => {
       if (!apiSiteKeys.has(source.key)) {
@@ -271,7 +287,6 @@ export async function getConfig(): Promise<AdminConfig> {
 
 export async function resetConfig() {
   const storage = getStorage();
-  // 获取所有用户名，用于补全 Users
   let userNames: string[] = [];
   if (storage && typeof (storage as any).getAllUsers === 'function') {
     try {
@@ -292,24 +307,11 @@ export async function resetConfig() {
     fileConfig = JSON.parse(raw) as ConfigFileStruct;
     console.log('load dynamic config success');
   } else {
-    // 默认使用编译时生成的配置
     fileConfig = runtimeConfig as unknown as ConfigFileStruct;
   }
 
-  // 从文件中获取源信息，用于补全源
   const apiSiteEntries = Object.entries(fileConfig.api_site);
-  let allUsers = userNames.map((uname) => ({
-    username: uname,
-    role: 'user',
-  }));
-  const ownerUser = process.env.USERNAME;
-  if (ownerUser) {
-    allUsers = allUsers.filter((u) => u.username !== ownerUser);
-    allUsers.unshift({
-      username: ownerUser,
-      role: 'owner',
-    });
-  }
+  
   const adminConfig = {
     SiteConfig: {
       SiteName: process.env.SITE_NAME || 'MoonTV',
@@ -323,7 +325,7 @@ export async function resetConfig() {
     },
     UserConfig: {
       AllowRegister: process.env.NEXT_PUBLIC_ENABLE_REGISTER === 'true',
-      Users: allUsers as any,
+      Users: syncUsers([], userNames) as any, // 确保重置时也提取底层数据
     },
     SourceConfig: apiSiteEntries.map(([key, site]) => ({
       key,
@@ -339,7 +341,6 @@ export async function resetConfig() {
     await (storage as any).setAdminConfig(adminConfig);
   }
   if (cachedConfig == null) {
-    // serverless 环境，直接使用 adminConfig
     cachedConfig = adminConfig;
   }
   cachedConfig.SiteConfig = adminConfig.SiteConfig;
