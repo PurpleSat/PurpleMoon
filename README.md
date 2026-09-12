@@ -220,7 +220,7 @@ networks:
 | NEXT_PUBLIC_IMAGE_PROXY     | 默认的浏览器端图片代理                                      | https://timis.dpdns.org/?url=     | (空)                                                                                                                       |
 | TMDB_API_TOKEN              | 上映日程TMDBTOKEN                                     | API 读访问令牌                       | （空）           
                                                                                          |
-| VALID_INVITE_CODE           | 注册邀请码                                            | 任意字符串                           | (空)                                                
+| VALID_INVITE_CODE           | 注册邀请码                                            | 任意字符串                           | (空)                                                                                                                          |                
 
 ## 配置说明
 
