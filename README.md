@@ -217,11 +217,10 @@ networks:
 | UPSTASH_TOKEN               | upstash redis 连接 token                                    | 连接 token                       | 空                                                                                                                         |
 | NEXT_PUBLIC_ENABLE_REGISTER | 是否开放注册，仅在非 localstorage 部署时生效                | true / false                     | false                                                                                                                      |
 | NEXT_PUBLIC_SEARCH_MAX_PAGE | 搜索接口可拉取的最大页数                                    | 1-50                             | 5                                                                                                                          |
-| NEXT_PUBLIC_IMAGE_PROXY     | 默认的浏览器端图片代理                                      | https://timis.dpdns.org/?url=                       | (空)                                                                                                                       |
+| NEXT_PUBLIC_IMAGE_PROXY     | 默认的浏览器端图片代理                                      | https://timis.dpdns.org/?url=     | (空)                                                                                                                       |
 | TMDB_API_TOKEN              | 上映日程TMDBTOKEN                                     | API 读访问令牌                       | （空）           
-                                                                                                | 
-| VALID_INVITE_CODE              | 注册邀请码                                     | 任意字符串                      | （空）    
-
+                                                                                         |
+| VALID_INVITE_CODE           | 注册邀请码                                            | 任意字符串          | (空)                                                                                                                                         |
 ## 配置说明
 
 所有可自定义项集中在根目录的 `config.json` 中：
