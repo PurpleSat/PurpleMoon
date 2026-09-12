@@ -14,6 +14,29 @@ const STORAGE_TYPE =
     | 'd1'
     | undefined) || 'localstorage';
 
+// =========== 防刷机制 (Rate Limiter) ===========
+// 利用 Edge Isolate 级别的全局变量存储 IP 访问频率，防御密码暴力破解
+const rateLimitMap = new Map<string, { count: number; timestamp: number }>();
+
+function checkRateLimit(ip: string): boolean {
+  const now = Date.now();
+  const limitData = rateLimitMap.get(ip);
+
+  // 清理 1 分钟前的旧数据防止内存泄漏
+  for (const [key, value] of rateLimitMap.entries()) {
+    if (now - value.timestamp > 60000) rateLimitMap.delete(key);
+  }
+
+  if (limitData && now - limitData.timestamp < 60000) {
+    if (limitData.count >= 10) return false; // 登录容错率稍微给高一点，每分钟允许 10 次尝试
+    limitData.count++;
+  } else {
+    rateLimitMap.set(ip, { count: 1, timestamp: now });
+  }
+  return true;
+}
+// ==============================================
+
 // 生成签名
 async function generateSignature(
   data: string,
@@ -54,12 +77,18 @@ async function generateAuthCookie(
     authData.password = password;
   }
 
-  if (username && process.env.PASSWORD) {
+  if (username) {
     authData.username = username;
-    // 使用密码作为密钥对用户名进行签名
-    const signature = await generateSignature(username, process.env.PASSWORD);
-    authData.signature = signature;
     authData.timestamp = Date.now(); // 添加时间戳防重放攻击
+    
+    // 【核心修复】：与注册和中间件保持对齐，优先使用 AUTH_SECRET 进行安全签名
+    const signingKey = process.env.AUTH_SECRET || process.env.PASSWORD || '';
+    if (!process.env.AUTH_SECRET) {
+      console.warn('警告: 未配置 AUTH_SECRET，当前登录 Cookie 签名面临被暴力破解的风险');
+    }
+    
+    const signature = await generateSignature(username, signingKey);
+    authData.signature = signature;
   }
 
   return encodeURIComponent(JSON.stringify(authData));
@@ -67,6 +96,12 @@ async function generateAuthCookie(
 
 export async function POST(req: NextRequest) {
   try {
+    // 1. IP 频率限制拦截 (提取 Cloudflare 传递的真实 IP)
+    const ip = req.headers.get('cf-connecting-ip') || req.headers.get('x-forwarded-for') || 'unknown_ip';
+    if (!checkRateLimit(ip)) {
+      return NextResponse.json({ error: '尝试登录过于频繁，请 1 分钟后再试' }, { status: 429 });
+    }
+
     // 本地 / localStorage 模式——仅校验固定密码
     if (STORAGE_TYPE === 'localstorage') {
       const envPassword = process.env.PASSWORD;
@@ -108,9 +143,9 @@ export async function POST(req: NextRequest) {
       response.cookies.set('auth', cookieValue, {
         path: '/',
         expires,
-        sameSite: 'lax', // 改为 lax 以支持 PWA
-        httpOnly: false, // PWA 需要客户端可访问
-        secure: false, // 根据协议自动设置
+        sameSite: 'lax',
+        httpOnly: false,
+        secure: false,
       });
 
       return response;
@@ -140,9 +175,9 @@ export async function POST(req: NextRequest) {
       response.cookies.set('auth', cookieValue, {
         path: '/',
         expires,
-        sameSite: 'lax', // 改为 lax 以支持 PWA
-        httpOnly: false, // PWA 需要客户端可访问
-        secure: false, // 根据协议自动设置
+        sameSite: 'lax',
+        httpOnly: false,
+        secure: false,
       });
 
       return response;
@@ -175,9 +210,9 @@ export async function POST(req: NextRequest) {
       response.cookies.set('auth', cookieValue, {
         path: '/',
         expires,
-        sameSite: 'lax', // 改为 lax 以支持 PWA
-        httpOnly: false, // PWA 需要客户端可访问
-        secure: false, // 根据协议自动设置
+        sameSite: 'lax',
+        httpOnly: false,
+        secure: false,
       });
 
       return response;
