@@ -40,16 +40,48 @@ export async function middleware(request: NextRequest) {
     return handleAuthFailure(request, pathname);
   }
 
+  // ================= 防 Cookie 伪造与重放攻击 (修复漏洞 6) =================
+  if (authInfo.timestamp) {
+    const SEVEN_DAYS_MS = 7 * 24 * 60 * 60 * 1000; // 7天的毫秒数
+    if (Date.now() - authInfo.timestamp > SEVEN_DAYS_MS) {
+      console.warn(`拦截到过期的 Cookie，用户: ${authInfo.username}`);
+      return handleAuthFailure(request, pathname);
+    }
+  }
+  // =========================================================================
+
   // 验证签名（如果存在）
   if (authInfo.signature) {
+    // ================= 密钥安全隔离 (修复漏洞 2) =================
+    // 优先使用独立的 AUTH_SECRET 进行验签，防御对登录密码的反向破解
+    const signingKey = process.env.AUTH_SECRET || process.env.PASSWORD || '';
+    // =============================================================
+
     const isValidSignature = await verifySignature(
       authInfo.username,
       authInfo.signature,
-      process.env.PASSWORD || ''
+      signingKey
     );
 
-    // 签名验证通过即可
+    // 签名验证通过
     if (isValidSignature) {
+      
+      // ================= 严格越权访问拦截 (修复漏洞 1) =================
+      // 拦截所有试图访问 /admin 和 /api/admin 的非站长用户
+      if (pathname.startsWith('/admin') || pathname.startsWith('/api/admin')) {
+        if (authInfo.username !== process.env.USERNAME) {
+          console.warn(`越权拦截: 普通用户 ${authInfo.username} 尝试访问后台 ${pathname}`);
+          
+          if (pathname.startsWith('/api/')) {
+            // 如果是 API 请求，直接返回 403 权限拒绝
+            return NextResponse.json({ error: '越权拦截：权限不足，仅站长可操作' }, { status: 403 });
+          }
+          // 如果是页面请求，将其强制踢回首页
+          return NextResponse.redirect(new URL('/', request.url));
+        }
+      }
+      // ==================================================================
+
       return NextResponse.next();
     }
   }
