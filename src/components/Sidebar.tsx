@@ -145,7 +145,7 @@ const Sidebar = ({ onToggle, activePath = '/' }: SidebarProps) => {
       href: 'https://rm.400821.xyz/vip',
     },
     {
-      icon: Search,
+      icon: Tv,
       label: '红月搜索',
       href: 'https://rm.400821.xyz',
     },
