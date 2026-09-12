@@ -226,6 +226,19 @@ function PlayPageClient() {
   // 工具函数（Utils）
   // -----------------------------------------------------------------------------
 
+  const formatTime = (seconds: number): string => {
+    if (seconds === 0) return '00:00';
+    const hours = Math.floor(seconds / 3600);
+    const minutes = Math.floor((seconds % 3600) / 60);
+    const remainingSeconds = Math.round(seconds % 60);
+
+    if (hours === 0) {
+      return `${minutes.toString().padStart(2, '0')}:${remainingSeconds.toString().padStart(2, '0')}`;
+    } else {
+      return `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${remainingSeconds.toString().padStart(2, '0')}`;
+    }
+  };
+
   const preferBestSource = async (
     sources: SearchResult[]
   ): Promise<SearchResult> => {
@@ -244,9 +257,11 @@ function PlayPageClient() {
           console.warn(`播放源 ${source.source_name} 没有可用的播放地址`);
           return;
         }
+
         const episodeUrl =
           source.episodes.length > 1 ? source.episodes[1] : source.episodes[0];
         const testResult = await getVideoResolutionFromM3u8(episodeUrl);
+
         allResults[index] = { source, testResult };
       } catch (error) {
         allResults[index] = null;
@@ -293,8 +308,10 @@ function PlayPageClient() {
       .map((result) => {
         const speedStr = result.testResult.loadSpeed;
         if (speedStr === '未知' || speedStr === '测量中...') return 0;
+
         const match = speedStr.match(/^([\d.]+)\s*(KB\/s|MB\/s)$/);
         if (!match) return 0;
+
         const value = parseFloat(match[1]);
         const unit = match[2];
         return unit === 'MB/s' ? value * 1024 : value;
@@ -302,6 +319,7 @@ function PlayPageClient() {
       .filter((speed) => speed > 0);
 
     const maxSpeed = validSpeeds.length > 0 ? Math.max(...validSpeeds) : 1024;
+
     const validPings = successfulResults
       .map((result) => result.testResult.pingTime)
       .filter((ping) => ping > 0);
@@ -1282,8 +1300,6 @@ function PlayPageClient() {
       });
 
       artPlayerRef.current.on('video:timeupdate', () => {
-        if (!skipConfigRef.current.enable) return;
-
         const currentTime = artPlayerRef.current.currentTime || 0;
         const duration = artPlayerRef.current.duration || 0;
         const now = Date.now();
@@ -1292,32 +1308,40 @@ function PlayPageClient() {
         lastSkipCheckRef.current = now;
 
         if (
-          skipConfigRef.current.intro_time > 0 &&
-          currentTime < skipConfigRef.current.intro_time
+          skipIntroRef.current > 0 &&
+          currentTime < skipIntroRef.current &&
+          !hasSkippedIntroRef.current
         ) {
-          artPlayerRef.current.currentTime = skipConfigRef.current.intro_time;
+          artPlayerRef.current.currentTime = skipIntroRef.current;
+          hasSkippedIntroRef.current = true;
           artPlayerRef.current.notice.show = `已跳过片头 (${formatTime(
-            skipConfigRef.current.intro_time
+            skipIntroRef.current
           )})`;
         }
 
         if (
-          skipConfigRef.current.outro_time < 0 &&
+          skipOutroRef.current > 0 &&
           duration > 0 &&
           currentTime >
-          artPlayerRef.current.duration + skipConfigRef.current.outro_time
+          artPlayerRef.current.duration - skipOutroRef.current &&
+          !hasSkippedOutroRef.current
         ) {
           if (
             currentEpisodeIndexRef.current <
             (detailRef.current?.episodes?.length || 1) - 1
           ) {
-            handleNextEpisode();
+            hasSkippedOutroRef.current = true;
+            artPlayerRef.current.notice.show = `已跳过片尾，播放下一集`;
+            artPlayerRef.current.pause();
+            setCurrentEpisodeIndex(currentEpisodeIndexRef.current + 1);
+            return;
           } else {
+            hasSkippedOutroRef.current = true;
+            artPlayerRef.current.notice.show = `已跳过片尾 (${formatTime(
+              skipOutroRef.current
+            )})`;
             artPlayerRef.current.pause();
           }
-          artPlayerRef.current.notice.show = `已跳过片尾 (${formatTime(
-            skipConfigRef.current.outro_time
-          )})`;
         }
       });
 
