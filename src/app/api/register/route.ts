@@ -22,13 +22,13 @@ function checkRateLimit(ip: string): boolean {
   const now = Date.now();
   const limitData = rateLimitMap.get(ip);
 
-  // 清理 1 分钟前的旧数据防止内存泄漏
-  for (const [key, value] of rateLimitMap.entries()) {
+  // 修复 TS 编译报错：改用 forEach 遍历，完美兼容低版本编译目标
+  rateLimitMap.forEach((value, key) => {
     if (now - value.timestamp > 60000) rateLimitMap.delete(key);
-  }
+  });
 
   if (limitData && now - limitData.timestamp < 60000) {
-    if (limitData.count >= 5) return false; // 每分钟最多允许 5 次请求
+    if (limitData.count >= 5) return false; // 注册限流：每分钟 5 次
     limitData.count++;
   } else {
     rateLimitMap.set(ip, { count: 1, timestamp: now });
