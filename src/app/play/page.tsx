@@ -24,28 +24,6 @@ import { getVideoResolutionFromM3u8, processImageUrl } from '@/lib/utils';
 import EpisodeSelector from '@/components/EpisodeSelector';
 import PageLayout from '@/components/PageLayout';
 
-import VideoPlayer from '@/components/VideoPlayer';
-
-// 在你的页面组件中：
-const handleTimeUpdate = (currentTime: number, duration: number) => {
-  // 这里的函数每 5 秒才会被调用一次
-  // 直接调用 db.savePlayRecord 或者 fetch('/api/user/history', { ... }) 即可，绝不会卡顿
-};
-
-const handleVideoEnded = () => {
-  // 这里写切集逻辑，比如 router.push(`/play/${id}?episode=${nextIndex}`)
-};
-
-// JSX 渲染:
-<VideoPlayer 
-  url={currentEpisode.url} 
-  title={movie.title}
-  poster={movie.cover}
-  lastStartTime={history.play_time} 
-  onTimeUpdate={handleTimeUpdate}
-  onEnded={handleVideoEnded}
-/>
-
 // 扩展 HTMLVideoElement 类型以支持 hls 属性
 declare global {
   interface HTMLVideoElement {
@@ -1111,13 +1089,17 @@ function PlayPageClient() {
             if (video.hls) {
               video.hls.destroy();
             }
+            
             const hls = new Hls({
               debug: false,
               enableWorker: true,
               lowLatencyMode: true,
-              maxBufferLength: 30,
+              // === 我们植入的 HLS 暴力缓冲与性能调优 ===
+              maxBufferLength: 60,
+              maxMaxBufferLength: 600,
               backBufferLength: 30,
-              maxBufferSize: 60 * 1000 * 1000,
+              maxBufferSize: 100 * 1024 * 1024,
+              // ==========================================
               loader: blockAdEnabledRef.current
                 ? CustomHlsJsLoader
                 : Hls.DefaultConfig.loader,
@@ -1129,25 +1111,27 @@ function PlayPageClient() {
 
             ensureVideoSource(video, url);
 
+            // === 我们植入的断网自愈与报错修复逻辑 ===
             hls.on(Hls.Events.ERROR, function (event: any, data: any) {
               console.error('HLS Error:', event, data);
               if (data.fatal) {
                 switch (data.type) {
                   case Hls.ErrorTypes.NETWORK_ERROR:
-                    console.log('网络错误，尝试恢复...');
+                    console.log('网络错误，尝试恢复下载...');
                     hls.startLoad();
                     break;
                   case Hls.ErrorTypes.MEDIA_ERROR:
-                    console.log('媒体错误，尝试恢复...');
+                    console.log('媒体数据错误，尝试恢复画面...');
                     hls.recoverMediaError();
                     break;
                   default:
-                    console.log('无法恢复的错误');
+                    console.log('无法恢复的致命错误');
                     hls.destroy();
                     break;
                 }
               }
             });
+            // ===========================================
           },
         },
         icons: {
@@ -1237,6 +1221,16 @@ function PlayPageClient() {
         ],
       });
 
+      // === 植入严防内存泄漏与挂载卸载清理 ===
+      artPlayerRef.current.on('destroy', () => {
+        const videoElement = artPlayerRef.current?.video;
+        if (videoElement && videoElement.hls) {
+          videoElement.hls.destroy();
+          delete videoElement.hls;
+        }
+      });
+      // ======================================
+
       artPlayerRef.current.on('ready', () => {
         setError(null);
       });
@@ -1290,6 +1284,18 @@ function PlayPageClient() {
         }
       });
 
+      // === 植入自动横屏锁定 ===
+      artPlayerRef.current.on('fullscreen', (state: any) => {
+        if (state && screen.orientation && screen.orientation.lock) {
+          screen.orientation.lock('landscape').catch((err) => {
+            console.warn('Orientation lock failed:', err);
+          });
+        } else if (!state && screen.orientation && screen.orientation.unlock) {
+          screen.orientation.unlock();
+        }
+      });
+      // ========================
+
       artPlayerRef.current.on('video:timeupdate', () => {
         const player = artPlayerRef.current;
         if (!player) return;
@@ -1326,11 +1332,11 @@ function PlayPageClient() {
           }
         }
 
-        // 3. 原有的播放进度持久化保存逻辑
+        // 3. 播放进度持久化保存逻辑 (我们植入的 15 秒节流防爆破策略)
         const now = Date.now();
-        let interval = 5000;
+        let interval = 15000; // 将基础触发频率从 5 秒大幅拉长到 15 秒
         if (process.env.NEXT_PUBLIC_STORAGE_TYPE === 'd1') {
-          interval = 10000;
+          interval = 15000;
         }
         if (process.env.NEXT_PUBLIC_STORAGE_TYPE === 'upstash') {
           interval = 20000;
@@ -1355,7 +1361,7 @@ function PlayPageClient() {
       console.error('创建播放器失败:', err);
       setError('播放器初始化失败');
     }
-  }, [Artplayer, Hls, videoUrl, loading, blockAdEnabled]);
+  }, [videoUrl, loading, blockAdEnabled]); // 移除了无关的依赖 Artplayer 和 Hls
 
   useEffect(() => {
     return () => {
