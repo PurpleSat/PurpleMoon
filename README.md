@@ -207,8 +207,8 @@ networks:
 
 | 变量                        | 说明                                                        | 可选值                           | 默认值                                                                                                                     |
 | --------------------------- | ----------------------------------------------------------- | -------------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
-| USERNAME                    | redis 部署时的管理员账号                                    | 任意字符串                       | （空）                                                                                                                     |
-| PASSWORD                    | 默认部署时为唯一访问密码，redis 部署时为管理员密码          | 任意字符串                       | （空）                                                                                                                     |
+| USERNAME                    | redis 部署时的管理员账号                                    | 任意字符串                       | 空                                                                                                                   |
+| PASSWORD                    | 默认部署时为唯一访问密码，redis 部署时为管理员密码          | 任意字符串                       | 空                                                                                                                   |
 | SITE_NAME                   | 站点名称                                                    | 任意字符串                       | PurpleMoon                                                                                                                     |
 | ANNOUNCEMENT                | 站点公告                                                    | 任意字符串                       | 本网站仅提供影视信息搜索服务，所有内容均来自第三方网站。本站不存储任何视频资源，不对任何内容的准确性、合法性、完整性负责。 |
 | NEXT_PUBLIC_STORAGE_TYPE    | 播放记录/收藏的存储方式                                     | localstorage、redis、d1、upstash | localstorage                                                                                                               |
@@ -217,11 +217,9 @@ networks:
 | UPSTASH_TOKEN               | upstash redis 连接 token                                    | 连接 token                       | 空                                                                                                                         |
 | NEXT_PUBLIC_ENABLE_REGISTER | 是否开放注册，仅在非 localstorage 部署时生效                | true / false                     | false                                                                                                                      |
 | NEXT_PUBLIC_SEARCH_MAX_PAGE | 搜索接口可拉取的最大页数                                    | 1-50                             | 5                                                                                                                          |
-| NEXT_PUBLIC_IMAGE_PROXY     | 默认的浏览器端图片代理                                      | https://timis.dpdns.org/?url=     | (空)                                                                                                                       |
-| TMDB_API_TOKEN              | 上映日程TMDBTOKEN                                     | API 读访问令牌                       | （空）                               
-| VALID_INVITE_CODE           | 注册邀请码                                            | 任意字符串                           | (空)                                 
-
-
+| NEXT_PUBLIC_IMAGE_PROXY     | 默认的浏览器端图片代理                                      | https://timis.dpdns.org/?url=     | 空                                                                                                                     |
+| TMDB_API_TOKEN              | 上映日程TMDBTOKEN                                     | API 读访问令牌                          | 空                                                                                                                         |
+| VALID_INVITE_CODE           | 注册邀请码                                            | 任意字符串                              | 空                                
 ## 配置说明
 
 所有可自定义项集中在根目录的 `config.json` 中：
