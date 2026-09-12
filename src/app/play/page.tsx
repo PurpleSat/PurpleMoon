@@ -24,6 +24,28 @@ import { getVideoResolutionFromM3u8, processImageUrl } from '@/lib/utils';
 import EpisodeSelector from '@/components/EpisodeSelector';
 import PageLayout from '@/components/PageLayout';
 
+import VideoPlayer from '@/components/VideoPlayer';
+
+// 在你的页面组件中：
+const handleTimeUpdate = (currentTime: number, duration: number) => {
+  // 这里的函数每 5 秒才会被调用一次
+  // 直接调用 db.savePlayRecord 或者 fetch('/api/user/history', { ... }) 即可，绝不会卡顿
+};
+
+const handleVideoEnded = () => {
+  // 这里写切集逻辑，比如 router.push(`/play/${id}?episode=${nextIndex}`)
+};
+
+// JSX 渲染:
+<VideoPlayer 
+  url={currentEpisode.url} 
+  title={movie.title}
+  poster={movie.cover}
+  lastStartTime={history.play_time} 
+  onTimeUpdate={handleTimeUpdate}
+  onEnded={handleVideoEnded}
+/>
+
 // 扩展 HTMLVideoElement 类型以支持 hls 属性
 declare global {
   interface HTMLVideoElement {
