@@ -33,7 +33,12 @@ const MobileBottomNav = ({ activePath }: MobileBottomNavProps) => {
     {
       icon: Radio,
       label: '红月解析UI',
-      href: 'https://400821.xyz/vip',
+      href: 'https://rm.400821.xyz/vip',
+    },
+    {
+      icon: Search,
+      label: '红月搜索',
+      href: 'https://rm.400821.xyz',
     },
   ];
 
