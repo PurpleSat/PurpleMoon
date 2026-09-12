@@ -72,7 +72,21 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: '当前未开放注册' }, { status: 400 });
     }
 
-    const { username, password } = await req.json();
+    const { username, password, inviteCode } = await req.json();
+
+    // ================= 强制邀请码校验 =================
+    const requireInviteCode = process.env.NEXT_PUBLIC_ENABLE_REGISTER === 'true';
+    const validInviteCode = process.env.VALID_INVITE_CODE || 'moon2026';
+
+    if (requireInviteCode) {
+      if (!inviteCode || typeof inviteCode !== 'string') {
+        return NextResponse.json({ error: '系统已开启邀请制，必须填写邀请码才可注册' }, { status: 400 });
+      }
+      if (inviteCode !== validInviteCode) {
+        return NextResponse.json({ error: '邀请码错误或已失效' }, { status: 403 });
+      }
+    }
+    // ==================================================
 
     if (!username || typeof username !== 'string') {
       return NextResponse.json({ error: '用户名不能为空' }, { status: 400 });
