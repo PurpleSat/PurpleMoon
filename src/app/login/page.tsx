@@ -122,8 +122,9 @@ function LoginPageClient() {
           <div className="w-20 h-20 mb-4 rounded-2xl bg-white/60 dark:bg-zinc-800/60 backdrop-blur-sm flex items-center justify-center shadow-sm overflow-hidden border border-gray-200 dark:border-zinc-700/50">
             <img src="/logo.png" alt="Logo" className="w-full h-full object-cover" onError={(e) => e.currentTarget.style.display = 'none'} />
           </div>
-          <h1 className='tracking-wider text-center text-3xl font-black text-red-600 dark:text-red-500 drop-shadow-sm'>
-            {siteName === 'MoonTV' ? '红月搜索' : siteName}
+          {/* 已还原为原生的 siteName 引用方式 */}
+          <h1 className='tracking-tight text-center text-3xl font-extrabold text-red-600 dark:text-red-500 drop-shadow-sm'>
+            {siteName}
           </h1>
           <p className="text-gray-500 dark:text-gray-400 text-sm font-medium mt-2">
             {isRegisterMode ? 'Create a new account' : 'Welcome to you!'}
