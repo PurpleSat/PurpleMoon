@@ -1,15 +1,14 @@
 'use client';
 
-import { useEffect, useRef } from 'react';
 import Artplayer from 'artplayer';
 import Hls from 'hls.js';
+import { useEffect, useRef } from 'react';
 
 interface VideoPlayerProps {
   url: string;
   title?: string;
   poster?: string;
   lastStartTime?: number;
-  // 新增：可自定义的节流间隔，默认 15 秒
   timeUpdateInterval?: number;
   onTimeUpdate?: (currentTime: number, duration: number) => void;
   onEnded?: () => void;
@@ -28,11 +27,16 @@ export default function VideoPlayer({
   const playerInstance = useRef<Artplayer | null>(null);
   const lastSaveTime = useRef<number>(0);
   
-  // 规避 React 闭包陷阱，确保在 unmount 时能拿到最新回调函数
   const onTimeUpdateRef = useRef(onTimeUpdate);
+  const onEndedRef = useRef(onEnded);
+
   useEffect(() => {
     onTimeUpdateRef.current = onTimeUpdate;
   }, [onTimeUpdate]);
+
+  useEffect(() => {
+    onEndedRef.current = onEnded;
+  }, [onEnded]);
 
   useEffect(() => {
     if (!artRef.current) return;
@@ -61,10 +65,12 @@ export default function VideoPlayer({
           if (data.fatal) {
             switch (data.type) {
               case Hls.ErrorTypes.NETWORK_ERROR:
+                // eslint-disable-next-line no-console
                 console.warn('网络波动，尝试恢复下载...');
                 hls.startLoad(); 
                 break;
               case Hls.ErrorTypes.MEDIA_ERROR:
+                // eslint-disable-next-line no-console
                 console.warn('媒体数据损坏，尝试恢复画面...');
                 hls.recoverMediaError();
                 break;
@@ -124,12 +130,10 @@ export default function VideoPlayer({
       }
     });
 
-    // 1. 常规节流上报（由原来的 5s 改为动态 timeUpdateInterval，默认 15s）
     art.on('video:timeupdate', () => {
       const currentTime = art.currentTime;
       const duration = art.duration;
       
-      // 添加 `currentTime < lastSaveTime.current` 是为了捕获用户手动往回拖动进度条的场景
       if (currentTime - lastSaveTime.current >= timeUpdateInterval || currentTime < lastSaveTime.current) {
         lastSaveTime.current = currentTime;
         if (onTimeUpdateRef.current) {
@@ -139,18 +143,21 @@ export default function VideoPlayer({
     });
 
     art.on('video:ended', () => {
-      if (onEnded) onEnded();
+      if (onEndedRef.current) onEndedRef.current();
     });
 
     art.on('fullscreen', (state) => {
       if (state && screen.orientation && screen.orientation.lock) {
-        screen.orientation.lock('landscape').catch(() => {});
+        // 修复 ESLint 空函数报错，加入错误捕获日志
+        screen.orientation.lock('landscape').catch((err) => {
+          // eslint-disable-next-line no-console
+          console.warn('Orientation lock failed:', err);
+        });
       } else if (!state && screen.orientation && screen.orientation.unlock) {
         screen.orientation.unlock();
       }
     });
 
-    // 2. 页面意外关闭/刷新时的兜底上报
     const handleBeforeUnload = () => {
       if (playerInstance.current && onTimeUpdateRef.current) {
         const finalTime = playerInstance.current.currentTime;
@@ -161,14 +168,12 @@ export default function VideoPlayer({
     };
     window.addEventListener('beforeunload', handleBeforeUnload);
 
-    // 3. 正常销毁时的内存回收与兜底上报
     return () => {
       window.removeEventListener('beforeunload', handleBeforeUnload);
       
       if (playerInstance.current) {
         if (onTimeUpdateRef.current) {
           const finalTime = playerInstance.current.currentTime;
-          // 距离上次上报超过 2 秒才执行最后一次上报，防止与常规上报重复
           if (finalTime > 0 && Math.abs(finalTime - lastSaveTime.current) > 2) {
             onTimeUpdateRef.current(finalTime, playerInstance.current.duration);
           }
