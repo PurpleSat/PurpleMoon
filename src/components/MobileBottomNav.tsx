@@ -27,7 +27,7 @@ const MobileBottomNav = ({ activePath }: MobileBottomNavProps) => {
     },
     {
       icon: Film,
-      label: 'New',
+      label: '最近上映',
       href: '/release-calendar',
     },
     {
