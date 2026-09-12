@@ -13,11 +13,15 @@ function LoginPageClient() {
   const searchParams = useSearchParams();
   const [password, setPassword] = useState('');
   const [username, setUsername] = useState('');
+  const [inviteCode, setInviteCode] = useState(''); // 新增邀请码状态
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [shouldAskUsername, setShouldAskUsername] = useState(false);
   const [enableRegister, setEnableRegister] = useState(false);
   const { siteName } = useSite();
+
+  // 环境变量判断是否强制需要邀请码
+  const requireInviteCode = process.env.NEXT_PUBLIC_ENABLE_REGISTER === 'true';
 
   // 在客户端挂载后设置配置
   useEffect(() => {
@@ -68,12 +72,18 @@ function LoginPageClient() {
     setError(null);
     if (!password || !username) return;
 
+    // 前端直接拦截未填写的邀请码
+    if (requireInviteCode && !inviteCode) {
+      setError('系统已开启邀请制，必须填写邀请码才可注册');
+      return;
+    }
+
     try {
       setLoading(true);
       const res = await fetch('/api/register', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username, password }),
+        body: JSON.stringify({ username, password, inviteCode }),
       });
 
       if (res.ok) {
@@ -97,7 +107,6 @@ function LoginPageClient() {
       </div>
       <div className='relative z-10 w-full max-w-md rounded-3xl bg-gradient-to-b from-white/90 via-white/70 to-white/40 dark:from-zinc-900/90 dark:via-zinc-900/70 dark:to-zinc-900/40 backdrop-blur-xl shadow-2xl p-10 dark:border dark:border-zinc-800'>
         
-        {/* 修改了这里的 h1 样式，使用猩红色 (text-red-600) */}
         <h1 className='tracking-tight text-center text-3xl font-extrabold mb-8 drop-shadow-sm text-red-600 dark:text-red-500'>
           {siteName}
         </h1>
@@ -135,6 +144,22 @@ function LoginPageClient() {
             />
           </div>
 
+          {shouldAskUsername && enableRegister && requireInviteCode && (
+            <div>
+              <label htmlFor='inviteCode' className='sr-only'>
+                邀请码
+              </label>
+              <input
+                id='inviteCode'
+                type='text'
+                className='block w-full rounded-lg border-0 py-3 px-4 text-gray-900 dark:text-gray-100 shadow-sm ring-1 ring-white/60 dark:ring-white/20 placeholder:text-gray-500 dark:placeholder:text-gray-400 focus:ring-2 focus:ring-blue-500 focus:outline-none sm:text-base bg-white/60 dark:bg-zinc-800/60 backdrop-blur'
+                placeholder='输入邀请码 (仅注册必填)'
+                value={inviteCode}
+                onChange={(e) => setInviteCode(e.target.value)}
+              />
+            </div>
+          )}
+
           {error && (
             <p className='text-sm text-red-600 dark:text-red-400'>{error}</p>
           )}
@@ -148,7 +173,7 @@ function LoginPageClient() {
                 disabled={!password || !username || loading}
                 className='flex-1 inline-flex justify-center rounded-lg bg-blue-600 py-3 text-base font-semibold text-white shadow-lg transition-all duration-200 hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50'
               >
-                {loading ? '注册中...' : '注册'}
+                {loading ? '处理中...' : '注册'}
               </button>
               <button
                 type='submit'
@@ -157,7 +182,7 @@ function LoginPageClient() {
                 }
                 className='flex-1 inline-flex justify-center rounded-lg bg-green-600 py-3 text-base font-semibold text-white shadow-lg transition-all duration-200 hover:from-green-600 hover:to-blue-600 disabled:cursor-not-allowed disabled:opacity-50'
               >
-                {loading ? '登录中...' : '登录'}
+                {loading ? '处理中...' : '登录'}
               </button>
             </div>
           ) : (
