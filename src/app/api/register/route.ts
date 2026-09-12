@@ -14,6 +14,29 @@ const STORAGE_TYPE =
     | 'd1'
     | undefined) || 'localstorage';
 
+// =========== 防刷机制 (Rate Limiter) ===========
+// 利用 Edge Isolate 级别的全局变量存储 IP 访问频率
+const rateLimitMap = new Map<string, { count: number; timestamp: number }>();
+
+function checkRateLimit(ip: string): boolean {
+  const now = Date.now();
+  const limitData = rateLimitMap.get(ip);
+
+  // 清理 1 分钟前的旧数据防止内存泄漏
+  for (const [key, value] of rateLimitMap.entries()) {
+    if (now - value.timestamp > 60000) rateLimitMap.delete(key);
+  }
+
+  if (limitData && now - limitData.timestamp < 60000) {
+    if (limitData.count >= 5) return false; // 每分钟最多允许 5 次请求
+    limitData.count++;
+  } else {
+    rateLimitMap.set(ip, { count: 1, timestamp: now });
+  }
+  return true;
+}
+// ==============================================
+
 // 生成签名
 async function generateSignature(
   data: string,
@@ -48,8 +71,12 @@ async function generateAuthCookie(username: string): Promise<string> {
     timestamp: Date.now(),
   };
 
-  // 使用process.env.PASSWORD作为签名密钥，而不是用户密码
-  const signingKey = process.env.PASSWORD || '';
+  // 修复漏洞：优先使用独立的 AUTH_SECRET 作为签名密钥，隔离系统登录密码
+  const signingKey = process.env.AUTH_SECRET || process.env.PASSWORD || '';
+  if (!process.env.AUTH_SECRET) {
+    console.warn('警告: 未配置 AUTH_SECRET，当前 Cookie 签名面临被暴力破解的风险');
+  }
+
   const signature = await generateSignature(username, signingKey);
   authData.signature = signature;
 
@@ -58,6 +85,12 @@ async function generateAuthCookie(username: string): Promise<string> {
 
 export async function POST(req: NextRequest) {
   try {
+    // 1. IP 频率限制拦截 (提取 Cloudflare 传递的真实 IP)
+    const ip = req.headers.get('cf-connecting-ip') || req.headers.get('x-forwarded-for') || 'unknown_ip';
+    if (!checkRateLimit(ip)) {
+      return NextResponse.json({ error: '请求过于频繁，请 1 分钟后再试' }, { status: 429 });
+    }
+
     // localstorage 模式下不支持注册
     if (STORAGE_TYPE === 'localstorage') {
       return NextResponse.json(
