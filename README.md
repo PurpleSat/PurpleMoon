@@ -130,11 +130,11 @@
 
 ```bash
 # 拉取预构建镜像
-docker pull ghcr.io/senshinya/PurpleMoon:latest
+docker pull ghcr.io/icbcabccb/PurpleMoon:latest
 
 # 运行容器
 # -d: 后台运行  -p: 映射端口 3000 -> 3000
-docker run -d --name PurpleMoon -p 3000:3000 ghcr.io/senshinya/PurpleMoon:latest
+docker run -d --name PurpleMoon -p 3000:3000 ghcr.io/icbcabccb/PurpleMoon:latest
 ```
 
 访问 `http://服务器 IP:3000` 即可。（需自行到服务器控制台放通 `3000` 端口）
@@ -148,7 +148,7 @@ docker run -d --name PurpleMoon -p 3000:3000 ghcr.io/senshinya/PurpleMoon:latest
 ```yaml
 services:
   PurpleMoon:
-    image: ghcr.io/senshinya/PurpleMoon:latest
+    image: ghcr.io/icbcabccb/PurpleMoon:latest
     container_name: PurpleMoon
     restart: unless-stopped
     ports:
@@ -165,7 +165,7 @@ services:
 ```yaml
 services:
   PurpleMoon-core:
-    image: ghcr.io/senshinya/PurpleMoon:latest
+    image: ghcr.io/icbcabccb/PurpleMoon:latest
     container_name: PurpleMoon
     restart: unless-stopped
     ports:
@@ -218,6 +218,7 @@ networks:
 | NEXT_PUBLIC_ENABLE_REGISTER | 是否开放注册，仅在非 localstorage 部署时生效                | true / false                     | false                                                                                                                      |
 | NEXT_PUBLIC_SEARCH_MAX_PAGE | 搜索接口可拉取的最大页数                                    | 1-50                             | 5                                                                                                                          |
 | NEXT_PUBLIC_IMAGE_PROXY     | 默认的浏览器端图片代理                                      | https://timis.dpdns.org/?url=                       | (空)                                                                                                                       |
+| TMDB_API_TOKEN              | 上映日程TMDBTOKEN                                     | API 读访问令牌                       | API 读访问令牌          
 
 ## 配置说明
 
