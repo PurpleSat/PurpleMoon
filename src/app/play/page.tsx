@@ -892,10 +892,23 @@ function PlayPageClient() {
     };
   }, [currentEpisodeIndex, detail, artPlayerRef.current]);
 
+// 组件卸载清理：拦截内存泄漏与后台幽灵发声
   useEffect(() => {
     return () => {
+      // 1. 清理可能存在的定时器
       if (saveIntervalRef.current) {
         clearInterval(saveIntervalRef.current);
+      }
+      
+      // 2. 彻底销毁 Artplayer 及底层的 HLS WebWorker 解析线程
+      if (artPlayerRef.current) {
+        const videoElement = artPlayerRef.current.video;
+        if (videoElement && videoElement.hls) {
+          videoElement.hls.destroy();
+          delete videoElement.hls;
+        }
+        artPlayerRef.current.destroy(false);
+        artPlayerRef.current = null;
       }
     };
   }, []);
