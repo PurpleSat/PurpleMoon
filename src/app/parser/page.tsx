@@ -67,8 +67,8 @@ function ParserPageClient() {
             <div className="flex items-center justify-center gap-3 mb-2">
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img 
-                src="/image/logo.png" 
-                alt="红月Logo" 
+                src="public/logo.png" 
+                alt="Logo" 
                 className="h-10 md:h-12 w-auto object-contain drop-shadow-md select-none pointer-events-none"
                 onError={(e) => {
                   (e.target as HTMLImageElement).style.display = 'none';
