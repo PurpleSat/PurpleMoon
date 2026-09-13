@@ -62,7 +62,7 @@ function ParserPageClient() {
 
         <div className="w-full max-w-5xl mx-auto flex flex-col gap-6 relative z-10">
           
-          {/* Header */}
+          {/* Header 区域：带 Logo 和渐变文字 */}
           <div className="text-center mt-4 md:mt-8 mb-4">
             <div className="flex items-center justify-center gap-3 mb-2">
               {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -150,8 +150,8 @@ function ParserPageClient() {
   );
 }
 
-// 核心修复：使用 Suspense 包裹预渲染边界
 export default function ParserPage() {
+  // 仅为了兼容 Next.js 对 PageLayout 内部路由 Hook 的编译规范而包裹 Suspense
   return (
     <Suspense fallback={
       <div className="flex items-center justify-center min-h-screen bg-gray-50 dark:bg-gray-900">
