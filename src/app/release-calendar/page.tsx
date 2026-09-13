@@ -49,7 +49,7 @@ function ReleaseCalendarClient() {
     if (filters.region) params.set('region', filters.region);
     if (filters.genre) params.set('genre', filters.genre);
     if (filters.dateFrom) params.set('dateFrom', filters.dateFrom);
-    if (filters.dateTo) params.set('dateTo', filters.dateTo); // <-- 修复了这里的 typo
+    if (filters.dateTo) params.set('dateTo', filters.dateTo);
     if (filters.search) params.set('search', filters.search);
 
     router.replace(`${pathname}?${params.toString()}`, { scroll: false });
@@ -149,30 +149,18 @@ function ReleaseCalendarClient() {
     }
   };
 
-  // 【终极修复】：动态获取真实 Source 与智能清洗标题
+  // 【终极稳健方案】：智能清洗片名，直接无缝对接全局搜索页（/search）
   const handlePlayClick = (item: ReleaseCalendarItem) => {
-    const year = item.releaseDate ? item.releaseDate.split('-')[0] : '';
-    
-    // 绝对不能写死！优先使用数据自带的 source 字段
-    const actualSource = (item as any).source || (item as any).site || 'douban';
-    
-    // 优先使用 CMS 真实的 vod_id，再退化使用 douban_id 或内部 id
-    const id = (item as any).vod_id || (item as any).douban_id || item.id || String(Math.random());
-    
-    // 清洗片名：将 "复仇者联盟4：终局之战" 切割为 "复仇者联盟4"
     let cleanTitle = item.title;
     if (cleanTitle) {
-      cleanTitle = cleanTitle.split('：')[0].split(':')[0]; // 移除中英文冒号后的副标题
-      cleanTitle = cleanTitle.replace(/（[^）]*）|\([^)]*\)/g, ''); // 移除括号内容
-      cleanTitle = cleanTitle.trim().split(' ')[0]; // 移除空格及其后的英文名
+      cleanTitle = cleanTitle.split('：')[0].split(':')[0]; // 移除冒号后副标题
+      cleanTitle = cleanTitle.replace(/（[^）]*）|\([^)]*\)/g, ''); // 移除括号
+      cleanTitle = cleanTitle.trim().split(' ')[0]; // 移除英文名
     }
 
-    const titleStr = encodeURIComponent(item.title); // title 保持原样，用于页面展示
-    const queryStr = encodeURIComponent(cleanTitle || item.title); // query 使用清洗后的极简名，用于底层搜索
-
-    // 动态传入 actualSource，让播放页精准定位数据库
-    const url = `/play?source=${actualSource}&id=${id}&title=${titleStr}&year=${year}&type=${item.type || 'movie'}&query=${queryStr}&keyword=${queryStr}&prefer=true`;
-    router.push(url);
+    const keyword = encodeURIComponent(cleanTitle || item.title);
+    // 直接跳转至项目自带的搜索页，并把清洗后的关键词带过去
+    router.push(`/search?q=${keyword}&keyword=${keyword}`);
   };
 
   const totalItems = data?.items.length || 0;
@@ -281,14 +269,14 @@ function ReleaseCalendarClient() {
                 <input
                   type="date"
                   value={filters.dateFrom}
-                  onChange={(e) => { setFilters(prev => ({ ...prev, dateFrom: e.target.value })); }}
+                  onChange={(e) => { setFilters(prev => ({ ...prev, dateFrom: e.target.value })) }}
                   className="text-xs bg-transparent border-none text-gray-700 dark:text-gray-300 focus:ring-0 outline-none p-0.5 cursor-pointer w-[105px]"
                 />
                 <span className="text-gray-400 text-xs">-</span>
                 <input
                   type="date"
                   value={filters.dateTo}
-                  onChange={(e) => { setFilters(prev => ({ ...prev, dateTo: e.target.value })); }}
+                  onChange={(e) => { setFilters(prev => ({ ...prev, dateTo: e.target.value })) }}
                   className="text-xs bg-transparent border-none text-gray-700 dark:text-gray-300 focus:ring-0 outline-none p-0.5 cursor-pointer w-[105px]"
                 />
               </div>
@@ -331,7 +319,7 @@ function ReleaseCalendarClient() {
                         className="group relative aspect-[2/3] w-full rounded-xl overflow-hidden bg-gray-200 dark:bg-gray-800 shadow-sm transition-all duration-300 hover:shadow-2xl hover:-translate-y-1 hover:ring-2 hover:ring-blue-500/50 cursor-pointer"
                         onClick={() => handlePlayClick(item)}
                       >
-                        {/* 海报图片 (增加 onError) */}
+                        {/* 海报图片 */}
                         {item.poster ? (
                           <img src={item.poster} alt={item.title} className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-105" loading="lazy" onError={handleImageError} />
                         ) : (
@@ -362,20 +350,18 @@ function ReleaseCalendarClient() {
                                 <Clock className="w-3 h-3" /> {formatDate(item.releaseDate)}
                               </span>
                             </div>
-                            {/* 评分 (如果有的话) */}
                             {(item as any).rating && (
                               <span className="text-[11px] text-amber-400 font-bold bg-black/50 px-1.5 py-0.5 rounded backdrop-blur-sm">
                                 {(item as any).rating}
                               </span>
                             )}
                           </div>
-                          {/* 描述/导演演员 */}
                           <p className="text-[10px] text-gray-300 line-clamp-1 mt-1.5 leading-tight drop-shadow">
                             {(item as any).description || (item.director !== '暂无评分' && item.director !== '未知' ? item.director : item.actors)}
                           </p>
                         </div>
 
-                        {/* 鼠标悬浮时出现的深色遮罩和播放按钮 */}
+                        {/* 鼠标悬浮时出现的深色遮罩和搜索/播放按钮 */}
                         <div className="absolute inset-0 bg-black/30 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-all duration-300 backdrop-blur-[1px] z-20">
                           <div className="w-12 h-12 bg-blue-500/90 rounded-full flex items-center justify-center transform scale-75 group-hover:scale-100 transition-transform duration-300 shadow-[0_0_15px_rgba(59,130,246,0.6)]">
                             <Play className="w-5 h-5 text-white ml-1" fill="currentColor" />
@@ -390,7 +376,6 @@ function ReleaseCalendarClient() {
               {/* 2. 苹果风时间线视图 (Timeline View) */}
               {viewMode === 'timeline' && (
                 <div className="max-w-4xl mx-auto relative pt-4 pb-8">
-                  {/* 发光主轴线 */}
                   <div className="absolute left-[27px] md:left-1/2 top-0 bottom-0 w-0.5 bg-gradient-to-b from-blue-500/20 via-purple-500/20 to-pink-500/20 dark:from-blue-500/50 dark:via-purple-500/50 dark:to-pink-500/50 rounded-full"></div>
 
                   <div className="space-y-12">
@@ -405,13 +390,10 @@ function ReleaseCalendarClient() {
 
                       return (
                         <div key={date} className="relative flex flex-col md:flex-row items-start justify-between group">
-                          
-                          {/* 时间线中心发光圆点 */}
                           <div className={`absolute left-7 md:left-1/2 -translate-x-1/2 w-4 h-4 rounded-full border-[3px] border-white dark:border-gray-900 shadow-sm z-10 flex items-center justify-center transition-all group-hover:scale-125
                             ${isToday ? 'bg-blue-500 shadow-[0_0_15px_rgba(59,130,246,0.6)] animate-pulse' : 'bg-gray-300 dark:bg-gray-600'}`}>
                           </div>
 
-                          {/* 左侧：日期 (PC端) */}
                           <div className="hidden md:flex w-[calc(50%-2rem)] flex-col items-end pr-4 mt-[-4px]">
                             <span className={`text-lg font-bold ${isToday ? 'text-blue-600 dark:text-blue-400' : 'text-gray-900 dark:text-gray-100'}`}>
                               {formatDate(date)}
@@ -421,14 +403,12 @@ function ReleaseCalendarClient() {
                             </span>
                           </div>
 
-                          {/* 移动端日期头部 */}
                           <div className="md:hidden pl-16 mb-3 mt-[-4px] w-full">
                             <span className={`text-lg font-bold ${isToday ? 'text-blue-600 dark:text-blue-400' : 'text-gray-900 dark:text-gray-100'}`}>
                               {formatDate(date)}
                             </span>
                           </div>
 
-                          {/* 右侧/下方：内容卡片 */}
                           <div className="w-full md:w-[calc(50%-2rem)] pl-16 md:pl-4 space-y-3">
                             {uniqueItems.map((item, i) => (
                               <div key={`${item.id}-${i}`} onClick={() => handlePlayClick(item)} className="flex gap-3 p-3 bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-100 dark:border-gray-800/60 hover:shadow-md transition-shadow cursor-pointer relative overflow-hidden group/card">
@@ -461,7 +441,6 @@ function ReleaseCalendarClient() {
               {/* 3. 现代化日历视图 (Calendar View) */}
               {viewMode === 'calendar' && (
                 <div className="bg-white dark:bg-gray-900/50 rounded-2xl shadow-sm border border-gray-200 dark:border-gray-800/60 p-4 sm:p-6">
-                  {/* 月份导航 */}
                   <div className="flex items-center justify-between mb-6">
                     <button onClick={() => setCurrentCalendarDate(new Date(currentCalendarDate.setMonth(currentCalendarDate.getMonth() - 1)))} className="p-2 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-full transition-colors">
                       <ChevronLeft className="w-5 h-5 text-gray-600 dark:text-gray-400" />
@@ -474,7 +453,6 @@ function ReleaseCalendarClient() {
                     </button>
                   </div>
 
-                  {/* 星期 Header */}
                   <div className="grid grid-cols-7 gap-1 mb-2">
                     {['日', '一', '二', '三', '四', '五', '六'].map(day => (
                       <div key={day} className="text-center text-xs font-semibold text-gray-400 dark:text-gray-500 py-2">
@@ -483,7 +461,6 @@ function ReleaseCalendarClient() {
                     ))}
                   </div>
 
-                  {/* 日历格子 */}
                   <div className="grid grid-cols-7 gap-1 sm:gap-2">
                     {(() => {
                       const todayStr = new Date().toISOString().split('T')[0];
@@ -538,7 +515,7 @@ function ReleaseCalendarClient() {
                 </div>
               )}
 
-              {/* 分页组件 (仅在 Grid 模式显示) */}
+              {/* 分页组件 */}
               {viewMode === 'grid' && totalPages > 1 && (
                 <div className="flex justify-center items-center mt-12 space-x-4">
                   <button onClick={() => setCurrentPage(p => Math.max(p - 1, 1))} disabled={currentPage === 1} className="w-10 h-10 flex items-center justify-center rounded-full bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 disabled:opacity-40 transition-all shadow-sm">
