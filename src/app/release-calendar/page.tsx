@@ -1,7 +1,7 @@
-/* eslint-disable @next/next/no-img-element */
+/* eslint-disable @typescript-eslint/no-explicit-any, react-hooks/exhaustive-deps, @next/next/no-img-element */
 'use client';
 
-import { Calendar, CalendarDays, ChevronUp, Clock, Film, Filter, GitCommit, LayoutGrid, MapPin, Play, Search, Tag, Tv } from 'lucide-react';
+import { Calendar, CalendarDays, ChevronUp, Clock, Film, Filter, GitCommit, LayoutGrid, Play, Search, Tv } from 'lucide-react';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { Suspense, useEffect, useRef, useState } from 'react';
 
@@ -17,7 +17,7 @@ function ReleaseCalendarClient() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  // 【优化 1】：从 URL 初始化所有状态，实现“分享链接”与“返回键”状态还原
+  // 从 URL 初始化所有状态，实现“分享链接”与“返回键”状态还原
   const [filters, setFilters] = useState({
     type: (searchParams.get('type') || '') as 'movie' | 'tv' | '',
     region: searchParams.get('region') || '',
@@ -28,6 +28,7 @@ function ReleaseCalendarClient() {
   });
 
   const [currentPage, setCurrentPage] = useState(parseInt(searchParams.get('page') || '1', 10));
+  const itemsPerPage = 30; // 核心修复：找回丢失的分页数量常量
   const [viewMode, setViewMode] = useState<'grid' | 'timeline' | 'calendar'>((searchParams.get('view') as any) || 'grid');
 
   const [showBackToTop, setShowBackToTop] = useState(false);
@@ -54,15 +55,14 @@ function ReleaseCalendarClient() {
     router.replace(`${pathname}?${params.toString()}`, { scroll: false });
   }, [currentPage, viewMode, filters, pathname, router]);
 
-
-  // 【优化 2】：全局图片兜底容错处理
+  // 全局图片兜底容错处理
   const handleImageError = (e: React.SyntheticEvent<HTMLImageElement, Event>) => {
     const target = e.target as HTMLImageElement;
-    target.src = '/logo.png'; // 换成站点的 Logo
+    target.src = '/logo.png'; 
     target.style.objectFit = 'contain';
     target.style.padding = '1rem';
     target.style.opacity = '0.3';
-    target.style.backgroundColor = '#f3f4f6'; // dark 模式下其实背景会被父级的 bg-gray-800 接管
+    target.style.backgroundColor = '#f3f4f6';
   };
 
   const toggleDateExpanded = (dateStr: string) => {
@@ -146,18 +146,6 @@ function ReleaseCalendarClient() {
       await fetchData(true);
     } catch (error) {
       // Ignore
-    }
-  };
-
-  const resetFilters = () => {
-    const resetState = { type: '' as const, region: '', genre: '', dateFrom: '', dateTo: '', search: '' };
-    setFilters(resetState);
-    setCurrentPage(1);
-    const cachedData = localStorage.getItem('release_calendar_all_data');
-    if (cachedData) {
-      setData(applyClientSideFiltersWithParams(JSON.parse(cachedData), resetState));
-    } else {
-      fetchData(false);
     }
   };
 
@@ -386,7 +374,7 @@ function ReleaseCalendarClient() {
                       if (!acc[item.releaseDate]) acc[item.releaseDate] = [];
                       acc[item.releaseDate].push(item);
                       return acc;
-                    }, {} as Record<string, ReleaseCalendarItem[]>)).sort(([a], [b]) => a.localeCompare(b)).map(([date, items], index) => {
+                    }, {} as Record<string, ReleaseCalendarItem[]>)).sort(([a], [b]) => a.localeCompare(b)).map(([date, items]) => {
                       const todayStr = new Date().toISOString().split('T')[0];
                       const isToday = date === todayStr;
                       const uniqueItems = items.filter((item, i, self) => i === self.findIndex(t => t.title === item.title));
