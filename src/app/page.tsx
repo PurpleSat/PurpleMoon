@@ -2,6 +2,7 @@
 
 'use client';
 
+import { RefreshCw } from 'lucide-react';
 import { Suspense, useEffect, useState } from 'react';
 
 // 客户端收藏与播放记录 API
@@ -23,6 +24,72 @@ function HomeClient() {
   const { announcement } = useSite();
   const [showAnnouncement, setShowAnnouncement] = useState(false);
 
+  // 随机预览模块状态
+  const [previewItems, setPreviewItems] = useState<any[]>([]);
+  const [isPreviewLoading, setIsPreviewLoading] = useState(true);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+
+  // 获取随机预览数据
+  const fetchRandomPreview = async () => {
+    setIsRefreshing(true);
+    if (previewItems.length === 0) setIsPreviewLoading(true);
+    
+    try {
+      const res = await fetch('/api/release-calendar');
+      if (!res.ok) throw new Error('Network response was not ok');
+      const data = await res.json();
+      
+      let items: any[] = [];
+      // 兼容不同的数据结构返回形式
+      if (Array.isArray(data)) {
+        items = data;
+      } else if (data.results && Array.isArray(data.results)) {
+        items = data.results;
+      } else if (data.data && Array.isArray(data.data)) {
+        items = data.data;
+      } else {
+        // 如果是按日期分类的对象结构，将其全部提取展平为一维数组
+        Object.values(data).forEach((val) => {
+          if (Array.isArray(val)) {
+            items = items.concat(val);
+          }
+        });
+      }
+
+      // 过滤出有效数据（必须有标题和封面图）
+      let validItems = items.filter(
+        (item) => item && item.title && (item.cover || item.poster || item.pic)
+      );
+
+      // 随机打乱数组顺序 (Fisher-Yates 洗牌简易版)
+      validItems = validItems.sort(() => 0.5 - Math.random());
+
+      // 截取前 12 个并在本地格式化为 VideoCard 所需的字段格式
+      const selected = validItems.slice(0, 12).map((item) => ({
+        id: item.id || item.douban_id || String(Math.random()),
+        source: item.source || 'douban', // 若接口无 source，默认分配 fallback 防止报错
+        title: item.title,
+        poster: item.cover || item.poster || item.pic || '',
+        year: item.year || '',
+        episodes: item.episodes || item.total_episodes || 1,
+        search_title: item.title,
+        type: item.type || (item.episodes > 1 ? 'tv' : 'movie'),
+      }));
+
+      setPreviewItems(selected);
+    } catch (error) {
+      console.error('获取预览数据失败:', error);
+    } finally {
+      setIsPreviewLoading(false);
+      setTimeout(() => setIsRefreshing(false), 500); // 让旋转动画多持续一会儿，提升体感
+    }
+  };
+
+  // 页面初次加载时获取一次预览数据
+  useEffect(() => {
+    fetchRandomPreview();
+  }, []);
+
   // 检查公告弹窗状态
   useEffect(() => {
     if (typeof window !== 'undefined' && announcement) {
@@ -35,7 +102,7 @@ function HomeClient() {
     }
   }, [announcement]);
 
-  // 收藏夹数据
+  // 收藏夹数据类型
   type FavoriteItem = {
     id: string;
     source: string;
@@ -161,9 +228,59 @@ function HomeClient() {
               </div>
             </section>
           ) : (
-            // 首页视图：保留纯粹的继续观看组件
+            // 首页视图
             <>
               <ContinueWatching />
+
+              {/* ===== 随机预览模块 ===== */}
+              <section className='mt-8 sm:mt-12 mb-8'>
+                <div className='mb-5 flex items-center justify-between px-1 sm:px-0'>
+                  <h2 className='text-xl font-bold text-gray-800 dark:text-gray-200 flex items-center gap-2.5'>
+                    <span className="bg-gradient-to-b from-red-500 to-rose-600 w-1.5 h-5 rounded-full inline-block"></span>
+                    近期热播推荐
+                  </h2>
+                  <button
+                    onClick={fetchRandomPreview}
+                    disabled={isRefreshing}
+                    className='group flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-gray-100 dark:bg-gray-800/60 hover:bg-gray-200 dark:hover:bg-gray-800 transition-colors text-sm text-gray-600 dark:text-gray-300 hover:text-red-500 dark:hover:text-red-400 disabled:opacity-50'
+                  >
+                    <RefreshCw className={`w-3.5 h-3.5 ${isRefreshing ? 'animate-spin' : 'group-hover:rotate-180 transition-transform duration-500'}`} />
+                    换一换
+                  </button>
+                </div>
+
+                {isPreviewLoading ? (
+                  // 加载时的骨架屏 (Skeleton)
+                  <div className='justify-start grid grid-cols-3 gap-x-2 gap-y-14 sm:gap-y-20 px-0 sm:px-2 sm:grid-cols-[repeat(auto-fill,_minmax(11rem,_1fr))] sm:gap-x-8'>
+                    {Array.from({ length: 12 }).map((_, i) => (
+                      <div key={i} className="w-full animate-pulse">
+                        <div className="w-full aspect-[2/3] bg-gray-200 dark:bg-gray-800 rounded-xl"></div>
+                        <div className="mt-3 h-4 bg-gray-200 dark:bg-gray-800 rounded w-3/4"></div>
+                        <div className="mt-2 h-3 bg-gray-200 dark:bg-gray-800 rounded w-1/2"></div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  // 加载完毕的视频卡片列表
+                  <div className='justify-start grid grid-cols-3 gap-x-2 gap-y-14 sm:gap-y-20 px-0 sm:px-2 sm:grid-cols-[repeat(auto-fill,_minmax(11rem,_1fr))] sm:gap-x-8'>
+                    {previewItems.map((item, idx) => (
+                      <div key={idx} className='w-full'>
+                        <VideoCard
+                          query={item.search_title}
+                          id={item.id}
+                          source={item.source}
+                          title={item.title}
+                          poster={item.poster}
+                          year={item.year}
+                          episodes={item.episodes}
+                          from='home'
+                          type={item.type}
+                        />
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </section>
             </>
           )}
         </div>
