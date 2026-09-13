@@ -1,36 +1,69 @@
 /* eslint-disable @next/next/no-img-element */
 'use client';
 
-import { useEffect, useState, Suspense } from 'react';
-import { Calendar, Filter, Search, Clock, Film, Tv, MapPin, Tag, ChevronUp, LayoutGrid, CalendarDays, GitCommit } from 'lucide-react';
+import { Calendar, CalendarDays, ChevronUp, Clock, Film, Filter, GitCommit, LayoutGrid, MapPin, Play, Search, Tag, Tv } from 'lucide-react';
+import { usePathname, useRouter, useSearchParams } from 'next/navigation';
+import { Suspense, useEffect, useRef, useState } from 'react';
 
-import { ReleaseCalendarItem, ReleaseCalendarResult } from '@/lib/types';
 import PageLayout from '@/components/PageLayout';
+import { ReleaseCalendarItem, ReleaseCalendarResult } from '@/lib/types';
 
 function ReleaseCalendarClient() {
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+
   const [data, setData] = useState<ReleaseCalendarResult | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  // 过滤状态
+  // 【优化 1】：从 URL 初始化所有状态，实现“分享链接”与“返回键”状态还原
   const [filters, setFilters] = useState({
-    type: '' as 'movie' | 'tv' | '',
-    region: '',
-    genre: '',
-    dateFrom: '',
-    dateTo: '',
-    search: '',
+    type: (searchParams.get('type') || '') as 'movie' | 'tv' | '',
+    region: searchParams.get('region') || '',
+    genre: searchParams.get('genre') || '',
+    dateFrom: searchParams.get('dateFrom') || '',
+    dateTo: searchParams.get('dateTo') || '',
+    search: searchParams.get('search') || '',
   });
 
-  // 分页状态
-  const [currentPage, setCurrentPage] = useState(1);
-  const itemsPerPage = 30; // 增加每页数量以适应海报视图
+  const [currentPage, setCurrentPage] = useState(parseInt(searchParams.get('page') || '1', 10));
+  const [viewMode, setViewMode] = useState<'grid' | 'timeline' | 'calendar'>((searchParams.get('view') as any) || 'grid');
 
-  // 视图模式
-  const [viewMode, setViewMode] = useState<'grid' | 'timeline' | 'calendar'>('grid');
   const [showBackToTop, setShowBackToTop] = useState(false);
   const [currentCalendarDate, setCurrentCalendarDate] = useState(new Date());
   const [expandedDates, setExpandedDates] = useState<Set<string>>(new Set());
+
+  // 监听状态变化并静默同步到 URL
+  const isFirstRender = useRef(true);
+  useEffect(() => {
+    if (isFirstRender.current) {
+      isFirstRender.current = false;
+      return;
+    }
+    const params = new URLSearchParams();
+    if (currentPage > 1) params.set('page', currentPage.toString());
+    if (viewMode !== 'grid') params.set('view', viewMode);
+    if (filters.type) params.set('type', filters.type);
+    if (filters.region) params.set('region', filters.region);
+    if (filters.genre) params.set('genre', filters.genre);
+    if (filters.dateFrom) params.set('dateFrom', filters.dateFrom);
+    if (filters.dateTo) params.set('dateTo', filters.dateTo);
+    if (filters.search) params.set('search', filters.search);
+
+    router.replace(`${pathname}?${params.toString()}`, { scroll: false });
+  }, [currentPage, viewMode, filters, pathname, router]);
+
+
+  // 【优化 2】：全局图片兜底容错处理
+  const handleImageError = (e: React.SyntheticEvent<HTMLImageElement, Event>) => {
+    const target = e.target as HTMLImageElement;
+    target.src = '/logo.png'; // 换成站点的 Logo
+    target.style.objectFit = 'contain';
+    target.style.padding = '1rem';
+    target.style.opacity = '0.3';
+    target.style.backgroundColor = '#f3f4f6'; // dark 模式下其实背景会被父级的 bg-gray-800 接管
+  };
 
   const toggleDateExpanded = (dateStr: string) => {
     setExpandedDates(prev => {
@@ -70,7 +103,6 @@ function ReleaseCalendarClient() {
       const result: ReleaseCalendarResult = await response.json();
       const filteredData = applyClientSideFilters(result);
       setData(filteredData);
-      setCurrentPage(1);
     } catch (err) {
       setError(err instanceof Error ? err.message : '未知错误');
     } finally {
@@ -129,10 +161,17 @@ function ReleaseCalendarClient() {
     }
   };
 
+  const handlePlayClick = (item: ReleaseCalendarItem) => {
+    const year = item.releaseDate ? item.releaseDate.split('-')[0] : '';
+    const url = `/play?source=douban&id=${item.id || String(Math.random())}&title=${encodeURIComponent(item.title)}&year=${year}&type=${item.type || 'movie'}`;
+    router.push(url);
+  };
+
   const totalItems = data?.items.length || 0;
   const totalPages = Math.ceil(totalItems / itemsPerPage);
   const currentItems = data?.items.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage) || [];
 
+  // 初始化加载
   useEffect(() => { fetchData(); }, []);
 
   useEffect(() => {
@@ -150,7 +189,7 @@ function ReleaseCalendarClient() {
     return new Date(dateStr).toLocaleDateString('zh-CN', { year: 'numeric', month: 'short', day: 'numeric' });
   };
 
-  const getTypeIcon = (type: 'movie' | 'tv' | string) => type === 'movie' ? <Film className="w-4 h-4" /> : <Tv className="w-4 h-4" />;
+  const getTypeIcon = (type: 'movie' | 'tv' | string) => type === 'movie' ? <Film className="w-4 h-4 shrink-0" /> : <Tv className="w-4 h-4 shrink-0" />;
   const getTypeLabel = (type: 'movie' | 'tv' | string) => type === 'movie' ? '电影' : type === 'tv' ? '电视剧' : '未知';
 
   return (
@@ -207,13 +246,14 @@ function ReleaseCalendarClient() {
                   placeholder="搜索名称或演员..."
                   value={filters.search}
                   onChange={(e) => setFilters(prev => ({ ...prev, search: e.target.value }))}
+                  onKeyDown={(e) => e.key === 'Enter' && applyFilters()}
                   className="pl-8 pr-3 py-1.5 text-xs bg-gray-100 dark:bg-gray-800 border-transparent focus:border-blue-500 focus:bg-white dark:focus:bg-gray-900 rounded-full text-gray-900 dark:text-white placeholder-gray-500 transition-all w-40 sm:w-48 outline-none ring-0"
                 />
               </div>
 
               <select
                 value={filters.type}
-                onChange={(e) => setFilters(prev => ({ ...prev, type: e.target.value as any }))}
+                onChange={(e) => { setFilters(prev => ({ ...prev, type: e.target.value as any })); }}
                 className="shrink-0 px-3 py-1.5 text-xs font-medium bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 rounded-full border-none focus:ring-2 focus:ring-blue-500 outline-none appearance-none cursor-pointer"
               >
                 <option value="">全部类型</option>
@@ -222,7 +262,7 @@ function ReleaseCalendarClient() {
 
               <select
                 value={filters.region}
-                onChange={(e) => setFilters(prev => ({ ...prev, region: e.target.value }))}
+                onChange={(e) => { setFilters(prev => ({ ...prev, region: e.target.value })); }}
                 className="shrink-0 px-3 py-1.5 text-xs font-medium bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 rounded-full border-none focus:ring-2 focus:ring-blue-500 outline-none appearance-none cursor-pointer"
               >
                 <option value="">全球地区</option>
@@ -233,14 +273,14 @@ function ReleaseCalendarClient() {
                 <input
                   type="date"
                   value={filters.dateFrom}
-                  onChange={(e) => setFilters(prev => ({ ...prev, dateFrom: e.target.value }))}
+                  onChange={(e) => { setFilters(prev => ({ ...prev, dateFrom: e.target.value })); }}
                   className="text-xs bg-transparent border-none text-gray-700 dark:text-gray-300 focus:ring-0 outline-none p-0.5 cursor-pointer w-[105px]"
                 />
                 <span className="text-gray-400 text-xs">-</span>
                 <input
                   type="date"
                   value={filters.dateTo}
-                  onChange={(e) => setFilters(prev => ({ ...prev, dateTo: e.target.value }))}
+                  onChange={(e) => { setFilters(prev => ({ ...prev, dateTo: e.target.value })); }}
                   className="text-xs bg-transparent border-none text-gray-700 dark:text-gray-300 focus:ring-0 outline-none p-0.5 cursor-pointer w-[105px]"
                 />
               </div>
@@ -272,40 +312,60 @@ function ReleaseCalendarClient() {
             </div>
           ) : (
             <>
-              {/* 1. 海报优先的网格视图 (Grid View) */}
+              {/* 1. 现代化网格视图 (Grid View) */}
               {viewMode === 'grid' && (
-                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4">
+                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-x-4 gap-y-8 sm:gap-x-5 sm:gap-y-10">
                   {currentItems.filter((item, i, self) => i === self.findIndex(t => t.title === item.title)).map((item) => {
                     const isToday = item.releaseDate === new Date().toISOString().split('T')[0];
                     return (
-                      <div key={item.id} className="group relative aspect-[2/3] w-full rounded-xl overflow-hidden bg-gray-200 dark:bg-gray-800 shadow-sm transition-all duration-300 hover:shadow-2xl hover:scale-[1.03] hover:ring-2 hover:ring-blue-500/50 cursor-pointer">
-                        {/* 海报图片 */}
-                        {item.poster ? (
-                          <img src={item.poster} alt={item.title} className="w-full h-full object-cover" loading="lazy" />
-                        ) : (
-                          <div className="w-full h-full flex flex-col items-center justify-center text-gray-400 bg-gradient-to-br from-gray-100 to-gray-300 dark:from-gray-800 dark:to-gray-900 p-4 text-center">
-                            {getTypeIcon(item.type)}
-                            <span className="mt-2 text-xs font-medium text-gray-500 line-clamp-2">{item.title}</span>
-                          </div>
-                        )}
-                        
-                        {/* 顶部状态标签 */}
-                        {isToday && (
-                          <div className="absolute top-2 right-2 px-1.5 py-0.5 rounded bg-red-600/90 backdrop-blur-md text-[10px] text-white font-bold tracking-wider shadow-lg">
-                            TODAY
-                          </div>
-                        )}
+                      <div 
+                        key={item.id} 
+                        className="group flex flex-col gap-2.5 cursor-pointer w-full"
+                        onClick={() => handlePlayClick(item)}
+                      >
+                        {/* 海报容器 */}
+                        <div className="relative aspect-[2/3] w-full rounded-xl overflow-hidden bg-gray-200 dark:bg-gray-800 shadow-sm transition-all duration-300 group-hover:shadow-2xl group-hover:-translate-y-1 group-hover:ring-2 group-hover:ring-blue-500/50">
+                          {/* 海报图片 (增加 onError) */}
+                          {item.poster ? (
+                            <img src={item.poster} alt={item.title} className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105" loading="lazy" onError={handleImageError} />
+                          ) : (
+                            <div className="w-full h-full flex flex-col items-center justify-center text-gray-400 bg-gradient-to-br from-gray-100 to-gray-300 dark:from-gray-800 dark:to-gray-900 p-4 text-center">
+                              {getTypeIcon(item.type)}
+                              <span className="mt-2 text-xs font-medium text-gray-500 line-clamp-2">{item.title}</span>
+                            </div>
+                          )}
+                          
+                          {/* 顶部标签 */}
+                          {isToday && (
+                            <div className="absolute top-2 left-2 px-1.5 py-0.5 rounded bg-red-600/90 backdrop-blur-md text-[10px] text-white font-bold tracking-wider shadow-lg z-10">
+                              TODAY
+                            </div>
+                          )}
 
-                        {/* 底部渐变遮罩 & 信息展示 */}
-                        <div className="absolute inset-0 bg-gradient-to-t from-black/95 via-black/40 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300 flex flex-col justify-end p-3">
-                          <h3 className="text-white font-bold text-sm line-clamp-2 mb-1 drop-shadow-md">
+                          {/* 悬浮遮罩与播放按钮 (Hover State) */}
+                          <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-all duration-300 backdrop-blur-[2px]">
+                            <div className="w-12 h-12 bg-blue-500/90 rounded-full flex items-center justify-center transform scale-75 group-hover:scale-100 transition-transform duration-300 shadow-[0_0_15px_rgba(59,130,246,0.6)]">
+                              <Play className="w-5 h-5 text-white ml-1" fill="currentColor" />
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* 底部常驻信息展示 */}
+                        <div className="flex flex-col px-0.5">
+                          <h3 className="text-sm font-bold text-gray-900 dark:text-gray-100 line-clamp-1 group-hover:text-blue-500 transition-colors">
                             {item.title}
                           </h3>
-                          <div className="flex items-center gap-1.5 text-gray-300 text-[10px] mb-2 font-medium">
-                            <span className="px-1 py-0.5 rounded-sm bg-white/20">{getTypeLabel(item.type)}</span>
-                            <span className="px-1 py-0.5 rounded-sm bg-white/20 flex items-center gap-0.5"><Clock className="w-2.5 h-2.5"/>{formatDate(item.releaseDate)}</span>
+                          
+                          <div className="flex items-center justify-between mt-1.5">
+                            <span className="flex items-center gap-1.5 text-xs text-gray-500 dark:text-gray-400 font-medium bg-gray-100 dark:bg-gray-800/60 px-1.5 py-0.5 rounded">
+                              {getTypeIcon(item.type)} {getTypeLabel(item.type)}
+                            </span>
+                            <span className="text-xs text-gray-500 dark:text-gray-400 flex items-center gap-1 font-medium">
+                              <Clock className="w-3 h-3" /> {formatDate(item.releaseDate)}
+                            </span>
                           </div>
-                          <p className="text-gray-400 text-[10px] line-clamp-2 leading-tight">
+                          
+                          <p className="text-[11px] sm:text-xs text-gray-400 dark:text-gray-500 truncate mt-1.5">
                             {item.director !== '暂无评分' && item.director !== '未知' ? item.director : item.actors}
                           </p>
                         </div>
@@ -335,8 +395,8 @@ function ReleaseCalendarClient() {
                         <div key={date} className="relative flex flex-col md:flex-row items-start justify-between group">
                           
                           {/* 时间线中心发光圆点 */}
-                          <div className="absolute left-7 md:left-1/2 -translate-x-1/2 w-4 h-4 rounded-full border-[3px] border-white dark:border-gray-900 shadow-sm z-10 flex items-center justify-center transition-all group-hover:scale-125
-                            ${isToday ? 'bg-blue-500 shadow-[0_0_15px_rgba(59,130,246,0.6)] animate-pulse' : 'bg-gray-300 dark:bg-gray-600'}">
+                          <div className={`absolute left-7 md:left-1/2 -translate-x-1/2 w-4 h-4 rounded-full border-[3px] border-white dark:border-gray-900 shadow-sm z-10 flex items-center justify-center transition-all group-hover:scale-125
+                            ${isToday ? 'bg-blue-500 shadow-[0_0_15px_rgba(59,130,246,0.6)] animate-pulse' : 'bg-gray-300 dark:bg-gray-600'}`}>
                           </div>
 
                           {/* 左侧：日期 (PC端) */}
@@ -359,9 +419,9 @@ function ReleaseCalendarClient() {
                           {/* 右侧/下方：内容卡片 */}
                           <div className="w-full md:w-[calc(50%-2rem)] pl-16 md:pl-4 space-y-3">
                             {uniqueItems.map((item, i) => (
-                              <div key={`${item.id}-${i}`} className="flex gap-3 p-3 bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-100 dark:border-gray-800/60 hover:shadow-md transition-shadow">
+                              <div key={`${item.id}-${i}`} onClick={() => handlePlayClick(item)} className="flex gap-3 p-3 bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-100 dark:border-gray-800/60 hover:shadow-md transition-shadow cursor-pointer">
                                 {item.poster ? (
-                                  <img src={item.poster} alt={item.title} className="w-12 h-16 object-cover rounded-md shadow-sm shrink-0" loading="lazy" />
+                                  <img src={item.poster} alt={item.title} className="w-12 h-16 object-cover rounded-md shadow-sm shrink-0 bg-gray-200 dark:bg-gray-800" loading="lazy" onError={handleImageError} />
                                 ) : (
                                   <div className="w-12 h-16 bg-gray-100 dark:bg-gray-700 rounded-md flex items-center justify-center text-gray-400 shrink-0">
                                     {getTypeIcon(item.type)}
@@ -444,14 +504,14 @@ function ReleaseCalendarClient() {
 
                             <div className="flex-1 space-y-1 overflow-hidden">
                               {(expandedDates.has(dateStr) ? dayItems : dayItems.slice(0, 2)).map((item, idx) => (
-                                <div key={idx} className={`text-[9px] sm:text-[10px] px-1.5 py-0.5 rounded truncate ${
+                                <div key={idx} onClick={() => handlePlayClick(item)} className={`cursor-pointer text-[9px] sm:text-[10px] px-1.5 py-0.5 rounded truncate transition-opacity hover:opacity-75 ${
                                   item.type === 'movie' ? 'bg-amber-100/70 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300' : 'bg-purple-100/70 text-purple-800 dark:bg-purple-900/30 dark:text-purple-300'
                                 }`}>
                                   {item.title}
                                 </div>
                               ))}
                               {dayItems.length > 2 && (
-                                <button onClick={() => toggleDateExpanded(dateStr)} className="text-[9px] text-gray-500 hover:text-blue-500 w-full text-left pl-1">
+                                <button onClick={() => toggleDateExpanded(dateStr)} className="text-[9px] text-gray-500 hover:text-blue-500 w-full text-left pl-1 mt-1">
                                   {expandedDates.has(dateStr) ? '收起' : `+${dayItems.length - 2} 更多`}
                                 </button>
                               )}
@@ -468,15 +528,15 @@ function ReleaseCalendarClient() {
 
               {/* 分页组件 (仅在 Grid 模式显示) */}
               {viewMode === 'grid' && totalPages > 1 && (
-                <div className="flex justify-center items-center mt-10 space-x-3">
-                  <button onClick={() => setCurrentPage(p => Math.max(p - 1, 1))} disabled={currentPage === 1} className="w-8 h-8 flex items-center justify-center rounded-full bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 disabled:opacity-40 transition-all shadow-sm">
-                    <ChevronLeft className="w-4 h-4" />
+                <div className="flex justify-center items-center mt-12 space-x-4">
+                  <button onClick={() => setCurrentPage(p => Math.max(p - 1, 1))} disabled={currentPage === 1} className="w-10 h-10 flex items-center justify-center rounded-full bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 disabled:opacity-40 transition-all shadow-sm">
+                    <ChevronLeft className="w-5 h-5" />
                   </button>
-                  <span className="text-xs font-medium text-gray-500 dark:text-gray-400">
+                  <span className="text-sm font-medium text-gray-500 dark:text-gray-400 bg-gray-100 dark:bg-gray-800 px-4 py-1.5 rounded-full">
                     {currentPage} / {totalPages}
                   </span>
-                  <button onClick={() => setCurrentPage(p => Math.min(p + 1, totalPages))} disabled={currentPage === totalPages} className="w-8 h-8 flex items-center justify-center rounded-full bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 disabled:opacity-40 transition-all shadow-sm">
-                    <ChevronRight className="w-4 h-4" />
+                  <button onClick={() => setCurrentPage(p => Math.min(p + 1, totalPages))} disabled={currentPage === totalPages} className="w-10 h-10 flex items-center justify-center rounded-full bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 disabled:opacity-40 transition-all shadow-sm">
+                    <ChevronRight className="w-5 h-5" />
                   </button>
                 </div>
               )}
@@ -494,8 +554,8 @@ function ReleaseCalendarClient() {
 
           {/* 悬浮返回顶部 */}
           {showBackToTop && (
-            <button onClick={scrollToTop} className="fixed bottom-20 right-6 z-50 bg-white/80 dark:bg-gray-800/80 backdrop-blur-md text-gray-600 dark:text-gray-300 p-2.5 rounded-full shadow-lg border border-gray-200 dark:border-gray-700 hover:text-blue-500 transition-all duration-300 hover:-translate-y-1">
-              <ChevronUp className="w-5 h-5" />
+            <button onClick={scrollToTop} className="fixed bottom-20 right-6 z-50 bg-white/80 dark:bg-gray-800/80 backdrop-blur-md text-gray-600 dark:text-gray-300 p-3 rounded-full shadow-lg border border-gray-200 dark:border-gray-700 hover:text-blue-500 transition-all duration-300 hover:-translate-y-1">
+              <ChevronUp className="w-6 h-6" />
             </button>
           )}
         </div>
