@@ -7,42 +7,6 @@ import { getAuthInfoFromCookie } from '@/lib/auth';
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
-import { NextResponse } from 'next/server';
-import type { NextRequest } from 'next/server';
-
-export function middleware(request: NextRequest) {
-  // 1. 获取请求的路径
-  const { pathname } = request.nextUrl;
-
-  // 2. 边缘节点高速嗅探 HTTP Cookie 中的凭证
-  // Middleware 运行在服务端，无法读取 localStorage，必须通过 Cookie 鉴权
-  const hasToken = 
-    request.cookies.has('token') || 
-    request.cookies.has('user_token') || 
-    request.cookies.has('session') ||
-    request.cookies.has('user');
-
-  // 3. 如果没有凭证，直接在边缘节点进行 307 重定向拦截
-  if (!hasToken) {
-    const loginUrl = new URL('/login', request.url);
-    // 携带 callbackUrl，方便登录后跳回解析页
-    loginUrl.searchParams.set('callbackUrl', pathname);
-    return NextResponse.redirect(loginUrl);
-  }
-
-  // 4. 验证通过，放行请求
-  return NextResponse.next();
-}
-
-// 配置匹配器：告诉 Next.js 只有访问 /parser 时才触发此中间件
-export const config = {
-  matcher: [
-    '/parser/:path*',
-    // 如果未来你想保护播放页，可以取消下面这行的注释
-    // '/play/:path*', 
-  ],
-};
-
   // 跳过不需要认证的路径
   if (shouldSkipAuth(pathname)) {
     return NextResponse.next();
