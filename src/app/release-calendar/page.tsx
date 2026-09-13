@@ -149,15 +149,11 @@ function ReleaseCalendarClient() {
     }
   };
 
-  // 【核心修复】：补齐全网搜索参数 keyword 和 query，彻底解决“未找到匹配结果”
+  // 【核心修复】：直接跳转到全局搜索页（/search），触发底层全网真实视频源嗅探
   const handlePlayClick = (item: ReleaseCalendarItem) => {
-    const year = item.releaseDate ? item.releaseDate.split('-')[0] : '';
-    const source = (item as any).source || 'douban';
-    const id = (item as any).douban_id || (item as any).vod_id || item.id || String(Math.random());
     const titleStr = encodeURIComponent(item.title);
-    
-    const url = `/play?source=${source}&id=${id}&title=${titleStr}&year=${year}&type=${item.type || 'movie'}&keyword=${titleStr}&query=${titleStr}`;
-    router.push(url);
+    // 同时传入 keyword 和 query 以兼容不同的搜索页参数接收规则
+    router.push(`/search?keyword=${titleStr}&query=${titleStr}`);
   };
 
   const totalItems = data?.items.length || 0;
@@ -333,7 +329,7 @@ function ReleaseCalendarClient() {
                           </div>
                         )}
 
-                        {/* 【修改点】：常驻的底部信息遮罩，直接内嵌在海报里 */}
+                        {/* 常驻的底部信息遮罩，直接内嵌在海报里 */}
                         <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/95 via-black/70 to-transparent pt-12 pb-3 px-3 flex flex-col justify-end z-10">
                           <h3 className="text-white font-bold text-sm line-clamp-1 drop-shadow-md">
                             {item.title}
@@ -360,7 +356,7 @@ function ReleaseCalendarClient() {
                           </p>
                         </div>
 
-                        {/* 【修改点】：鼠标悬浮时出现的深色遮罩和播放按钮 */}
+                        {/* 鼠标悬浮时出现的深色遮罩和播放按钮 */}
                         <div className="absolute inset-0 bg-black/30 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-all duration-300 backdrop-blur-[1px] z-20">
                           <div className="w-12 h-12 bg-blue-500/90 rounded-full flex items-center justify-center transform scale-75 group-hover:scale-100 transition-transform duration-300 shadow-[0_0_15px_rgba(59,130,246,0.6)]">
                             <Play className="w-5 h-5 text-white ml-1" fill="currentColor" />
