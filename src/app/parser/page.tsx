@@ -1,8 +1,7 @@
-/* eslint-disable @next/next/no-img-element */
 'use client';
 
 import { useRouter } from 'next/navigation';
-import { useEffect, useRef, useState } from 'react';
+import { Suspense, useEffect, useRef, useState } from 'react';
 
 import PageLayout from '@/components/PageLayout';
 
@@ -30,10 +29,9 @@ const PARSE_LINES = [
   { name: '21线', url: 'https://video.isyour.love/player/getplayer?url=' },
 ];
 
-export default function ParserPage() {
+function ParserPageClient() {
   const router = useRouter();
   
-  // 鉴权状态：默认为 true（正在检查），防止未登录时闪现页面内容
   const [isAuthChecking, setIsAuthChecking] = useState(true);
 
   const [parserLine, setParserLine] = useState(PARSE_LINES[0].url);
@@ -41,12 +39,8 @@ export default function ParserPage() {
   const [activeIframeSrc, setActiveIframeSrc] = useState('');
   const inputRef = useRef<HTMLInputElement>(null);
 
-  // ==========================================
-  // 核心：路由守卫与登录验证拦截
-  // ==========================================
   useEffect(() => {
     const checkAuth = () => {
-      // 兼容最常见的几种本地存储命名，以及 Cookie 的基础检查
       const isLoggedIn = 
         localStorage.getItem('token') || 
         localStorage.getItem('user_token') || 
@@ -54,10 +48,8 @@ export default function ParserPage() {
         document.cookie.includes('token=');
 
       if (!isLoggedIn) {
-        // 未登录：强制重定向到登录页
         router.replace('/login?callbackUrl=/parser');
       } else {
-        // 验证通过：解除拦截，允许渲染页面内容
         setIsAuthChecking(false);
       }
     };
@@ -84,7 +76,6 @@ export default function ParserPage() {
     setActiveIframeSrc(`${parserLine}${url}`);
   };
 
-  // 鉴权拦截期间的过渡动画
   if (isAuthChecking) {
     return (
       <PageLayout activePath="/parser">
@@ -105,25 +96,22 @@ export default function ParserPage() {
     <PageLayout activePath="/parser">
       <div className="flex flex-col gap-6 py-6 px-5 lg:px-[3rem] 2xl:px-20 min-h-[calc(100vh-80px)] relative overflow-hidden">
         
-        {/* 背景光晕 */}
         <div className="absolute top-[-10vh] left-1/2 -translate-x-1/2 w-[80vw] max-w-[800px] aspect-square bg-[radial-gradient(circle,rgba(225,29,72,0.12)_0%,rgba(15,17,26,0)_70%)] pointer-events-none -z-10" />
 
         <div className="w-full max-w-5xl mx-auto flex flex-col gap-6 relative z-10">
           
-          {/* Header 区域：带 Logo 和渐变文字 */}
           <div className="text-center mt-4 md:mt-8 mb-4">
             <div className="flex items-center justify-center gap-3 mb-2">
               <img 
                 src="/image/logo.png" 
-                alt="Logo" 
+                alt="红月Logo" 
                 className="h-10 md:h-12 w-auto object-contain drop-shadow-md select-none pointer-events-none"
                 onError={(e) => {
-                  // 如果路径不对导致图片加载失败，自动隐藏，防止出现碎图图标
                   (e.target as HTMLImageElement).style.display = 'none';
                 }}
               />
               <h1 className="text-3xl md:text-4xl font-bold bg-gradient-to-r from-red-500 to-rose-600 bg-clip-text text-transparent inline-block tracking-wide">
-               紫月-VIP视频无界解析UI
+                VIP 视频无界解析
               </h1>
             </div>
             <p className="text-gray-500 dark:text-gray-400 text-sm md:text-base mt-1">
@@ -131,7 +119,6 @@ export default function ParserPage() {
             </p>
           </div>
 
-          {/* 播放器 Iframe 区 */}
           <div className="w-full aspect-video bg-black/90 dark:bg-black rounded-2xl overflow-hidden shadow-2xl border border-gray-200/20 dark:border-gray-800 relative group">
             {!activeIframeSrc ? (
               <div className="absolute inset-0 flex flex-col items-center justify-center text-gray-500 dark:text-gray-400">
@@ -151,7 +138,6 @@ export default function ParserPage() {
             )}
           </div>
 
-          {/* 控制台毛玻璃面板 */}
           <div className="flex flex-col md:flex-row gap-4 bg-white/60 dark:bg-[#1E232D]/65 backdrop-blur-xl p-5 md:p-6 rounded-2xl border border-gray-200/50 dark:border-white/10 shadow-xl">
             <input
               ref={inputRef}
@@ -195,5 +181,19 @@ export default function ParserPage() {
         </div>
       </div>
     </PageLayout>
+  );
+}
+
+export default function ParserPage() {
+  return (
+    <Suspense fallback={
+      <PageLayout activePath="/parser">
+        <div className="flex items-center justify-center min-h-[calc(100vh-80px)]">
+          <div className="w-16 h-16 border-4 border-red-500 border-t-transparent rounded-full animate-spin"></div>
+        </div>
+      </PageLayout>
+    }>
+      <ParserPageClient />
+    </Suspense>
   );
 }
