@@ -49,7 +49,7 @@ function ReleaseCalendarClient() {
     if (filters.region) params.set('region', filters.region);
     if (filters.genre) params.set('genre', filters.genre);
     if (filters.dateFrom) params.set('dateFrom', filters.dateFrom);
-    if (filters.dateTo) params.set('dateTo', params.dateTo);
+    if (filters.dateTo) params.set('dateTo', filters.dateTo); // <-- 修复了这里的 typo
     if (filters.search) params.set('search', filters.search);
 
     router.replace(`${pathname}?${params.toString()}`, { scroll: false });
@@ -153,7 +153,7 @@ function ReleaseCalendarClient() {
   const handlePlayClick = (item: ReleaseCalendarItem) => {
     const year = item.releaseDate ? item.releaseDate.split('-')[0] : '';
     
-    // 【核心修复】：绝对不能写死！优先使用数据自带的 source 字段
+    // 绝对不能写死！优先使用数据自带的 source 字段
     const actualSource = (item as any).source || (item as any).site || 'douban';
     
     // 优先使用 CMS 真实的 vod_id，再退化使用 douban_id 或内部 id
