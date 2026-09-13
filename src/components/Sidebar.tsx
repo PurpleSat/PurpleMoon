@@ -4,7 +4,7 @@ import {
   ChevronUp, 
   Clapperboard, 
   Clover, 
-  ExternalLink, // 新增用于友情链接的图标
+  ExternalLink,
   Film, 
   History, 
   Home, 
@@ -38,7 +38,7 @@ const SidebarContext = createContext<SidebarContextType>({
 
 export const useSidebar = () => useContext(SidebarContext);
 
-// 友情链接配置列表 (你可以在这里随意添加或修改你的友情链接)
+// 友情链接配置列表
 const FRIEND_LINKS = [
   { name: '红月搜索', url: 'https://rm.400821.xyz' },
   { name: 'My-CMS', url: 'https://today.400823.xyz' },
@@ -221,8 +221,8 @@ const Sidebar = ({ onToggle, activePath = '/' }: SidebarProps) => {
             WebkitBackdropFilter: 'blur(20px)',
           }}
         >
-          {/* 4. 展开/收起 提拉按钮：调整到左侧（left-8） */}
-          <div className='absolute top-0 left-8 -translate-y-full flex justify-center pointer-events-none'>
+          {/* 4. 展开/收起 提拉按钮：通过添加 hidden 类完全隐藏 */}
+          <div className='hidden absolute top-0 left-8 -translate-y-full flex justify-center pointer-events-none'>
             <button
               onClick={handleToggle}
               className='pointer-events-auto flex items-center justify-center gap-1.5 px-4 py-1.5 bg-white/90 dark:bg-gray-900/90 backdrop-blur-md rounded-t-xl border-t border-x border-gray-200/60 dark:border-gray-700/60 shadow-sm text-gray-500 hover:text-green-600 transition-colors dark:text-gray-400 dark:hover:text-green-400 text-xs font-medium'
@@ -303,7 +303,7 @@ const Sidebar = ({ onToggle, activePath = '/' }: SidebarProps) => {
               })}
             </nav>
 
-            {/* 新增：右侧友情链接按钮与上拉菜单 */}
+            {/* 右侧友情链接按钮与上拉菜单 */}
             <div className='absolute right-4 md:right-6 h-full flex items-center z-20' ref={friendLinksRef}>
               <button
                 onClick={() => setShowFriendLinks(!showFriendLinks)}
