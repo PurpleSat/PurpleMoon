@@ -62,7 +62,7 @@ function ParserPageClient() {
 
         <div className="w-full max-w-5xl mx-auto flex flex-col gap-6 relative z-10">
           
-          {/* Header 区域 */}
+          {/* Header */}
           <div className="text-center mt-4 md:mt-8 mb-4">
             <div className="flex items-center justify-center gap-3 mb-2">
               {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -150,6 +150,7 @@ function ParserPageClient() {
   );
 }
 
+// 核心修复：使用 Suspense 包裹预渲染边界
 export default function ParserPage() {
   return (
     <Suspense fallback={
