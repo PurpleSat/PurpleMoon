@@ -1,6 +1,18 @@
 'use client';
 
-import { ChevronUp, Clapperboard, Clover, Film, History, Home, Radio, Rocket, Search, Tv } from 'lucide-react';
+import { 
+  ChevronUp, 
+  Clapperboard, 
+  Clover, 
+  ExternalLink, // 新增用于友情链接的图标
+  Film, 
+  History, 
+  Home, 
+  Radio, 
+  Rocket, 
+  Search, 
+  Tv 
+} from 'lucide-react';
 import Link from 'next/link';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import {
@@ -9,6 +21,7 @@ import {
   useContext,
   useEffect,
   useLayoutEffect,
+  useRef,
   useState,
 } from 'react';
 
@@ -25,6 +38,14 @@ const SidebarContext = createContext<SidebarContextType>({
 
 export const useSidebar = () => useContext(SidebarContext);
 
+// 友情链接配置列表 (你可以在这里随意添加或修改你的友情链接)
+const FRIEND_LINKS = [
+  { name: '红月搜索', url: 'https://rm.400821.xyz' },
+  { name: 'My-CMS', url: 'https://today.400823.xyz' },
+  { name: 'My-Cloud', url: 'https://200805.xyz' },
+  { name: 'API中转代理', url: 'https://timis.dpdns.org' },
+];
+
 // 2. 替换为图片+文字 Logo
 const Logo = () => {
   const { siteName } = useSite();
@@ -33,12 +54,13 @@ const Logo = () => {
       href='/'
       className='flex items-center justify-center h-full select-none hover:opacity-80 transition-opacity duration-200 gap-2.5'
     >
+      {/* eslint-disable-next-line @next/next/no-img-element */}
       <img
         src='/logo.png'
         alt={siteName || 'Site Logo'}
-        className='h-10 w-auto object-contain drop-shadow-sm' // 增大了图片尺寸 (从 h-8 变为 h-10)
+        className='h-10 w-auto object-contain drop-shadow-sm'
       />
-      <span className="text-lg font-black text-red-600 dark:text-red-500 tracking-wider hidden sm:block">
+      <span className="text-lg font-black text-red-600 dark:text-red-500 tracking-wider hidden lg:block">
         {siteName}
       </span>
     </Link>
@@ -71,6 +93,10 @@ const Sidebar = ({ onToggle, activePath = '/' }: SidebarProps) => {
     }
     return false; // 默认展开
   });
+
+  // 友情链接菜单开关状态
+  const [showFriendLinks, setShowFriendLinks] = useState(false);
+  const friendLinksRef = useRef<HTMLDivElement>(null);
 
   useLayoutEffect(() => {
     const saved = localStorage.getItem('sidebarCollapsed');
@@ -109,6 +135,21 @@ const Sidebar = ({ onToggle, activePath = '/' }: SidebarProps) => {
       setActive(fullPath);
     }
   }, [activePath, pathname, searchParams]);
+
+  // 监听点击外部关闭友情链接菜单
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (friendLinksRef.current && !friendLinksRef.current.contains(event.target as Node)) {
+        setShowFriendLinks(false);
+      }
+    };
+    if (showFriendLinks) {
+      document.addEventListener('mousedown', handleClickOutside);
+    }
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, [showFriendLinks]);
 
   const handleToggle = useCallback(() => {
     const newState = !isCollapsed;
@@ -161,7 +202,7 @@ const Sidebar = ({ onToggle, activePath = '/' }: SidebarProps) => {
     },
     {
       icon: Clapperboard,
-      label: 'API中转代理服务',
+      label: 'API中转',
       href: 'https://timis.dpdns.org',
     },
   ];
@@ -180,8 +221,8 @@ const Sidebar = ({ onToggle, activePath = '/' }: SidebarProps) => {
             WebkitBackdropFilter: 'blur(20px)',
           }}
         >
-          {/* 4. 展开/收起 提拉按钮：放置在导航栏右侧（right-8） */}
-          <div className='absolute top-0 right-8 -translate-y-full flex justify-center pointer-events-none'>
+          {/* 4. 展开/收起 提拉按钮：调整到左侧（left-8） */}
+          <div className='absolute top-0 left-8 -translate-y-full flex justify-center pointer-events-none'>
             <button
               onClick={handleToggle}
               className='pointer-events-auto flex items-center justify-center gap-1.5 px-4 py-1.5 bg-white/90 dark:bg-gray-900/90 backdrop-blur-md rounded-t-xl border-t border-x border-gray-200/60 dark:border-gray-700/60 shadow-sm text-gray-500 hover:text-green-600 transition-colors dark:text-gray-400 dark:hover:text-green-400 text-xs font-medium'
@@ -196,19 +237,20 @@ const Sidebar = ({ onToggle, activePath = '/' }: SidebarProps) => {
           </div>
 
           {/* 底部栏主体内容：相对定位容器 */}
-          <div className='relative flex h-16 items-center px-6 max-w-screen-2xl mx-auto'>
-            {/* 左侧 Logo：通过 absolute 绝对定位使其脱离文档流，不干扰中间菜单居中 */}
-            <div className='absolute left-6 h-full flex items-center z-10'>
+          <div className='relative flex h-16 items-center px-4 md:px-6 max-w-screen-2xl mx-auto'>
+            
+            {/* 左侧 Logo */}
+            <div className='absolute left-4 md:left-6 h-full flex items-center z-10'>
               <Logo />
             </div>
 
-            {/* 居中导航项：w-full 占满且 justify-center */}
-            <nav className='flex w-full items-center justify-center gap-2 md:gap-4 overflow-x-auto no-scrollbar'>
+            {/* 居中导航项：通过增加左右 padding 防止与左右绝对定位的元素重叠 */}
+            <nav className='flex w-full items-center justify-center gap-1.5 md:gap-4 overflow-x-auto no-scrollbar px-32 lg:px-48'>
               <Link
                 href='/'
                 onClick={() => setActive('/')}
                 data-active={active === '/'}
-                className='group flex items-center justify-center rounded-lg px-3 py-2 text-sm text-gray-700 hover:bg-gray-100/50 hover:text-green-600 data-[active=true]:bg-green-500/10 data-[active=true]:text-green-700 font-medium transition-colors duration-200 dark:text-gray-300 dark:hover:text-green-400 dark:data-[active=true]:bg-green-500/10 dark:data-[active=true]:text-green-400 gap-2 flex-shrink-0'
+                className='group flex items-center justify-center rounded-lg px-2.5 md:px-3 py-2 text-sm text-gray-700 hover:bg-gray-100/50 hover:text-green-600 data-[active=true]:bg-green-500/10 data-[active=true]:text-green-700 font-medium transition-colors duration-200 dark:text-gray-300 dark:hover:text-green-400 dark:data-[active=true]:bg-green-500/10 dark:data-[active=true]:text-green-400 gap-2 flex-shrink-0'
               >
                 <Home className='h-4 w-4 text-gray-500 group-hover:text-green-600 data-[active=true]:text-green-700 dark:text-gray-400 dark:group-hover:text-green-400 dark:data-[active=true]:text-green-400' />
                 <span>首页</span>
@@ -222,14 +264,14 @@ const Sidebar = ({ onToggle, activePath = '/' }: SidebarProps) => {
                   setActive('/search');
                 }}
                 data-active={active === '/search'}
-                className='group flex items-center justify-center rounded-lg px-3 py-2 text-sm text-gray-700 hover:bg-gray-100/50 hover:text-green-600 data-[active=true]:bg-green-500/10 data-[active=true]:text-green-700 font-medium transition-colors duration-200 dark:text-gray-300 dark:hover:text-green-400 dark:data-[active=true]:bg-green-500/10 dark:data-[active=true]:text-green-400 gap-2 flex-shrink-0'
+                className='group flex items-center justify-center rounded-lg px-2.5 md:px-3 py-2 text-sm text-gray-700 hover:bg-gray-100/50 hover:text-green-600 data-[active=true]:bg-green-500/10 data-[active=true]:text-green-700 font-medium transition-colors duration-200 dark:text-gray-300 dark:hover:text-green-400 dark:data-[active=true]:bg-green-500/10 dark:data-[active=true]:text-green-400 gap-2 flex-shrink-0'
               >
                 <Search className='h-4 w-4 text-gray-500 group-hover:text-green-600 data-[active=true]:text-green-700 dark:text-gray-400 dark:group-hover:text-green-400 dark:data-[active=true]:text-green-400' />
                 <span>搜索</span>
               </Link>
 
               {/* 视觉分隔线 */}
-              <div className='w-px h-5 bg-gray-300 dark:bg-gray-700 mx-1 flex-shrink-0'></div>
+              <div className='w-px h-5 bg-gray-300 dark:bg-gray-700 mx-0.5 md:mx-1 flex-shrink-0'></div>
 
               {menuItems.map((item) => {
                 const typeMatch = item.href.match(/type=([^&]+)/)?.[1];
@@ -252,7 +294,7 @@ const Sidebar = ({ onToggle, activePath = '/' }: SidebarProps) => {
                     href={item.href}
                     onClick={() => setActive(item.href)}
                     data-active={isActive}
-                    className='group flex items-center justify-center rounded-lg px-3 py-2 text-sm text-gray-700 hover:bg-gray-100/50 hover:text-green-600 data-[active=true]:bg-green-500/10 data-[active=true]:text-green-700 font-medium transition-colors duration-200 dark:text-gray-300 dark:hover:text-green-400 dark:data-[active=true]:bg-green-500/10 dark:data-[active=true]:text-green-400 gap-2 flex-shrink-0'
+                    className='group flex items-center justify-center rounded-lg px-2.5 md:px-3 py-2 text-sm text-gray-700 hover:bg-gray-100/50 hover:text-green-600 data-[active=true]:bg-green-500/10 data-[active=true]:text-green-700 font-medium transition-colors duration-200 dark:text-gray-300 dark:hover:text-green-400 dark:data-[active=true]:bg-green-500/10 dark:data-[active=true]:text-green-400 gap-2 flex-shrink-0'
                   >
                     <Icon className='h-4 w-4 text-gray-500 group-hover:text-green-600 data-[active=true]:text-green-700 dark:text-gray-400 dark:group-hover:text-green-400 dark:data-[active=true]:text-green-400' />
                     <span>{item.label}</span>
@@ -260,6 +302,44 @@ const Sidebar = ({ onToggle, activePath = '/' }: SidebarProps) => {
                 );
               })}
             </nav>
+
+            {/* 新增：右侧友情链接按钮与上拉菜单 */}
+            <div className='absolute right-4 md:right-6 h-full flex items-center z-20' ref={friendLinksRef}>
+              <button
+                onClick={() => setShowFriendLinks(!showFriendLinks)}
+                className={`group flex items-center justify-center rounded-lg px-3 py-2 text-sm font-medium transition-colors duration-200 gap-1.5 ${
+                  showFriendLinks 
+                    ? 'bg-green-500/10 text-green-600 dark:text-green-400' 
+                    : 'text-gray-700 hover:bg-gray-100/50 hover:text-green-600 dark:text-gray-300 dark:hover:text-green-400'
+                }`}
+              >
+                <ExternalLink className='h-4 w-4 flex-shrink-0' />
+                <span className="hidden lg:block">友情链接</span>
+              </button>
+
+              {/* 上拉悬浮菜单 (带平滑过渡动画) */}
+              <div 
+                className={`absolute bottom-[calc(100%+0.5rem)] right-0 w-44 bg-white/95 dark:bg-gray-900/95 backdrop-blur-xl border border-gray-200 dark:border-gray-700/80 rounded-xl shadow-[0_-10px_40px_-15px_rgba(0,0,0,0.3)] py-1.5 transition-all duration-300 origin-bottom-right ${
+                  showFriendLinks 
+                    ? 'opacity-100 scale-100 translate-y-0 pointer-events-auto' 
+                    : 'opacity-0 scale-95 translate-y-4 pointer-events-none'
+                }`}
+              >
+                {FRIEND_LINKS.map((link, idx) => (
+                  <a
+                    key={idx}
+                    href={link.url}
+                    target="_blank"            // 安全地在新标签页打开
+                    rel="noopener noreferrer"  // 防止钓鱼攻击
+                    onClick={() => setShowFriendLinks(false)} // 点击后自动收起菜单
+                    className='block px-4 py-2.5 text-sm text-gray-700 dark:text-gray-300 hover:bg-green-50 dark:hover:bg-gray-800/80 hover:text-green-600 dark:hover:text-green-400 transition-colors whitespace-nowrap'
+                  >
+                    {link.name}
+                  </a>
+                ))}
+              </div>
+            </div>
+
           </div>
         </aside>
 
