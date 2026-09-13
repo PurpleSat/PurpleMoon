@@ -62,24 +62,13 @@ function ParserPageClient() {
 
         <div className="w-full max-w-5xl mx-auto flex flex-col gap-6 relative z-10">
           
-          {/* Header 区域：带 Logo 和渐变文字 */}
+          {/* Header 区域：纯文本渐变标题 */}
           <div className="text-center mt-4 md:mt-8 mb-4">
-            <div className="flex items-center justify-center gap-3 mb-2">
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img 
-                src="public/logo.png" 
-                alt="Logo" 
-                className="h-10 md:h-12 w-auto object-contain drop-shadow-md select-none pointer-events-none"
-                onError={(e) => {
-                  (e.target as HTMLImageElement).style.display = 'none';
-                }}
-              />
-              <h1 className="text-3xl md:text-4xl font-bold bg-gradient-to-r from-red-500 to-rose-600 bg-clip-text text-transparent inline-block tracking-wide">
-                VIP 视频无界解析
-              </h1>
-            </div>
+            <h1 className="text-3xl md:text-4xl font-bold bg-gradient-to-r from-red-500 to-rose-600 bg-clip-text text-transparent inline-block tracking-wide mb-2">
+              紫月-VIP视频无界解析
+            </h1>
             <p className="text-gray-500 dark:text-gray-400 text-sm md:text-base mt-1">
-              突破平台限制，粘贴腾讯、爱奇艺、优酷等外部视频播放页链接即可观看
+              功能说明：突破平台限制，粘贴腾讯、爱奇艺、优酷等外部视频播放页链接即可观看高清VIP会员视频。
             </p>
           </div>
 
