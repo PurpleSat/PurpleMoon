@@ -294,7 +294,7 @@ const Sidebar = ({ onToggle, activePath = '/' }: SidebarProps) => {
                 }`}
               >
                 <ExternalLink className='h-4 w-4 flex-shrink-0' />
-                <span className="hidden lg:block">友情链接</span>
+                <span className="hidden lg:block">外链服务</span>
               </button>
 
               {/* 上拉悬浮菜单 (带平滑过渡动画) */}
