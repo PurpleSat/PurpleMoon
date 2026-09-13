@@ -57,7 +57,7 @@ function HomeClient() {
         }
       }
 
-      // 2. 极其宽泛的有效数据过滤 (兼容标准的 title/cover，也兼容 MacCMS 的 vod_name/vod_pic)
+      // 2. 极其宽泛的有效数据过滤
       let validItems = items.filter(
         (item) => item && (item.title || item.vod_name || item.name) && (item.cover || item.poster || item.pic || item.vod_pic || item.vod_pic_thumb)
       );
@@ -72,8 +72,8 @@ function HomeClient() {
 
       // 4. 截取前 12 个并在本地格式化为 VideoCard 所需的严格字段
       const selected = validItems.slice(0, 12).map((item) => ({
-        id: item.id || item.douban_id || item.vod_id || String(Math.random()),
-        source: item.source || 'douban', // 防止 source 为空导致后续路由报错
+        id: String(item.id || item.douban_id || item.vod_id || Math.random()),
+        source: 'douban', // 【关键修复 1】强制指定 source 为 douban，触发底层的全网搜索机制
         title: item.title || item.vod_name || item.name || '未知影视',
         poster: item.cover || item.poster || item.pic || item.vod_pic || item.vod_pic_thumb || '',
         year: item.year || item.vod_year || '',
@@ -88,7 +88,7 @@ function HomeClient() {
       setPreviewItems([]); // 确保出错时重置状态
     } finally {
       setIsPreviewLoading(false);
-      setTimeout(() => setIsRefreshing(false), 500); // 让旋转动画多持续一会儿，提升体感
+      setTimeout(() => setIsRefreshing(false), 500); 
     }
   };
 
@@ -288,7 +288,7 @@ function HomeClient() {
                           poster={item.poster}
                           year={item.year}
                           episodes={item.episodes}
-                          from='search' // 保证 TypeScript 不报错
+                          from='douban' /* 【关键修复 2】从 search 改为 douban，这样卡片会告诉播放器开启自动全网嗅探 */
                           type={item.type}
                         />
                       </div>
