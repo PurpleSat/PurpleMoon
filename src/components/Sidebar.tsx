@@ -185,26 +185,6 @@ const Sidebar = ({ onToggle, activePath = '/' }: SidebarProps) => {
       label: '最近上映',
       href: '/release-calendar',
     },
-    {
-      icon: Tv,
-      label: '红月搜索',
-      href: 'https://rm.400821.xyz',
-    },
-    {
-      icon: History,
-      label: 'My-CMS',
-      href: 'https://today.400823.xyz',
-    },
-    {
-      icon: Rocket,
-      label: 'My-Cloud',
-      href: 'https://200805.xyz',
-    },
-    {
-      icon: Clapperboard,
-      label: 'API中转',
-      href: 'https://timis.dpdns.org',
-    },
   ];
 
   return (
