@@ -135,14 +135,14 @@ const Sidebar = ({ onToggle, activePath = '/' }: SidebarProps) => {
       href: '/source-browser',
     },
     {
+      icon: Radio,
+      label: '紫月解析',
+      href: '/parser',
+    },
+    {
       icon: Film,
       label: '最近上映',
       href: '/release-calendar',
-    },
-    {
-      icon: Radio,
-      label: '红月解析UI',
-      href: 'https://rm.400821.xyz/vip',
     },
     {
       icon: Tv,
