@@ -28,7 +28,7 @@ function ReleaseCalendarClient() {
   });
 
   const [currentPage, setCurrentPage] = useState(parseInt(searchParams.get('page') || '1', 10));
-  const itemsPerPage = 30; // 核心修复：找回丢失的分页数量常量
+  const itemsPerPage = 30;
   const [viewMode, setViewMode] = useState<'grid' | 'timeline' | 'calendar'>((searchParams.get('view') as any) || 'grid');
 
   const [showBackToTop, setShowBackToTop] = useState(false);
@@ -149,9 +149,14 @@ function ReleaseCalendarClient() {
     }
   };
 
+  // 【核心修复】：补齐全网搜索参数 keyword 和 query，彻底解决“未找到匹配结果”
   const handlePlayClick = (item: ReleaseCalendarItem) => {
     const year = item.releaseDate ? item.releaseDate.split('-')[0] : '';
-    const url = `/play?source=douban&id=${item.id || String(Math.random())}&title=${encodeURIComponent(item.title)}&year=${year}&type=${item.type || 'movie'}`;
+    const source = (item as any).source || 'douban';
+    const id = (item as any).douban_id || (item as any).vod_id || item.id || String(Math.random());
+    const titleStr = encodeURIComponent(item.title);
+    
+    const url = `/play?source=${source}&id=${id}&title=${titleStr}&year=${year}&type=${item.type || 'movie'}&keyword=${titleStr}&query=${titleStr}`;
     router.push(url);
   };
 
@@ -184,7 +189,7 @@ function ReleaseCalendarClient() {
     <PageLayout activePath="/release-calendar">
       <div className="flex flex-col min-h-screen pb-10 bg-gray-50 dark:bg-[#0a0a0a] transition-colors">
         
-        {/* 吸顶导航栏 & 过滤器 (Glassmorphism) */}
+        {/* 吸顶导航栏 & 过滤器 */}
         <div className="sticky top-0 z-40 bg-white/80 dark:bg-gray-900/80 backdrop-blur-xl border-b border-gray-200 dark:border-gray-800 transition-colors">
           <div className="max-w-7xl mx-auto px-4 py-3">
             
@@ -225,7 +230,7 @@ function ReleaseCalendarClient() {
               </div>
             </div>
 
-            {/* 过滤器胶囊列表 (可横向滚动) */}
+            {/* 过滤器胶囊列表 */}
             <div className="flex items-center gap-2 overflow-x-auto scrollbar-hide pb-1">
               <div className="relative shrink-0">
                 <Search className="absolute left-2.5 top-1/2 transform -translate-y-1/2 text-gray-400 w-3.5 h-3.5" />
@@ -300,62 +305,66 @@ function ReleaseCalendarClient() {
             </div>
           ) : (
             <>
-              {/* 1. 现代化网格视图 (Grid View) */}
+              {/* 1. 现代化网格海报墙视图 (Grid View) */}
               {viewMode === 'grid' && (
-                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-x-4 gap-y-8 sm:gap-x-5 sm:gap-y-10">
+                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3 sm:gap-4">
                   {currentItems.filter((item, i, self) => i === self.findIndex(t => t.title === item.title)).map((item) => {
                     const isToday = item.releaseDate === new Date().toISOString().split('T')[0];
                     return (
                       <div 
                         key={item.id} 
-                        className="group flex flex-col gap-2.5 cursor-pointer w-full"
+                        className="group relative aspect-[2/3] w-full rounded-xl overflow-hidden bg-gray-200 dark:bg-gray-800 shadow-sm transition-all duration-300 hover:shadow-2xl hover:-translate-y-1 hover:ring-2 hover:ring-blue-500/50 cursor-pointer"
                         onClick={() => handlePlayClick(item)}
                       >
-                        {/* 海报容器 */}
-                        <div className="relative aspect-[2/3] w-full rounded-xl overflow-hidden bg-gray-200 dark:bg-gray-800 shadow-sm transition-all duration-300 group-hover:shadow-2xl group-hover:-translate-y-1 group-hover:ring-2 group-hover:ring-blue-500/50">
-                          {/* 海报图片 (增加 onError) */}
-                          {item.poster ? (
-                            <img src={item.poster} alt={item.title} className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105" loading="lazy" onError={handleImageError} />
-                          ) : (
-                            <div className="w-full h-full flex flex-col items-center justify-center text-gray-400 bg-gradient-to-br from-gray-100 to-gray-300 dark:from-gray-800 dark:to-gray-900 p-4 text-center">
-                              {getTypeIcon(item.type)}
-                              <span className="mt-2 text-xs font-medium text-gray-500 line-clamp-2">{item.title}</span>
-                            </div>
-                          )}
-                          
-                          {/* 顶部标签 */}
-                          {isToday && (
-                            <div className="absolute top-2 left-2 px-1.5 py-0.5 rounded bg-red-600/90 backdrop-blur-md text-[10px] text-white font-bold tracking-wider shadow-lg z-10">
-                              TODAY
-                            </div>
-                          )}
-
-                          {/* 悬浮遮罩与播放按钮 (Hover State) */}
-                          <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-all duration-300 backdrop-blur-[2px]">
-                            <div className="w-12 h-12 bg-blue-500/90 rounded-full flex items-center justify-center transform scale-75 group-hover:scale-100 transition-transform duration-300 shadow-[0_0_15px_rgba(59,130,246,0.6)]">
-                              <Play className="w-5 h-5 text-white ml-1" fill="currentColor" />
-                            </div>
+                        {/* 海报图片 */}
+                        {item.poster ? (
+                          <img src={item.poster} alt={item.title} className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-105" loading="lazy" onError={handleImageError} />
+                        ) : (
+                          <div className="w-full h-full flex flex-col items-center justify-center text-gray-400 bg-gradient-to-br from-gray-100 to-gray-300 dark:from-gray-800 dark:to-gray-900 p-4 text-center">
+                            {getTypeIcon(item.type)}
+                            <span className="mt-2 text-xs font-medium text-gray-500 line-clamp-2">{item.title}</span>
                           </div>
-                        </div>
+                        )}
+                        
+                        {/* 顶部 TODAY 标签 */}
+                        {isToday && (
+                          <div className="absolute top-2 right-2 px-1.5 py-0.5 rounded bg-red-600/90 backdrop-blur-md text-[10px] text-white font-bold tracking-wider shadow-lg z-10">
+                            TODAY
+                          </div>
+                        )}
 
-                        {/* 底部常驻信息展示 */}
-                        <div className="flex flex-col px-0.5">
-                          <h3 className="text-sm font-bold text-gray-900 dark:text-gray-100 line-clamp-1 group-hover:text-blue-500 transition-colors">
+                        {/* 【修改点】：常驻的底部信息遮罩，直接内嵌在海报里 */}
+                        <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/95 via-black/70 to-transparent pt-12 pb-3 px-3 flex flex-col justify-end z-10">
+                          <h3 className="text-white font-bold text-sm line-clamp-1 drop-shadow-md">
                             {item.title}
                           </h3>
-                          
                           <div className="flex items-center justify-between mt-1.5">
-                            <span className="flex items-center gap-1.5 text-xs text-gray-500 dark:text-gray-400 font-medium bg-gray-100 dark:bg-gray-800/60 px-1.5 py-0.5 rounded">
-                              {getTypeIcon(item.type)} {getTypeLabel(item.type)}
-                            </span>
-                            <span className="text-xs text-gray-500 dark:text-gray-400 flex items-center gap-1 font-medium">
-                              <Clock className="w-3 h-3" /> {formatDate(item.releaseDate)}
-                            </span>
+                            <div className="flex items-center gap-1.5">
+                              <span className="text-[10px] px-1.5 py-0.5 rounded-sm bg-blue-500/90 text-white backdrop-blur-sm shadow-sm">
+                                {getTypeLabel(item.type)}
+                              </span>
+                              <span className="text-[10px] text-gray-200 flex items-center gap-1 font-medium drop-shadow">
+                                <Clock className="w-3 h-3" /> {formatDate(item.releaseDate)}
+                              </span>
+                            </div>
+                            {/* 评分 (如果有的话) */}
+                            {(item as any).rating && (
+                              <span className="text-[11px] text-amber-400 font-bold bg-black/50 px-1.5 py-0.5 rounded backdrop-blur-sm">
+                                {(item as any).rating}
+                              </span>
+                            )}
                           </div>
-                          
-                          <p className="text-[11px] sm:text-xs text-gray-400 dark:text-gray-500 truncate mt-1.5">
-                            {item.director !== '暂无评分' && item.director !== '未知' ? item.director : item.actors}
+                          {/* 描述/导演演员 */}
+                          <p className="text-[10px] text-gray-300 line-clamp-1 mt-1.5 leading-tight drop-shadow">
+                            {(item as any).description || (item.director !== '暂无评分' && item.director !== '未知' ? item.director : item.actors)}
                           </p>
+                        </div>
+
+                        {/* 【修改点】：鼠标悬浮时出现的深色遮罩和播放按钮 */}
+                        <div className="absolute inset-0 bg-black/30 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-all duration-300 backdrop-blur-[1px] z-20">
+                          <div className="w-12 h-12 bg-blue-500/90 rounded-full flex items-center justify-center transform scale-75 group-hover:scale-100 transition-transform duration-300 shadow-[0_0_15px_rgba(59,130,246,0.6)]">
+                            <Play className="w-5 h-5 text-white ml-1" fill="currentColor" />
+                          </div>
                         </div>
                       </div>
                     );
@@ -407,7 +416,7 @@ function ReleaseCalendarClient() {
                           {/* 右侧/下方：内容卡片 */}
                           <div className="w-full md:w-[calc(50%-2rem)] pl-16 md:pl-4 space-y-3">
                             {uniqueItems.map((item, i) => (
-                              <div key={`${item.id}-${i}`} onClick={() => handlePlayClick(item)} className="flex gap-3 p-3 bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-100 dark:border-gray-800/60 hover:shadow-md transition-shadow cursor-pointer">
+                              <div key={`${item.id}-${i}`} onClick={() => handlePlayClick(item)} className="flex gap-3 p-3 bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-100 dark:border-gray-800/60 hover:shadow-md transition-shadow cursor-pointer relative overflow-hidden group/card">
                                 {item.poster ? (
                                   <img src={item.poster} alt={item.title} className="w-12 h-16 object-cover rounded-md shadow-sm shrink-0 bg-gray-200 dark:bg-gray-800" loading="lazy" onError={handleImageError} />
                                 ) : (
@@ -416,7 +425,7 @@ function ReleaseCalendarClient() {
                                   </div>
                                 )}
                                 <div className="flex-1 min-w-0 py-0.5">
-                                  <h4 className="text-sm font-bold text-gray-900 dark:text-white truncate group-hover:text-blue-500 transition-colors">
+                                  <h4 className="text-sm font-bold text-gray-900 dark:text-white truncate group-hover/card:text-blue-500 transition-colors">
                                     {item.title}
                                   </h4>
                                   <div className="flex items-center gap-1.5 mt-1">
