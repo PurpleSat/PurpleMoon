@@ -10,6 +10,7 @@ import { Suspense, useEffect, useRef, useState } from 'react';
 
 import {
   deleteFavorite,
+  deletePlayRecord,
   generateStorageKey,
   getAllPlayRecords,
   isFavorited,
@@ -28,6 +29,14 @@ declare global {
   interface HTMLVideoElement {
     hls?: any;
   }
+}
+
+// Wake Lock API 类型声明
+interface WakeLockSentinel {
+  released: boolean;
+  release(): Promise<void>;
+  addEventListener(type: 'release', listener: () => void): void;
+  removeEventListener(type: 'release', listener: () => void): void;
 }
 
 function PlayPageClient() {
@@ -61,7 +70,7 @@ function PlayPageClient() {
     blockAdEnabledRef.current = blockAdEnabled;
   }, [blockAdEnabled]);
 
-  // 跳过时间状态（单位：秒）
+  // 跳过时间状态（单位：秒）全局存取 localStorage
   const [skipIntro, setSkipIntro] = useState<number>(() => {
     if (typeof window !== 'undefined') {
       return Number(localStorage.getItem('skip_intro') || 0);
@@ -102,6 +111,8 @@ function PlayPageClient() {
   const [videoTitle, setVideoTitle] = useState(searchParams.get('title') || '');
   const [videoYear, setVideoYear] = useState(searchParams.get('year') || '');
   const [videoCover, setVideoCover] = useState('');
+  const [videoDoubanId, setVideoDoubanId] = useState(0);
+
   // 当前源和ID
   const [currentSource, setCurrentSource] = useState(
     searchParams.get('source') || ''
@@ -120,7 +131,7 @@ function PlayPageClient() {
   useEffect(() => {
     needPreferRef.current = needPrefer;
   }, [needPrefer]);
-  
+
   // 集数相关
   const [currentEpisodeIndex, setCurrentEpisodeIndex] = useState(0);
 
@@ -164,6 +175,8 @@ function PlayPageClient() {
   const resumeTimeRef = useRef<number | null>(null);
   // 上次使用的音量，默认 0.7
   const lastVolumeRef = useRef<number>(0.7);
+  // 上次使用的播放速率，默认 1.0
+  const lastPlaybackRateRef = useRef<number>(1.0);
 
   // 换源相关状态
   const [availableSources, setAvailableSources] = useState<SearchResult[]>([]);
@@ -177,8 +190,8 @@ function PlayPageClient() {
       if (saved !== null) {
         try {
           return JSON.parse(saved);
-        } catch {
-          /* ignore */
+        } catch (err) {
+          console.warn('解析 enableOptimization 失败:', err);
         }
       }
     }
@@ -191,7 +204,8 @@ function PlayPageClient() {
   >(new Map());
 
   // 折叠状态（仅在 lg 及以上屏幕有效）
-  const [isEpisodeSelectorCollapsed, setIsEpisodeSelectorCollapsed] = useState(false);
+  const [isEpisodeSelectorCollapsed, setIsEpisodeSelectorCollapsed] =
+    useState(false);
 
   // 换源加载状态
   const [isVideoLoading, setIsVideoLoading] = useState(true);
@@ -203,15 +217,32 @@ function PlayPageClient() {
   const saveIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const lastSaveTimeRef = useRef<number>(0);
 
+  // 播放器相关引用
   const artPlayerRef = useRef<any>(null);
   const artRef = useRef<HTMLDivElement | null>(null);
   const hlsRef = useRef<Hls | null>(null);
   const playerGenerationRef = useRef(0);
   const autoAdvanceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  // Wake Lock 相关
+  const wakeLockRef = useRef<WakeLockSentinel | null>(null);
+
   // -----------------------------------------------------------------------------
   // 工具函数（Utils）
   // -----------------------------------------------------------------------------
+
+  const formatTime = (seconds: number): string => {
+    if (seconds === 0) return '00:00';
+    const hours = Math.floor(seconds / 3600);
+    const minutes = Math.floor((seconds % 3600) / 60);
+    const remainingSeconds = Math.round(seconds % 60);
+
+    if (hours === 0) {
+      return `${minutes.toString().padStart(2, '0')}:${remainingSeconds.toString().padStart(2, '0')}`;
+    } else {
+      return `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${remainingSeconds.toString().padStart(2, '0')}`;
+    }
+  };
 
   // 播放源优选函数
   const preferBestSource = async (
@@ -219,40 +250,42 @@ function PlayPageClient() {
   ): Promise<SearchResult> => {
     if (sources.length === 1) return sources[0];
 
-    // 将播放源均分为两批，并发测速各批，避免一次性过多请求
-    const batchSize = Math.ceil(sources.length / 2);
+    // 固定并发数测速，避免源数量多时同时创建大量 hls 实例拖垮设备
+    const MAX_CONCURRENT_TEST = 4;
     const allResults: Array<{
       source: SearchResult;
       testResult: { quality: string; loadSpeed: string; pingTime: number };
-    } | null> = [];
+    } | null> = new Array(sources.length).fill(null);
 
-    for (let start = 0; start < sources.length; start += batchSize) {
-      const batchSources = sources.slice(start, start + batchSize);
-      const batchResults = await Promise.all(
-        batchSources.map(async (source) => {
-          try {
-            if (!source.episodes || source.episodes.length === 0) {
-              console.warn(`播放源 ${source.source_name} 没有可用的播放地址`);
-              return null;
-            }
+    const testOne = async (index: number) => {
+      const source = sources[index];
+      try {
+        if (!source.episodes || source.episodes.length === 0) {
+          console.warn(`播放源 ${source.source_name} 没有可用的播放地址`);
+          return;
+        }
 
-            const episodeUrl =
-              source.episodes.length > 1
-                ? source.episodes[1]
-                : source.episodes[0];
-            const testResult = await getVideoResolutionFromM3u8(episodeUrl);
+        const episodeUrl =
+          source.episodes.length > 1 ? source.episodes[1] : source.episodes[0];
+        const testResult = await getVideoResolutionFromM3u8(episodeUrl);
 
-            return {
-              source,
-              testResult,
-            };
-          } catch (error) {
-            return null;
-          }
-        })
-      );
-      allResults.push(...batchResults);
-    }
+        allResults[index] = { source, testResult };
+      } catch (error) {
+        allResults[index] = null;
+      }
+    };
+
+    let cursor = 0;
+    const workers = Array.from(
+      { length: Math.min(MAX_CONCURRENT_TEST, sources.length) },
+      async () => {
+        while (cursor < sources.length) {
+          const current = cursor++;
+          await testOne(current);
+        }
+      }
+    );
+    await Promise.all(workers);
 
     const newVideoInfoMap = new Map<
       string,
@@ -294,11 +327,11 @@ function PlayPageClient() {
 
         const value = parseFloat(match[1]);
         const unit = match[2];
-        return unit === 'MB/s' ? value * 1024 : value;
+        return unit === 'MB/s' ? value * 1024 : value; // 统一转换为 KB/s
       })
       .filter((speed) => speed > 0);
 
-    const maxSpeed = validSpeeds.length > 0 ? Math.max(...validSpeeds) : 1024;
+    const maxSpeed = validSpeeds.length > 0 ? Math.max(...validSpeeds) : 1024; // 默认1MB/s作为基准
 
     const validPings = successfulResults
       .map((result) => result.testResult.pingTime)
@@ -322,10 +355,8 @@ function PlayPageClient() {
     console.log('播放源评分排序结果:');
     resultsWithScore.forEach((result, index) => {
       console.log(
-        `${index + 1}. ${
-          result.source.source_name
-        } - 评分: ${result.score.toFixed(2)} (${result.testResult.quality}, ${
-          result.testResult.loadSpeed
+        `${index + 1}. ${result.source.source_name
+        } - 评分: ${result.score.toFixed(2)} (${result.testResult.quality}, ${result.testResult.loadSpeed
         }, ${result.testResult.pingTime}ms)`
       );
     });
@@ -389,7 +420,6 @@ function PlayPageClient() {
     return Math.round(score * 100) / 100;
   };
 
-  // 更新视频地址
   const updateVideoUrl = (
     detailData: SearchResult | null,
     episodeIndex: number
@@ -408,16 +438,54 @@ function PlayPageClient() {
     }
   };
 
-  // ---------------------------------------------------------------------------
-  // HLS / M3U8 去广告
-  // ---------------------------------------------------------------------------
+  const ensureVideoSource = (video: HTMLVideoElement | null, url: string) => {
+    if (!video || !url) return;
+    const sources = Array.from(video.getElementsByTagName('source'));
+    const existed = sources.some((s) => s.src === url);
+    if (!existed) {
+      sources.forEach((s) => s.remove());
+      const sourceEl = document.createElement('source');
+      sourceEl.src = url;
+      video.appendChild(sourceEl);
+    }
+
+    video.disableRemotePlayback = false;
+    if (video.hasAttribute('disableRemotePlayback')) {
+      video.removeAttribute('disableRemotePlayback');
+    }
+  };
+
+  // Wake Lock 相关函数
+  const requestWakeLock = async () => {
+    try {
+      if ('wakeLock' in navigator) {
+        wakeLockRef.current = await (navigator as any).wakeLock.request('screen');
+        console.log('Wake Lock 已启用');
+      }
+    } catch (err) {
+      console.warn('Wake Lock 请求失败:', err);
+    }
+  };
+
+  const releaseWakeLock = async () => {
+    try {
+      if (wakeLockRef.current) {
+        await wakeLockRef.current.release();
+        wakeLockRef.current = null;
+        console.log('Wake Lock 已释放');
+      }
+    } catch (err) {
+      console.warn('Wake Lock 释放失败:', err);
+    }
+  };
+
+  // 去广告与 HLS Loader 配置
   const filterAdsFromM3U8 = (m3u8Content: string): string => {
     if (!m3u8Content || !blockAdEnabledRef.current) return m3u8Content;
 
     const lines = m3u8Content.split(/\r?\n/);
     const output: string[] = [];
     let inAdBreak = false;
-    let pendingSegmentDuration: string | null = null;
 
     const isAdMarker = (line: string) => {
       const upper = line.toUpperCase();
@@ -438,33 +506,24 @@ function PlayPageClient() {
     for (const rawLine of lines) {
       const line = rawLine.trim();
 
-      // 绝不能把 DISCONTINUITY 本身当广告删除。它可能是合法的编解码/音轨切换标记。
       if (isAdEndMarker(line)) {
         inAdBreak = false;
-        pendingSegmentDuration = null;
         continue;
       }
 
       if (isAdMarker(line)) {
         inAdBreak = true;
-        pendingSegmentDuration = null;
         continue;
       }
 
       if (line.startsWith('#EXTINF:')) {
-        pendingSegmentDuration = rawLine;
         if (!inAdBreak) output.push(rawLine);
         continue;
       }
 
-      // 广告区内，连同对应的 EXTINF / URI 一起移除。
       if (inAdBreak) {
-        pendingSegmentDuration = null;
         if (line === '' || line.startsWith('#')) {
-          // 保留结束前不会影响媒体序列的必要标签；广告块中的普通标签跳过。
-          if (line === '#EXT-X-DISCONTINUITY') {
-            // 不把 discontinuity 当作广告结束条件，也不输出广告段中的该标记。
-          }
+          // 不作处理
         }
         continue;
       }
@@ -504,7 +563,6 @@ function PlayPageClient() {
     switch (data.type) {
       case Hls.ErrorTypes.NETWORK_ERROR: {
         const status = Number(data.response?.code || 0);
-        // 4xx（尤其是 403/404）通常不是简单 startLoad 能解决的问题，避免死循环重试。
         if ([401, 403, 404].includes(status)) {
           setError(`视频资源不可用（HTTP ${status}）`);
           setIsVideoLoading(false);
@@ -543,7 +601,6 @@ function PlayPageClient() {
       hlsRef.current = null;
     }
 
-    // Safari / iOS：使用原生 HLS，避免错误的 WebKit 检测。
     if (!Hls.isSupported()) {
       const canNativePlay = !!video.canPlayType('application/vnd.apple.mpegurl');
       if (canNativePlay) {
@@ -727,7 +784,6 @@ function PlayPageClient() {
         setLoading(false);
         return;
       }
-
       setLoading(true);
       setLoadingStage(currentSource && currentId ? 'fetching' : 'searching');
       setLoadingMessage(
@@ -738,7 +794,6 @@ function PlayPageClient() {
 
       let sourcesInfo: SearchResult[] = [];
 
-      // URL 已经给出了 source + id 时，优先直接获取详情，避免一次无意义的全局搜索。
       if (currentSource && currentId) {
         sourcesInfo = await fetchSourceDetail(currentSource, currentId);
       }
@@ -760,7 +815,13 @@ function PlayPageClient() {
         const target = sourcesInfo.find(
           (source) => source.source === currentSource && source.id === currentId
         );
-        if (target) detailData = target;
+        if (target) {
+          detailData = target;
+        } else {
+          setError('未找到匹配结果');
+          setLoading(false);
+          return;
+        }
       }
 
       if (
@@ -780,7 +841,9 @@ function PlayPageClient() {
       setVideoYear(detailData.year);
       setVideoTitle(detailData.title || videoTitleRef.current);
       setVideoCover(detailData.poster);
+      setVideoDoubanId(detailData.douban_id || 0);
       setDetail(detailData);
+      
       setAvailableSources((prev) => {
         const exists = prev.some(
           (source) => source.source === detailData.source && source.id === detailData.id
@@ -802,7 +865,10 @@ function PlayPageClient() {
 
       setLoadingStage('ready');
       setLoadingMessage('✨ 准备就绪，即将开始播放...');
-      setLoading(false);
+
+      setTimeout(() => {
+        setLoading(false);
+      }, 1000);
     };
 
     void initAll();
@@ -849,6 +915,18 @@ function PlayPageClient() {
       const currentPlayTime = artPlayerRef.current?.currentTime || 0;
       console.log('换源前当前播放时间:', currentPlayTime);
 
+      if (currentSourceRef.current && currentIdRef.current) {
+        try {
+          await deletePlayRecord(
+            currentSourceRef.current,
+            currentIdRef.current
+          );
+          console.log('已清除前一个播放记录');
+        } catch (err) {
+          console.error('清除播放记录失败:', err);
+        }
+      }
+
       const newDetail = availableSources.find(
         (source) => source.source === newSource && source.id === newId
       );
@@ -881,6 +959,7 @@ function PlayPageClient() {
       setVideoTitle(newDetail.title || newTitle);
       setVideoYear(newDetail.year);
       setVideoCover(newDetail.poster);
+      setVideoDoubanId(newDetail.douban_id || 0);
       setCurrentSource(newSource);
       setCurrentId(newId);
       setDetail(newDetail);
@@ -903,7 +982,9 @@ function PlayPageClient() {
   // ---------------------------------------------------------------------------
   const handleEpisodeChange = (episodeNumber: number) => {
     if (episodeNumber >= 0 && episodeNumber < totalEpisodes) {
-      void saveCurrentPlayProgress();
+      if (artPlayerRef.current && artPlayerRef.current.paused) {
+        void saveCurrentPlayProgress();
+      }
       setCurrentEpisodeIndex(episodeNumber);
     }
   };
@@ -912,7 +993,9 @@ function PlayPageClient() {
     const d = detailRef.current;
     const idx = currentEpisodeIndexRef.current;
     if (d && d.episodes && idx > 0) {
-      void saveCurrentPlayProgress();
+      if (artPlayerRef.current && !artPlayerRef.current.paused) {
+        void saveCurrentPlayProgress();
+      }
       setCurrentEpisodeIndex(idx - 1);
     }
   };
@@ -921,7 +1004,9 @@ function PlayPageClient() {
     const d = detailRef.current;
     const idx = currentEpisodeIndexRef.current;
     if (d && d.episodes && idx < d.episodes.length - 1) {
-      void saveCurrentPlayProgress();
+      if (artPlayerRef.current && !artPlayerRef.current.paused) {
+        void saveCurrentPlayProgress();
+      }
       setCurrentEpisodeIndex(idx + 1);
     }
   };
@@ -1070,15 +1155,7 @@ function PlayPageClient() {
       window.removeEventListener('pagehide', handlePageHide);
       document.removeEventListener('visibilitychange', handleVisibilityChange);
     };
-  }, []);
-
-  useEffect(() => {
-    return () => {
-      if (saveIntervalRef.current) {
-        clearInterval(saveIntervalRef.current);
-      }
-    };
-  }, []);
+  }, [currentEpisodeIndex, detail, artPlayerRef.current]);
 
   // ---------------------------------------------------------------------------
   // 收藏相关
@@ -1090,7 +1167,7 @@ function PlayPageClient() {
         const fav = await isFavorited(currentSource, currentId);
         setFavorited(fav);
       } catch (err) {
-        console.error('检查收藏状态失败:', err);
+        console.warn('忽略收藏检查报错', err);
       }
     })();
   }, [currentSource, currentId]);
@@ -1136,12 +1213,24 @@ function PlayPageClient() {
         setFavorited(true);
       }
     } catch (err) {
-      console.error('切换收藏失败:', err);
+      console.warn('忽略收藏切换报错', err);
     }
   };
 
+  // =========================================================================
+  // 核心：播放器实例生命周期管理（完美解决 OOM 与幽灵声音问题）
+  // =========================================================================
   useEffect(() => {
-    if (!Artplayer || !Hls || !videoUrl || loading || !artRef.current) return;
+    if (
+      !Artplayer ||
+      !Hls ||
+      !videoUrl ||
+      loading ||
+      currentEpisodeIndex === null ||
+      !artRef.current
+    ) {
+      return;
+    }
 
     if (
       !detail ||
@@ -1176,9 +1265,14 @@ function PlayPageClient() {
       artPlayerRef.current = null;
     }
 
+    const isWebkit =
+      typeof window !== 'undefined' &&
+      typeof (window as any).webkitConvertPointFromNodeToPage === 'function';
+
     try {
       Artplayer.PLAYBACK_RATE = [0.5, 0.75, 1, 1.25, 1.5, 2, 3];
-      Artplayer.USE_RAF = true;
+      Artplayer.USE_RAF = false;
+      Artplayer.FULLSCREEN_WEB_IN_BODY = true;
 
       const introOptions = [
         { default: skipIntroRef.current === 0, html: '关闭', value: 0 },
@@ -1308,7 +1402,7 @@ function PlayPageClient() {
               setSkipOutro(item.value);
               return item.value > 0 ? `${item.value}s` : '关闭';
             },
-          },
+          }
         ],
         controls: [
           {
@@ -1430,6 +1524,7 @@ function PlayPageClient() {
         if (generation !== playerGenerationRef.current || destroyed) return;
         void saveCurrentPlayProgress();
       });
+
     } catch (err) {
       console.error('创建播放器失败:', err);
       if (generation === playerGenerationRef.current) {
@@ -1457,6 +1552,12 @@ function PlayPageClient() {
       }
       if (artPlayerRef.current) {
         try {
+          // 在完全销毁前切断媒体流，彻底解决后台幽灵声音
+          const videoElement = artPlayerRef.current.video;
+          if (videoElement) {
+            videoElement.removeAttribute('src');
+            videoElement.load();
+          }
           artPlayerRef.current.destroy(false);
         } catch {
           // ignore
@@ -1510,30 +1611,27 @@ function PlayPageClient() {
             <div className='mb-6 w-80 mx-auto'>
               <div className='flex justify-center space-x-2 mb-4'>
                 <div
-                  className={`w-3 h-3 rounded-full transition-all duration-500 ${
-                    loadingStage === 'searching' || loadingStage === 'fetching'
-                      ? 'bg-green-500 scale-125'
-                      : loadingStage === 'preferring' ||
-                        loadingStage === 'ready'
+                  className={`w-3 h-3 rounded-full transition-all duration-500 ${loadingStage === 'searching' || loadingStage === 'fetching'
+                    ? 'bg-green-500 scale-125'
+                    : loadingStage === 'preferring' ||
+                      loadingStage === 'ready'
                       ? 'bg-green-500'
                       : 'bg-gray-300'
-                  }`}
+                    }`}
                 ></div>
                 <div
-                  className={`w-3 h-3 rounded-full transition-all duration-500 ${
-                    loadingStage === 'preferring'
-                      ? 'bg-green-500 scale-125'
-                      : loadingStage === 'ready'
+                  className={`w-3 h-3 rounded-full transition-all duration-500 ${loadingStage === 'preferring'
+                    ? 'bg-green-500 scale-125'
+                    : loadingStage === 'ready'
                       ? 'bg-green-500'
                       : 'bg-gray-300'
-                  }`}
+                    }`}
                 ></div>
                 <div
-                  className={`w-3 h-3 rounded-full transition-all duration-500 ${
-                    loadingStage === 'ready'
-                      ? 'bg-green-500 scale-125'
-                      : 'bg-gray-300'
-                  }`}
+                  className={`w-3 h-3 rounded-full transition-all duration-500 ${loadingStage === 'ready'
+                    ? 'bg-green-500 scale-125'
+                    : 'bg-gray-300'
+                    }`}
                 ></div>
               </div>
 
@@ -1544,11 +1642,11 @@ function PlayPageClient() {
                   style={{
                     width:
                       loadingStage === 'searching' ||
-                      loadingStage === 'fetching'
+                        loadingStage === 'fetching'
                         ? '33%'
                         : loadingStage === 'preferring'
-                        ? '66%'
-                        : '100%',
+                          ? '66%'
+                          : '100%',
                   }}
                 ></div>
               </div>
@@ -1643,7 +1741,7 @@ function PlayPageClient() {
             {videoTitle || '影片标题'}
             {totalEpisodes > 1 && (
               <span className='text-gray-500 dark:text-gray-400'>
-                {` > 第 ${currentEpisodeIndex + 1} 集`}
+                {` > ${detail?.episodes_titles?.[currentEpisodeIndex] || `第 ${currentEpisodeIndex + 1} 集`}`}
               </span>
             )}
           </h1>
@@ -1662,9 +1760,8 @@ function PlayPageClient() {
               }
             >
               <svg
-                className={`w-3.5 h-3.5 text-gray-500 dark:text-gray-400 transition-transform duration-200 ${
-                  isEpisodeSelectorCollapsed ? 'rotate-180' : 'rotate-0'
-                }`}
+                className={`w-3.5 h-3.5 text-gray-500 dark:text-gray-400 transition-transform duration-200 ${isEpisodeSelectorCollapsed ? 'rotate-180' : 'rotate-0'
+                  }`}
                 fill='none'
                 stroke='currentColor'
                 viewBox='0 0 24 24'
@@ -1682,27 +1779,24 @@ function PlayPageClient() {
 
               {/* 精致的状态指示点 */}
               <div
-                className={`absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full transition-all duration-200 ${
-                  isEpisodeSelectorCollapsed
-                    ? 'bg-orange-400 animate-pulse'
-                    : 'bg-green-400'
-                }`}
+                className={`absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full transition-all duration-200 ${isEpisodeSelectorCollapsed
+                  ? 'bg-orange-400 animate-pulse'
+                  : 'bg-green-400'
+                  }`}
               ></div>
             </button>
           </div>
 
           <div
-            className={`grid gap-4 lg:h-[500px] xl:h-[650px] 2xl:h-[750px] transition-all duration-300 ease-in-out ${
-              isEpisodeSelectorCollapsed
-                ? 'grid-cols-1'
-                : 'grid-cols-1 md:grid-cols-4'
-            }`}
+            className={`grid gap-4 lg:h-[500px] xl:h-[650px] 2xl:h-[750px] transition-all duration-300 ease-in-out ${isEpisodeSelectorCollapsed
+              ? 'grid-cols-1'
+              : 'grid-cols-1 md:grid-cols-4'
+              }`}
           >
             {/* 播放器 */}
             <div
-              className={`h-full transition-all duration-300 ease-in-out rounded-xl border border-white/0 dark:border-white/30 ${
-                isEpisodeSelectorCollapsed ? 'col-span-1' : 'md:col-span-3'
-              }`}
+              className={`h-full transition-all duration-300 ease-in-out rounded-xl border border-white/0 dark:border-white/30 ${isEpisodeSelectorCollapsed ? 'col-span-1' : 'md:col-span-3'
+                }`}
             >
               <div className='relative w-full h-[300px] lg:h-full'>
                 <div
@@ -1752,14 +1846,14 @@ function PlayPageClient() {
 
             {/* 选集和换源 - 在移动端始终显示，在 lg 及以上可折叠 */}
             <div
-              className={`h-[300px] lg:h-full md:overflow-hidden transition-all duration-300 ease-in-out ${
-                isEpisodeSelectorCollapsed
-                  ? 'md:col-span-1 lg:hidden lg:opacity-0 lg:scale-95'
-                  : 'md:col-span-1 lg:opacity-100 lg:scale-100'
-              }`}
+              className={`h-[300px] lg:h-full md:overflow-hidden transition-all duration-300 ease-in-out ${isEpisodeSelectorCollapsed
+                ? 'md:col-span-1 lg:hidden lg:opacity-0 lg:scale-95'
+                : 'md:col-span-1 lg:opacity-100 lg:scale-100'
+                }`}
             >
               <EpisodeSelector
                 totalEpisodes={totalEpisodes}
+                episodes_titles={detail?.episodes_titles || []}
                 value={currentEpisodeIndex + 1}
                 onChange={handleEpisodeChange}
                 onSourceChange={handleSourceChange}
@@ -1789,8 +1883,6 @@ function PlayPageClient() {
                     handleToggleFavorite();
                   }}
                   className='ml-3 flex-shrink-0 hover:opacity-80 transition-opacity'
-                  aria-label={favorited ? '取消收藏' : '加入收藏'}
-                  title={favorited ? '取消收藏' : '加入收藏'}
                 >
                   <FavoriteIcon filled={favorited} />
                 </button>
@@ -1828,13 +1920,41 @@ function PlayPageClient() {
           {/* 封面展示 */}
           <div className='hidden md:block md:col-span-1 md:order-first'>
             <div className='pl-0 py-4 pr-6'>
-              <div className='bg-gray-300 dark:bg-gray-700 aspect-[2/3] flex items-center justify-center rounded-xl overflow-hidden'>
+              <div className='relative bg-gray-300 dark:bg-gray-700 aspect-[2/3] flex items-center justify-center rounded-xl overflow-hidden'>
                 {videoCover ? (
-                  <img
-                    src={processImageUrl(videoCover)}
-                    alt={videoTitle}
-                    className='w-full h-full object-cover'
-                  />
+                  <>
+                    <img
+                      src={processImageUrl(videoCover)}
+                      alt={videoTitle}
+                      className='w-full h-full object-cover'
+                    />
+
+                    {/* 豆瓣链接按钮 */}
+                    {videoDoubanId !== 0 && (
+                      <a
+                        href={`https://movie.douban.com/subject/${videoDoubanId.toString()}`}
+                        target='_blank'
+                        rel='noopener noreferrer'
+                        className='absolute top-3 left-3'
+                      >
+                        <div className='bg-green-500 text-white text-xs font-bold w-8 h-8 rounded-full flex items-center justify-center shadow-md hover:bg-green-600 hover:scale-[1.1] transition-all duration-300 ease-out'>
+                          <svg
+                            width='16'
+                            height='16'
+                            viewBox='0 0 24 24'
+                            fill='none'
+                            stroke='currentColor'
+                            strokeWidth='2'
+                            strokeLinecap='round'
+                            strokeLinejoin='round'
+                          >
+                            <path d='M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71'></path>
+                            <path d='M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71'></path>
+                          </svg>
+                        </div>
+                      </a>
+                    )}
+                  </>
                 ) : (
                   <span className='text-gray-600 dark:text-gray-400'>
                     封面图片
