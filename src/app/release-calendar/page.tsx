@@ -149,15 +149,24 @@ function ReleaseCalendarClient() {
     }
   };
 
-  // 【终极修复】：借鉴 VideoCard 的全网寻址魔法
+  // 【终极修复】：智能片名清洗与路由参数补全
   const handlePlayClick = (item: ReleaseCalendarItem) => {
     const year = item.releaseDate ? item.releaseDate.split('-')[0] : '';
-    // 强制使用 douban source，并提供 fallback 的 ID
     const id = (item as any).douban_id || (item as any).vod_id || item.id || String(Math.random());
-    const titleStr = encodeURIComponent(item.title);
     
-    // 追加 &prefer=true 参数，让播放页启动全网测速优选逻辑，而不是死磕豆瓣源
-    const url = `/play?source=douban&id=${id}&title=${titleStr}&year=${year}&type=${item.type || 'movie'}&prefer=true`;
+    // 1. 清洗片名：将 "复仇者联盟4：终局之战" 切割为 "复仇者联盟4"，极大地提高 CMS 的命中率
+    let cleanTitle = item.title;
+    if (cleanTitle) {
+      cleanTitle = cleanTitle.split('：')[0].split(':')[0]; // 移除中英文冒号后的副标题
+      cleanTitle = cleanTitle.replace(/（[^）]*）|\([^)]*\)/g, ''); // 移除括号内容
+      cleanTitle = cleanTitle.trim().split(' ')[0]; // 移除空格及其后的英文名
+    }
+
+    const titleStr = encodeURIComponent(item.title); // title 保持原样，用于页面展示
+    const queryStr = encodeURIComponent(cleanTitle || item.title); // query 使用清洗后的极简名，用于底层搜索
+
+    // 2. 补齐 query 与 keyword 核心寻址参数，并维持 prefer=true
+    const url = `/play?source=douban&id=${id}&title=${titleStr}&year=${year}&type=${item.type || 'movie'}&query=${queryStr}&keyword=${queryStr}&prefer=true`;
     router.push(url);
   };
 
