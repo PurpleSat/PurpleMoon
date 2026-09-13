@@ -49,7 +49,7 @@ function ReleaseCalendarClient() {
     if (filters.region) params.set('region', filters.region);
     if (filters.genre) params.set('genre', filters.genre);
     if (filters.dateFrom) params.set('dateFrom', filters.dateFrom);
-    if (filters.dateTo) params.set('dateTo', filters.dateTo);
+    if (filters.dateTo) params.set('dateTo', params.dateTo);
     if (filters.search) params.set('search', filters.search);
 
     router.replace(`${pathname}?${params.toString()}`, { scroll: false });
@@ -149,12 +149,17 @@ function ReleaseCalendarClient() {
     }
   };
 
-  // 【终极修复】：智能片名清洗与路由参数补全
+  // 【终极修复】：动态获取真实 Source 与智能清洗标题
   const handlePlayClick = (item: ReleaseCalendarItem) => {
     const year = item.releaseDate ? item.releaseDate.split('-')[0] : '';
-    const id = (item as any).douban_id || (item as any).vod_id || item.id || String(Math.random());
     
-    // 1. 清洗片名：将 "复仇者联盟4：终局之战" 切割为 "复仇者联盟4"，极大地提高 CMS 的命中率
+    // 【核心修复】：绝对不能写死！优先使用数据自带的 source 字段
+    const actualSource = (item as any).source || (item as any).site || 'douban';
+    
+    // 优先使用 CMS 真实的 vod_id，再退化使用 douban_id 或内部 id
+    const id = (item as any).vod_id || (item as any).douban_id || item.id || String(Math.random());
+    
+    // 清洗片名：将 "复仇者联盟4：终局之战" 切割为 "复仇者联盟4"
     let cleanTitle = item.title;
     if (cleanTitle) {
       cleanTitle = cleanTitle.split('：')[0].split(':')[0]; // 移除中英文冒号后的副标题
@@ -165,8 +170,8 @@ function ReleaseCalendarClient() {
     const titleStr = encodeURIComponent(item.title); // title 保持原样，用于页面展示
     const queryStr = encodeURIComponent(cleanTitle || item.title); // query 使用清洗后的极简名，用于底层搜索
 
-    // 2. 补齐 query 与 keyword 核心寻址参数，并维持 prefer=true
-    const url = `/play?source=douban&id=${id}&title=${titleStr}&year=${year}&type=${item.type || 'movie'}&query=${queryStr}&keyword=${queryStr}&prefer=true`;
+    // 动态传入 actualSource，让播放页精准定位数据库
+    const url = `/play?source=${actualSource}&id=${id}&title=${titleStr}&year=${year}&type=${item.type || 'movie'}&query=${queryStr}&keyword=${queryStr}&prefer=true`;
     router.push(url);
   };
 
