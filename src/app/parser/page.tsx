@@ -41,27 +41,75 @@ function ParserPageClient() {
   const inputRef = useRef<HTMLInputElement>(null);
 
   // ==========================================
-  // 核心：路由守卫与登录验证拦截
+  // 核心：终极智能路由守卫与缓存状态水合
   // ==========================================
   useEffect(() => {
     const checkAuth = () => {
-      // 兼容最常见的几种本地存储命名，以及 Cookie 的基础检查
-      const isLoggedIn = 
-        localStorage.getItem('token') || 
-        localStorage.getItem('user_token') || 
-        localStorage.getItem('user') ||
-        document.cookie.includes('token=');
+      let isLogged = false;
 
-      if (!isLoggedIn) {
-        // 未登录：强制重定向到登录页
+      try {
+        // 1. 宽泛嗅探 Cookie (捕获 HttpOnly 之外的常规 Session/Token)
+        const c = document.cookie.toLowerCase();
+        if (c.includes('token') || c.includes('session') || c.includes('auth') || c.includes('user')) {
+          isLogged = true;
+        }
+
+        // 2. 模糊遍历 LocalStorage (捕获 Zustand Persist / Supabase 等复杂对象)
+        if (!isLogged && typeof localStorage !== 'undefined') {
+          for (let i = 0; i < localStorage.length; i++) {
+            const key = localStorage.key(i)?.toLowerCase() || '';
+            if (key.includes('token') || key.includes('user') || key.includes('auth') || key.includes('session') || key.includes('jwt')) {
+              // 排除无意义干扰项
+              if (key.includes('theme') || key.includes('color') || key.includes('settings')) continue;
+              
+              const val = localStorage.getItem(localStorage.key(i) as string);
+              // 确保存有实质性凭据数据
+              if (val && val !== 'null' && val !== 'undefined' && val !== '{}' && val !== '[]' && val.length > 2) {
+                isLogged = true;
+                break;
+              }
+            }
+          }
+        }
+
+        // 3. 模糊遍历 SessionStorage
+        if (!isLogged && typeof sessionStorage !== 'undefined') {
+          for (let i = 0; i < sessionStorage.length; i++) {
+            const key = sessionStorage.key(i)?.toLowerCase() || '';
+            if (key.includes('token') || key.includes('user') || key.includes('auth') || key.includes('session') || key.includes('jwt')) {
+              const val = sessionStorage.getItem(sessionStorage.key(i) as string);
+              if (val && val !== 'null' && val !== 'undefined' && val !== '{}' && val !== '[]' && val.length > 2) {
+                isLogged = true;
+                break;
+              }
+            }
+          }
+        }
+      } catch (e) {
+        console.warn('浏览器安全策略限制了凭证读取，为防止死锁予以放行', e);
+        isLogged = true; 
+      }
+
+      if (!isLogged) {
+        // 植入意图锚点，帮助不支持 callbackUrl 的登录页原生跳回
+        try {
+          localStorage.setItem('redirect_after_login', '/parser');
+        } catch (e) {
+          // ignore
+        }
         router.replace('/login?callbackUrl=/parser');
       } else {
-        // 验证通过：解除拦截，允许渲染页面内容
+        // 验证通过，解除全屏拦截状态
         setIsAuthChecking(false);
       }
     };
 
-    checkAuth();
+    // 植入 150 毫秒的水合延迟，等待项目全局 Context 或三方鉴权库将凭据写入浏览器
+    const hydrationTimer = setTimeout(() => {
+      checkAuth();
+    }, 150);
+
+    return () => clearTimeout(hydrationTimer);
   }, [router]);
 
   const handleParsePlay = () => {
@@ -94,7 +142,7 @@ function ParserPageClient() {
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
             </svg>
           </div>
-          <p className="mt-4 text-gray-500 dark:text-gray-400 font-medium tracking-wider text-sm">正在验证安全访问凭证...</p>
+          <p className="mt-4 text-gray-500 dark:text-gray-400 font-medium tracking-wider text-sm">正在核对安全访问凭证...</p>
         </div>
       </PageLayout>
     );
