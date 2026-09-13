@@ -149,11 +149,16 @@ function ReleaseCalendarClient() {
     }
   };
 
-  // 【核心修复】：直接跳转到全局搜索页（/search），触发底层全网真实视频源嗅探
+  // 【终极修复】：借鉴 VideoCard 的全网寻址魔法
   const handlePlayClick = (item: ReleaseCalendarItem) => {
+    const year = item.releaseDate ? item.releaseDate.split('-')[0] : '';
+    // 强制使用 douban source，并提供 fallback 的 ID
+    const id = (item as any).douban_id || (item as any).vod_id || item.id || String(Math.random());
     const titleStr = encodeURIComponent(item.title);
-    // 同时传入 keyword 和 query 以兼容不同的搜索页参数接收规则
-    router.push(`/search?keyword=${titleStr}&query=${titleStr}`);
+    
+    // 追加 &prefer=true 参数，让播放页启动全网测速优选逻辑，而不是死磕豆瓣源
+    const url = `/play?source=douban&id=${id}&title=${titleStr}&year=${year}&type=${item.type || 'movie'}&prefer=true`;
+    router.push(url);
   };
 
   const totalItems = data?.items.length || 0;
@@ -312,7 +317,7 @@ function ReleaseCalendarClient() {
                         className="group relative aspect-[2/3] w-full rounded-xl overflow-hidden bg-gray-200 dark:bg-gray-800 shadow-sm transition-all duration-300 hover:shadow-2xl hover:-translate-y-1 hover:ring-2 hover:ring-blue-500/50 cursor-pointer"
                         onClick={() => handlePlayClick(item)}
                       >
-                        {/* 海报图片 */}
+                        {/* 海报图片 (增加 onError) */}
                         {item.poster ? (
                           <img src={item.poster} alt={item.title} className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-105" loading="lazy" onError={handleImageError} />
                         ) : (
