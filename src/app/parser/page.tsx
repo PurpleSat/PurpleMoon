@@ -1,7 +1,6 @@
 'use client';
 
-import { useRouter } from 'next/navigation';
-import { Suspense, useEffect, useRef, useState } from 'react';
+import { Suspense, useRef, useState } from 'react';
 
 import PageLayout from '@/components/PageLayout';
 
@@ -30,87 +29,10 @@ const PARSE_LINES = [
 ];
 
 function ParserPageClient() {
-  const router = useRouter();
-  
-  // 鉴权状态：默认为 true（正在检查），防止未登录时闪现页面内容
-  const [isAuthChecking, setIsAuthChecking] = useState(true);
-
   const [parserLine, setParserLine] = useState(PARSE_LINES[0].url);
   const [parserInputUrl, setParserInputUrl] = useState('');
   const [activeIframeSrc, setActiveIframeSrc] = useState('');
   const inputRef = useRef<HTMLInputElement>(null);
-
-  // ==========================================
-  // 核心：终极智能路由守卫与缓存状态水合
-  // ==========================================
-  useEffect(() => {
-    const checkAuth = () => {
-      let isLogged = false;
-
-      try {
-        // 1. 宽泛嗅探 Cookie (捕获 HttpOnly 之外的常规 Session/Token)
-        const c = document.cookie.toLowerCase();
-        if (c.includes('token') || c.includes('session') || c.includes('auth') || c.includes('user')) {
-          isLogged = true;
-        }
-
-        // 2. 模糊遍历 LocalStorage (捕获 Zustand Persist / Supabase 等复杂对象)
-        if (!isLogged && typeof localStorage !== 'undefined') {
-          for (let i = 0; i < localStorage.length; i++) {
-            const key = localStorage.key(i)?.toLowerCase() || '';
-            if (key.includes('token') || key.includes('user') || key.includes('auth') || key.includes('session') || key.includes('jwt')) {
-              // 排除无意义干扰项
-              if (key.includes('theme') || key.includes('color') || key.includes('settings')) continue;
-              
-              const val = localStorage.getItem(localStorage.key(i) as string);
-              // 确保存有实质性凭据数据
-              if (val && val !== 'null' && val !== 'undefined' && val !== '{}' && val !== '[]' && val.length > 2) {
-                isLogged = true;
-                break;
-              }
-            }
-          }
-        }
-
-        // 3. 模糊遍历 SessionStorage
-        if (!isLogged && typeof sessionStorage !== 'undefined') {
-          for (let i = 0; i < sessionStorage.length; i++) {
-            const key = sessionStorage.key(i)?.toLowerCase() || '';
-            if (key.includes('token') || key.includes('user') || key.includes('auth') || key.includes('session') || key.includes('jwt')) {
-              const val = sessionStorage.getItem(sessionStorage.key(i) as string);
-              if (val && val !== 'null' && val !== 'undefined' && val !== '{}' && val !== '[]' && val.length > 2) {
-                isLogged = true;
-                break;
-              }
-            }
-          }
-        }
-      } catch (e) {
-        console.warn('浏览器安全策略限制了凭证读取，为防止死锁予以放行', e);
-        isLogged = true; 
-      }
-
-      if (!isLogged) {
-        // 植入意图锚点，帮助不支持 callbackUrl 的登录页原生跳回
-        try {
-          localStorage.setItem('redirect_after_login', '/parser');
-        } catch (e) {
-          // ignore
-        }
-        router.replace('/login?callbackUrl=/parser');
-      } else {
-        // 验证通过，解除全屏拦截状态
-        setIsAuthChecking(false);
-      }
-    };
-
-    // 植入 150 毫秒的水合延迟，等待项目全局 Context 或三方鉴权库将凭据写入浏览器
-    const hydrationTimer = setTimeout(() => {
-      checkAuth();
-    }, 150);
-
-    return () => clearTimeout(hydrationTimer);
-  }, [router]);
 
   const handleParsePlay = () => {
     const url = parserInputUrl.trim();
@@ -131,23 +53,6 @@ function ParserPageClient() {
     setActiveIframeSrc(`${parserLine}${url}`);
   };
 
-  // 鉴权拦截期间的过渡动画
-  if (isAuthChecking) {
-    return (
-      <PageLayout activePath="/parser">
-        <div className="flex flex-col items-center justify-center min-h-[calc(100vh-80px)]">
-          <div className="relative w-16 h-16 bg-gradient-to-r from-red-500 to-rose-600 rounded-2xl flex items-center justify-center transform animate-pulse shadow-xl border border-red-400/30">
-            <div className="absolute -inset-2 bg-gradient-to-r from-red-500 to-rose-600 rounded-2xl opacity-20 animate-spin"></div>
-            <svg xmlns="http://www.w3.org/2000/svg" className="w-8 h-8 text-white animate-bounce" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
-            </svg>
-          </div>
-          <p className="mt-4 text-gray-500 dark:text-gray-400 font-medium tracking-wider text-sm">正在核对安全访问凭证...</p>
-        </div>
-      </PageLayout>
-    );
-  }
-
   return (
     <PageLayout activePath="/parser">
       <div className="flex flex-col gap-6 py-6 px-5 lg:px-[3rem] 2xl:px-20 min-h-[calc(100vh-80px)] relative overflow-hidden">
@@ -157,7 +62,7 @@ function ParserPageClient() {
 
         <div className="w-full max-w-5xl mx-auto flex flex-col gap-6 relative z-10">
           
-          {/* Header 区域：带 Logo 和渐变文字 */}
+          {/* Header 区域 */}
           <div className="text-center mt-4 md:mt-8 mb-4">
             <div className="flex items-center justify-center gap-3 mb-2">
               {/* eslint-disable-next-line @next/next/no-img-element */}
