@@ -119,7 +119,6 @@ function LoginPageClient() {
         </div>
         
         <div className="flex items-center gap-5 sm:gap-6">
-          {/* 【修改点】：纯文字极简切换按钮放到右上角 */}
           {shouldAskUsername && enableRegister && (
             <button
               type='button'
@@ -142,12 +141,15 @@ function LoginPageClient() {
           
           {/* 极简标题 */}
           <div className="mb-10 text-center">
-            <h1 className='text-3xl sm:text-4xl font-black text-gray-900 dark:text-white tracking-tight mb-3'>
+            <h1 className={`text-3xl sm:text-4xl font-black text-gray-900 dark:text-white tracking-tight ${isRegisterMode ? 'mb-3' : ''}`}>
               {isRegisterMode ? 'Sign up' : 'Sign in'}
             </h1>
-            <p className="text-gray-500 dark:text-gray-400 text-sm font-medium">
-              {isRegisterMode ? 'Create a new account' : 'Welcome back to you!'}
-            </p>
+            {/* 【修改点】：取消登录副标题，注册时只显示纯英文的仅限邀请提示 */}
+            {isRegisterMode && (
+              <p className="text-gray-500 dark:text-gray-400 text-sm font-medium">
+                Registration by invitation code only
+              </p>
+            )}
           </div>
 
           <form onSubmit={onSubmit} className='space-y-4 sm:space-y-5'>
@@ -158,7 +160,6 @@ function LoginPageClient() {
                   <div className="absolute inset-y-0 left-0 pl-5 flex items-center pointer-events-none">
                     <User className="h-5 w-5 text-gray-400 group-focus-within:text-gray-900 dark:group-focus-within:text-white transition-colors" />
                   </div>
-                  {/* 极细的1像素边框 */}
                   <input
                     id='username'
                     type='text'
@@ -233,9 +234,15 @@ function LoginPageClient() {
       </main>
 
       {/* 底部 Footer：Logo 与 用户协议 */}
-      <footer className="w-full pb-8 pt-4 flex flex-col items-center justify-center gap-3 shrink-0">
-        <div className="w-11 h-11 rounded-2xl bg-gray-50 dark:bg-zinc-900 flex items-center justify-center shadow-sm overflow-hidden border border-gray-200 dark:border-zinc-800">
-          <img src="/logo.png" alt="Logo" className="w-full h-full object-cover" onError={(e) => e.currentTarget.style.display = 'none'} />
+      <footer className="w-full pb-8 pt-4 flex flex-col items-center justify-center gap-4 shrink-0">
+        {/* 【修改点】：去除了多余的背景、边框和阴影，将尺寸适当放大，图片改为自然包裹 */}
+        <div className="w-16 h-16 flex items-center justify-center pointer-events-none select-none">
+          <img 
+            src="/logo.png" 
+            alt="Logo" 
+            className="w-full h-full object-contain drop-shadow-sm dark:drop-shadow-none" 
+            onError={(e) => e.currentTarget.style.display = 'none'} 
+          />
         </div>
         <div className="text-[11px] font-semibold tracking-wide text-gray-400 dark:text-gray-600 flex items-center gap-2.5 uppercase">
           <a href="#" className="hover:text-black dark:hover:text-white transition-colors cursor-pointer">用户协议</a>
