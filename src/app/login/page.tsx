@@ -7,9 +7,6 @@ import { Lock, ShieldCheck, User } from 'lucide-react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Suspense, useEffect, useState } from 'react';
 
-import { useSite } from '@/components/SiteProvider';
-import { ThemeToggle } from '@/components/ThemeToggle';
-
 function LoginPageClient() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -24,7 +21,6 @@ function LoginPageClient() {
   
   const [shouldAskUsername, setShouldAskUsername] = useState(false);
   const [enableRegister, setEnableRegister] = useState(false);
-  const { siteName } = useSite();
 
   const requireInviteCode = process.env.NEXT_PUBLIC_ENABLE_REGISTER === 'true';
 
@@ -56,13 +52,13 @@ function LoginPageClient() {
         const redirect = searchParams.get('redirect') || '/';
         router.replace(redirect);
       } else if (res.status === 401) {
-        setError('Invalid username or password'); // 全英文错误提示
+        setError('Invalid username or password');
       } else {
         const data = await res.json().catch(() => ({}));
-        setError(data.error ?? 'Server error'); // 全英文错误提示
+        setError(data.error ?? 'Server error');
       }
     } catch (error) {
-      setError('Network error, please try again later'); // 全英文错误提示
+      setError('Network error, please try again later');
     } finally {
       setLoading(false);
     }
@@ -74,7 +70,7 @@ function LoginPageClient() {
     if (!password || !username) return;
 
     if (requireInviteCode && !inviteCode) {
-      setError('An invite code is required to sign up'); // 全英文错误提示
+      setError('An invite code is required to sign up');
       return;
     }
 
@@ -91,10 +87,10 @@ function LoginPageClient() {
         router.replace(redirect);
       } else {
         const data = await res.json().catch(() => ({}));
-        setError(data.error ?? 'Server error'); // 全英文错误提示
+        setError(data.error ?? 'Server error');
       }
     } catch (error) {
-      setError('Network error, please try again later'); // 全英文错误提示
+      setError('Network error, please try again later');
     } finally {
       setLoading(false);
     }
@@ -112,10 +108,10 @@ function LoginPageClient() {
   return (
     <div className='min-h-screen flex flex-col bg-white dark:bg-[#0a0a0a] selection:bg-black selection:text-white dark:selection:bg-white dark:selection:text-black transition-colors'>
       
-      {/* 顶部 Header：左侧站点名，右侧包含“Sign up”按钮和主题切换 */}
+      {/* 顶部 Header：左侧站点名，右侧包含“Sign up”按钮 */}
       <header className="w-full flex items-center justify-between p-6 sm:p-8 shrink-0">
         <div className="text-xl font-black tracking-tight text-gray-900 dark:text-white">
-          {siteName || 'Purplemoon'}
+          Purplemoon TV
         </div>
         
         <div className="flex items-center gap-5 sm:gap-6">
@@ -131,7 +127,6 @@ function LoginPageClient() {
               {isRegisterMode ? 'Sign in' : 'Sign up'}
             </button>
           )}
-          <ThemeToggle />
         </div>
       </header>
 
@@ -141,13 +136,18 @@ function LoginPageClient() {
           
           {/* 极简标题 */}
           <div className="mb-10 text-center">
-            <h1 className={`text-3xl sm:text-4xl font-black text-gray-900 dark:text-white tracking-tight ${isRegisterMode ? 'mb-3' : ''}`}>
+            <h1 className={`text-3xl sm:text-4xl font-black text-gray-900 dark:text-white tracking-tight ${isRegisterMode ? 'mb-2' : ''}`}>
               {isRegisterMode ? 'Sign up' : 'Sign in'}
             </h1>
             {isRegisterMode && (
-              <p className="text-gray-500 dark:text-gray-400 text-sm font-medium">
-                Registration by invitation code only
-              </p>
+              <div className="flex flex-col items-center gap-1.5 mt-3">
+                <p className="text-gray-500 dark:text-gray-400 text-sm font-medium">
+                  Registration by invitation code only
+                </p>
+                <p className="text-gray-400 dark:text-gray-500 text-xs">
+                  Request an invite: <a href="mailto:admin@400821.xyz" className="text-gray-700 dark:text-gray-300 hover:text-black dark:hover:text-white transition-colors underline underline-offset-2">admin@400821.xyz</a>
+                </p>
+              </div>
             )}
           </div>
 
