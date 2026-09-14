@@ -111,7 +111,7 @@ function LoginPageClient() {
       {/* 顶部 Header：左侧站点名，右侧包含“Sign up”按钮 */}
       <header className="w-full flex items-center justify-between p-6 sm:p-8 shrink-0">
         <div className="text-xl font-black tracking-tight text-gray-900 dark:text-white">
-          Purplemoon TV
+          Purplemoon
         </div>
         
         <div className="flex items-center gap-5 sm:gap-6">
