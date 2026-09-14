@@ -56,13 +56,13 @@ function LoginPageClient() {
         const redirect = searchParams.get('redirect') || '/';
         router.replace(redirect);
       } else if (res.status === 401) {
-        setError('密码错误或用户不存在');
+        setError('Invalid username or password'); // 全英文错误提示
       } else {
         const data = await res.json().catch(() => ({}));
-        setError(data.error ?? '服务器错误');
+        setError(data.error ?? 'Server error'); // 全英文错误提示
       }
     } catch (error) {
-      setError('网络错误，请稍后重试');
+      setError('Network error, please try again later'); // 全英文错误提示
     } finally {
       setLoading(false);
     }
@@ -74,7 +74,7 @@ function LoginPageClient() {
     if (!password || !username) return;
 
     if (requireInviteCode && !inviteCode) {
-      setError('系统已开启邀请制，必须填写邀请码才可注册');
+      setError('An invite code is required to sign up'); // 全英文错误提示
       return;
     }
 
@@ -91,10 +91,10 @@ function LoginPageClient() {
         router.replace(redirect);
       } else {
         const data = await res.json().catch(() => ({}));
-        setError(data.error ?? '服务器错误');
+        setError(data.error ?? 'Server error'); // 全英文错误提示
       }
     } catch (error) {
-      setError('网络错误，请稍后重试');
+      setError('Network error, please try again later'); // 全英文错误提示
     } finally {
       setLoading(false);
     }
@@ -115,7 +115,7 @@ function LoginPageClient() {
       {/* 顶部 Header：左侧站点名，右侧包含“Sign up”按钮和主题切换 */}
       <header className="w-full flex items-center justify-between p-6 sm:p-8 shrink-0">
         <div className="text-xl font-black tracking-tight text-gray-900 dark:text-white">
-          {siteName || '紫月 TV'}
+          {siteName || 'Purplemoon'}
         </div>
         
         <div className="flex items-center gap-5 sm:gap-6">
@@ -144,7 +144,6 @@ function LoginPageClient() {
             <h1 className={`text-3xl sm:text-4xl font-black text-gray-900 dark:text-white tracking-tight ${isRegisterMode ? 'mb-3' : ''}`}>
               {isRegisterMode ? 'Sign up' : 'Sign in'}
             </h1>
-            {/* 【修改点】：取消登录副标题，注册时只显示纯英文的仅限邀请提示 */}
             {isRegisterMode && (
               <p className="text-gray-500 dark:text-gray-400 text-sm font-medium">
                 Registration by invitation code only
@@ -235,7 +234,6 @@ function LoginPageClient() {
 
       {/* 底部 Footer：Logo 与 用户协议 */}
       <footer className="w-full pb-8 pt-4 flex flex-col items-center justify-center gap-4 shrink-0">
-        {/* 【修改点】：去除了多余的背景、边框和阴影，将尺寸适当放大，图片改为自然包裹 */}
         <div className="w-16 h-16 flex items-center justify-center pointer-events-none select-none">
           <img 
             src="/logo.png" 
@@ -245,9 +243,9 @@ function LoginPageClient() {
           />
         </div>
         <div className="text-[11px] font-semibold tracking-wide text-gray-400 dark:text-gray-600 flex items-center gap-2.5 uppercase">
-          <a href="#" className="hover:text-black dark:hover:text-white transition-colors cursor-pointer">用户协议</a>
+          <a href="#" className="hover:text-black dark:hover:text-white transition-colors cursor-pointer">Terms of Service</a>
           <span className="opacity-50">|</span>
-          <a href="#" className="hover:text-black dark:hover:text-white transition-colors cursor-pointer">隐私条款</a>
+          <a href="#" className="hover:text-black dark:hover:text-white transition-colors cursor-pointer">Privacy Policy</a>
         </div>
       </footer>
 
