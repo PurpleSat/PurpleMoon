@@ -7,6 +7,8 @@ import { Lock, ShieldCheck, User } from 'lucide-react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Suspense, useEffect, useState } from 'react';
 
+import { useSite } from '@/components/SiteProvider';
+
 function LoginPageClient() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -21,6 +23,9 @@ function LoginPageClient() {
   
   const [shouldAskUsername, setShouldAskUsername] = useState(false);
   const [enableRegister, setEnableRegister] = useState(false);
+  
+  // 调用全局变量
+  const { siteName } = useSite();
 
   const requireInviteCode = process.env.NEXT_PUBLIC_ENABLE_REGISTER === 'true';
 
@@ -111,7 +116,8 @@ function LoginPageClient() {
       {/* 顶部 Header：左侧站点名，右侧包含“Sign up”按钮 */}
       <header className="w-full flex items-center justify-between p-6 sm:p-8 shrink-0">
         <div className="text-xl font-black tracking-tight text-gray-900 dark:text-white">
-          Purplemoon
+          {/* 【修改点】：重新调用 siteName 变量，并赋予默认值 */}
+          {siteName || 'PurpleMoon'}
         </div>
         
         <div className="flex items-center gap-5 sm:gap-6">
