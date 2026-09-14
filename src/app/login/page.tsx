@@ -3,9 +3,9 @@
 
 'use client';
 
+import { ArrowLeft, ArrowRight, Lock, ShieldCheck, User, UserPlus } from 'lucide-react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Suspense, useEffect, useState } from 'react';
-import { User, Lock, UserPlus, ArrowRight, ArrowLeft, ShieldCheck } from 'lucide-react';
 
 import { useSite } from '@/components/SiteProvider';
 import { ThemeToggle } from '@/components/ThemeToggle';
@@ -110,154 +110,158 @@ function LoginPageClient() {
   };
 
   return (
-    <div className='relative min-h-screen flex items-center justify-center px-4 overflow-hidden'>
-      <div className='absolute top-4 right-4 z-50'>
-        <ThemeToggle />
-      </div>
-
-      <div className='relative z-10 w-full max-w-[420px] rounded-3xl bg-gradient-to-b from-white/90 via-white/70 to-white/40 dark:from-zinc-900/90 dark:via-zinc-900/70 dark:to-zinc-900/40 backdrop-blur-xl shadow-2xl p-8 sm:p-10 dark:border dark:border-zinc-800 transition-all'>
-        
-        {/* Logo & 标题区域 */}
-        <div className="flex flex-col items-center mb-8">
-          <div className="w-20 h-20 mb-4 rounded-2xl bg-white/60 dark:bg-zinc-800/60 backdrop-blur-sm flex items-center justify-center shadow-sm overflow-hidden border border-gray-200 dark:border-zinc-700/50">
-            <img src="/logo.png" alt="Logo" className="w-full h-full object-cover" onError={(e) => e.currentTarget.style.display = 'none'} />
-          </div>
-          {/* 已还原为原生的 siteName 引用方式 */}
-          <h1 className='tracking-tight text-center text-3xl font-extrabold text-red-600 dark:text-red-500 drop-shadow-sm'>
-            {siteName}
-          </h1>
-          <p className="text-gray-500 dark:text-gray-400 text-sm font-medium mt-2">
-            {isRegisterMode ? 'Create a new account' : 'Welcome to you!'}
-          </p>
+    <div className='min-h-screen flex flex-col bg-white dark:bg-[#0a0a0a] selection:bg-black selection:text-white dark:selection:bg-white dark:selection:text-black transition-colors'>
+      
+      {/* 顶部 Header：左侧站点名，右侧模式切换 */}
+      <header className="w-full flex items-center justify-between p-6 sm:p-8 shrink-0">
+        <div className="text-xl font-black tracking-tight text-gray-900 dark:text-white">
+          {siteName || '紫月 TV'}
         </div>
+        <ThemeToggle />
+      </header>
 
-        <form onSubmit={onSubmit} className='space-y-5'>
-          {/* 用户名输入框 */}
-          {shouldAskUsername && (
-            <div>
-              <label htmlFor='username' className='block text-[13px] font-bold text-gray-700 dark:text-gray-300 mb-1.5 ml-1'>
-                Username:
-              </label>
-              <div className="relative">
-                <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none">
-                  <User className="h-[18px] w-[18px] text-gray-400 dark:text-gray-500" />
-                </div>
-                <input
-                  id='username'
-                  type='text'
-                  autoComplete='username'
-                  className='block w-full pl-10 pr-4 py-3.5 bg-white/60 dark:bg-zinc-800/60 backdrop-blur-md border-0 ring-1 ring-gray-200 dark:ring-white/10 rounded-xl text-sm focus:ring-2 focus:ring-red-500 focus:outline-none text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-500 transition-all'
-                  placeholder='Please enter your username or ID.'
-                  value={username}
-                  onChange={(e) => setUsername(e.target.value)}
-                />
-              </div>
-            </div>
-          )}
-
-          {/* 密码输入框 */}
-          <div>
-            <label htmlFor='password' className='block text-[13px] font-bold text-gray-700 dark:text-gray-300 mb-1.5 ml-1'>
-              Password:
-            </label>
-            <div className="relative">
-              <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none">
-                <Lock className="h-[18px] w-[18px] text-gray-400 dark:text-gray-500" />
-              </div>
-              <input
-                id='password'
-                type='password'
-                autoComplete={isRegisterMode ? 'new-password' : 'current-password'}
-                className='block w-full pl-10 pr-4 py-3.5 bg-white/60 dark:bg-zinc-800/60 backdrop-blur-md border-0 ring-1 ring-gray-200 dark:ring-white/10 rounded-xl text-sm focus:ring-2 focus:ring-red-500 focus:outline-none text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-500 transition-all'
-                placeholder='Please enter the password.'
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-              />
-            </div>
+      {/* 中部核心表单区（沉浸式无边框） */}
+      <main className="flex-1 flex items-center justify-center px-6 w-full">
+        <div className='w-full max-w-[340px] sm:max-w-[380px]'>
+          
+          {/* 极简标题 */}
+          <div className="mb-10 text-center">
+            <h1 className='text-3xl sm:text-4xl font-black text-gray-900 dark:text-white tracking-tight mb-3'>
+              {isRegisterMode ? '注册' : '登录'}
+            </h1>
+            <p className="text-gray-500 dark:text-gray-400 text-sm font-medium">
+              {isRegisterMode ? 'Create a new account' : 'Welcome back to you!'}
+            </p>
           </div>
 
-          {/* 注册模式下的邀请码输入框 */}
-          {isRegisterMode && shouldAskUsername && enableRegister && requireInviteCode && (
-            <div className="animate-in fade-in slide-in-from-top-2 duration-300">
-              <label htmlFor='inviteCode' className='block text-[13px] font-bold text-gray-700 dark:text-gray-300 mb-1.5 ml-1'>
-                Invite Code:
-              </label>
-              <div className="relative">
-                <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none">
-                  <ShieldCheck className="h-[18px] w-[18px] text-gray-400 dark:text-gray-500" />
+          <form onSubmit={onSubmit} className='space-y-4 sm:space-y-5'>
+            {/* 用户名输入框 (胶囊风格) */}
+            {shouldAskUsername && (
+              <div>
+                <div className="relative group">
+                  <div className="absolute inset-y-0 left-0 pl-5 flex items-center pointer-events-none">
+                    <User className="h-5 w-5 text-gray-400 group-focus-within:text-gray-900 dark:group-focus-within:text-white transition-colors" />
+                  </div>
+                  <input
+                    id='username'
+                    type='text'
+                    autoComplete='username'
+                    className='block w-full pl-12 pr-6 py-4 bg-gray-100 dark:bg-zinc-900 border border-transparent rounded-full text-[15px] font-medium focus:ring-2 focus:ring-black dark:focus:ring-white focus:bg-white dark:focus:bg-black outline-none text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-600 transition-all'
+                    placeholder='Username'
+                    value={username}
+                    onChange={(e) => setUsername(e.target.value)}
+                  />
+                </div>
+              </div>
+            )}
+
+            {/* 密码输入框 (胶囊风格) */}
+            <div>
+              <div className="relative group">
+                <div className="absolute inset-y-0 left-0 pl-5 flex items-center pointer-events-none">
+                  <Lock className="h-5 w-5 text-gray-400 group-focus-within:text-gray-900 dark:group-focus-within:text-white transition-colors" />
                 </div>
                 <input
-                  id='inviteCode'
-                  type='text'
-                  className='block w-full pl-10 pr-4 py-3.5 bg-white/60 dark:bg-zinc-800/60 backdrop-blur-md border-0 ring-1 ring-gray-200 dark:ring-white/10 rounded-xl text-sm focus:ring-2 focus:ring-red-500 focus:outline-none text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-500 transition-all'
-                  placeholder='Please enter the invite code.'
-                  value={inviteCode}
-                  onChange={(e) => setInviteCode(e.target.value)}
+                  id='password'
+                  type='password'
+                  autoComplete={isRegisterMode ? 'new-password' : 'current-password'}
+                  className='block w-full pl-12 pr-6 py-4 bg-gray-100 dark:bg-zinc-900 border border-transparent rounded-full text-[15px] font-medium focus:ring-2 focus:ring-black dark:focus:ring-white focus:bg-white dark:focus:bg-black outline-none text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-600 transition-all'
+                  placeholder='Password'
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
                 />
               </div>
             </div>
-          )}
 
-          {error && (
-            <div className="bg-red-50/80 dark:bg-red-900/20 border border-red-200 dark:border-red-900/50 rounded-xl p-3 backdrop-blur-sm">
-              <p className='text-[13px] font-medium text-red-600 dark:text-red-400 text-center'>{error}</p>
-            </div>
-          )}
-
-          {/* 动态主操作按钮 */}
-          <button
-            type='submit'
-            disabled={!password || loading || (shouldAskUsername && !username)}
-            className='w-full flex items-center justify-center gap-2 py-3.5 mt-2 rounded-xl bg-red-600 hover:bg-red-700 text-white text-[15px] font-bold transition-all shadow-lg shadow-red-600/30 disabled:opacity-50 disabled:cursor-not-allowed'
-          >
-            {loading ? (
-              <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
-            ) : isRegisterMode ? (
-              <>
-                <UserPlus className="w-[18px] h-[18px]" />
-                Sign up
-              </>
-            ) : (
-              <>
-                <Lock className="w-[18px] h-[18px]" />
-                Sign in
-              </>
+            {/* 注册模式下的邀请码输入框 (胶囊风格) */}
+            {isRegisterMode && shouldAskUsername && enableRegister && requireInviteCode && (
+              <div className="animate-in fade-in slide-in-from-top-2 duration-300">
+                <div className="relative group">
+                  <div className="absolute inset-y-0 left-0 pl-5 flex items-center pointer-events-none">
+                    <ShieldCheck className="h-5 w-5 text-gray-400 group-focus-within:text-gray-900 dark:group-focus-within:text-white transition-colors" />
+                  </div>
+                  <input
+                    id='inviteCode'
+                    type='text'
+                    className='block w-full pl-12 pr-6 py-4 bg-gray-100 dark:bg-zinc-900 border border-transparent rounded-full text-[15px] font-medium focus:ring-2 focus:ring-black dark:focus:ring-white focus:bg-white dark:focus:bg-black outline-none text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-600 transition-all'
+                    placeholder='Invite Code'
+                    value={inviteCode}
+                    onChange={(e) => setInviteCode(e.target.value)}
+                  />
+                </div>
+              </div>
             )}
-          </button>
-        </form>
 
-        {/* 底部切换区域 */}
-        {shouldAskUsername && enableRegister && (
-          <>
-            <div className="flex items-center my-6">
-              <div className="flex-grow border-t border-gray-200 dark:border-zinc-700/50"></div>
-              <div className="flex-grow border-t border-gray-200 dark:border-zinc-700/50"></div>
-            </div>
+            {/* 错误提示 */}
+            {error && (
+              <div className="bg-red-50 dark:bg-red-900/10 border border-red-100 dark:border-red-900/30 rounded-2xl p-3.5">
+                <p className='text-[13px] font-bold text-red-600 dark:text-red-500 text-center'>{error}</p>
+              </div>
+            )}
 
+            {/* 纯黑主操作按钮 */}
             <button
-              type='button'
-              onClick={() => {
-                setIsRegisterMode(!isRegisterMode);
-                setError(null);
-              }}
-              className='w-full flex items-center justify-center gap-2 py-3.5 rounded-xl bg-white/40 dark:bg-zinc-800/40 backdrop-blur-md border border-gray-200 dark:border-white/10 text-gray-700 dark:text-gray-300 hover:bg-white/80 dark:hover:bg-zinc-700/60 text-[14px] font-bold transition-all shadow-sm'
+              type='submit'
+              disabled={!password || loading || (shouldAskUsername && !username)}
+              className='w-full flex items-center justify-center gap-2 py-4 mt-2 rounded-full bg-black hover:bg-gray-800 dark:bg-white dark:hover:bg-gray-200 text-white dark:text-black text-[15px] font-bold transition-all shadow-md disabled:opacity-40 disabled:cursor-not-allowed'
             >
-              {isRegisterMode ? (
+              {loading ? (
+                <div className="w-5 h-5 border-2 border-current border-t-transparent rounded-full animate-spin"></div>
+              ) : isRegisterMode ? (
                 <>
-                  <ArrowLeft className="w-4 h-4" />
-                  Back to Sign in
+                  <UserPlus className="w-[18px] h-[18px]" />
+                  Sign up
                 </>
               ) : (
                 <>
-                  <UserPlus className="w-4 h-4" />
-                  Sign up
-                  <ArrowRight className="w-4 h-4 ml-1 opacity-70" />
+                  <Lock className="w-[18px] h-[18px]" />
+                  Sign in
                 </>
               )}
             </button>
-          </>
-        )}
-      </div>
+          </form>
+
+          {/* 注册/登录切换按钮 */}
+          {shouldAskUsername && enableRegister && (
+            <div className="mt-6">
+              <button
+                type='button'
+                onClick={() => {
+                  setIsRegisterMode(!isRegisterMode);
+                  setError(null);
+                }}
+                className='w-full flex items-center justify-center gap-2 py-4 rounded-full bg-transparent border border-gray-200 dark:border-zinc-800 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-zinc-900 text-[14px] font-bold transition-all'
+              >
+                {isRegisterMode ? (
+                  <>
+                    <ArrowLeft className="w-4 h-4" />
+                    Back to Sign in
+                  </>
+                ) : (
+                  <>
+                    <UserPlus className="w-4 h-4" />
+                    Sign up
+                    <ArrowRight className="w-4 h-4 ml-1 opacity-60" />
+                  </>
+                )}
+              </button>
+            </div>
+          )}
+        </div>
+      </main>
+
+      {/* 底部 Footer：Logo 与 用户协议 */}
+      <footer className="w-full pb-8 pt-4 flex flex-col items-center justify-center gap-3 shrink-0">
+        <div className="w-11 h-11 rounded-2xl bg-gray-50 dark:bg-zinc-900 flex items-center justify-center shadow-sm overflow-hidden border border-gray-200 dark:border-zinc-800">
+          <img src="/logo.png" alt="Logo" className="w-full h-full object-cover" onError={(e) => e.currentTarget.style.display = 'none'} />
+        </div>
+        <div className="text-[11px] font-semibold tracking-wide text-gray-400 dark:text-gray-600 flex items-center gap-2.5 uppercase">
+          <a href="#" className="hover:text-black dark:hover:text-white transition-colors cursor-pointer">用户协议</a>
+          <span className="opacity-50">|</span>
+          <a href="#" className="hover:text-black dark:hover:text-white transition-colors cursor-pointer">隐私条款</a>
+        </div>
+      </footer>
+
     </div>
   );
 }
@@ -265,8 +269,8 @@ function LoginPageClient() {
 export default function LoginPage() {
   return (
     <Suspense fallback={
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="w-8 h-8 border-4 border-red-600 border-t-transparent rounded-full animate-spin"></div>
+      <div className="min-h-screen flex items-center justify-center bg-white dark:bg-[#0a0a0a]">
+        <div className="w-8 h-8 border-4 border-black dark:border-white border-t-transparent rounded-full animate-spin"></div>
       </div>
     }>
       <LoginPageClient />
