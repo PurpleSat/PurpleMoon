@@ -3,7 +3,7 @@
 
 'use client';
 
-import { ArrowLeft, ArrowRight, Lock, ShieldCheck, User, UserPlus } from 'lucide-react';
+import { Lock, ShieldCheck, User } from 'lucide-react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Suspense, useEffect, useState } from 'react';
 
@@ -112,19 +112,35 @@ function LoginPageClient() {
   return (
     <div className='min-h-screen flex flex-col bg-white dark:bg-[#0a0a0a] selection:bg-black selection:text-white dark:selection:bg-white dark:selection:text-black transition-colors'>
       
-      {/* 顶部 Header：左侧站点名，右侧模式切换 */}
+      {/* 顶部 Header：左侧站点名，右侧包含“Sign up”按钮和主题切换 */}
       <header className="w-full flex items-center justify-between p-6 sm:p-8 shrink-0">
         <div className="text-xl font-black tracking-tight text-gray-900 dark:text-white">
           {siteName || '紫月 TV'}
         </div>
-        <ThemeToggle />
+        
+        <div className="flex items-center gap-5 sm:gap-6">
+          {/* 【修改点】：纯文字极简切换按钮放到右上角 */}
+          {shouldAskUsername && enableRegister && (
+            <button
+              type='button'
+              onClick={() => {
+                setIsRegisterMode(!isRegisterMode);
+                setError(null);
+              }}
+              className='text-[15px] font-bold text-gray-500 hover:text-black dark:text-gray-400 dark:hover:text-white transition-colors'
+            >
+              {isRegisterMode ? 'Sign in' : 'Sign up'}
+            </button>
+          )}
+          <ThemeToggle />
+        </div>
       </header>
 
       {/* 中部核心表单区（沉浸式无边框） */}
       <main className="flex-1 flex items-center justify-center px-6 w-full">
         <div className='w-full max-w-[340px] sm:max-w-[380px]'>
           
-          {/* 【修改点】：全英文极简标题 */}
+          {/* 极简标题 */}
           <div className="mb-10 text-center">
             <h1 className='text-3xl sm:text-4xl font-black text-gray-900 dark:text-white tracking-tight mb-3'>
               {isRegisterMode ? 'Sign up' : 'Sign in'}
@@ -142,7 +158,7 @@ function LoginPageClient() {
                   <div className="absolute inset-y-0 left-0 pl-5 flex items-center pointer-events-none">
                     <User className="h-5 w-5 text-gray-400 group-focus-within:text-gray-900 dark:group-focus-within:text-white transition-colors" />
                   </div>
-                  {/* 【修改点】：将 focus:ring-2 替换为了 focus:border-black focus:ring-0，实现极细的1像素边框 */}
+                  {/* 极细的1像素边框 */}
                   <input
                     id='username'
                     type='text'
@@ -200,7 +216,7 @@ function LoginPageClient() {
               </div>
             )}
 
-            {/* 【修改点】：统一为极简的 Continue 文本 */}
+            {/* 纯黑主操作按钮：Continue */}
             <button
               type='submit'
               disabled={!password || loading || (shouldAskUsername && !username)}
@@ -213,33 +229,6 @@ function LoginPageClient() {
               )}
             </button>
           </form>
-
-          {/* 注册/登录切换按钮 */}
-          {shouldAskUsername && enableRegister && (
-            <div className="mt-6">
-              <button
-                type='button'
-                onClick={() => {
-                  setIsRegisterMode(!isRegisterMode);
-                  setError(null);
-                }}
-                className='w-full flex items-center justify-center gap-2 py-4 rounded-full bg-transparent border border-gray-200 dark:border-zinc-800 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-zinc-900 text-[14px] font-bold transition-all'
-              >
-                {isRegisterMode ? (
-                  <>
-                    <ArrowLeft className="w-4 h-4" />
-                    Back to Sign in
-                  </>
-                ) : (
-                  <>
-                    <UserPlus className="w-4 h-4" />
-                    Sign up
-                    <ArrowRight className="w-4 h-4 ml-1 opacity-60" />
-                  </>
-                )}
-              </button>
-            </div>
-          )}
         </div>
       </main>
 
