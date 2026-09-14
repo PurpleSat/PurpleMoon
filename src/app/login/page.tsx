@@ -124,10 +124,10 @@ function LoginPageClient() {
       <main className="flex-1 flex items-center justify-center px-6 w-full">
         <div className='w-full max-w-[340px] sm:max-w-[380px]'>
           
-          {/* 极简标题 */}
+          {/* 【修改点】：全英文极简标题 */}
           <div className="mb-10 text-center">
             <h1 className='text-3xl sm:text-4xl font-black text-gray-900 dark:text-white tracking-tight mb-3'>
-              {isRegisterMode ? '注册' : '登录'}
+              {isRegisterMode ? 'Sign up' : 'Sign in'}
             </h1>
             <p className="text-gray-500 dark:text-gray-400 text-sm font-medium">
               {isRegisterMode ? 'Create a new account' : 'Welcome back to you!'}
@@ -135,18 +135,19 @@ function LoginPageClient() {
           </div>
 
           <form onSubmit={onSubmit} className='space-y-4 sm:space-y-5'>
-            {/* 用户名输入框 (胶囊风格) */}
+            {/* 用户名输入框 */}
             {shouldAskUsername && (
               <div>
                 <div className="relative group">
                   <div className="absolute inset-y-0 left-0 pl-5 flex items-center pointer-events-none">
                     <User className="h-5 w-5 text-gray-400 group-focus-within:text-gray-900 dark:group-focus-within:text-white transition-colors" />
                   </div>
+                  {/* 【修改点】：将 focus:ring-2 替换为了 focus:border-black focus:ring-0，实现极细的1像素边框 */}
                   <input
                     id='username'
                     type='text'
                     autoComplete='username'
-                    className='block w-full pl-12 pr-6 py-4 bg-gray-100 dark:bg-zinc-900 border border-transparent rounded-full text-[15px] font-medium focus:ring-2 focus:ring-black dark:focus:ring-white focus:bg-white dark:focus:bg-black outline-none text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-600 transition-all'
+                    className='block w-full pl-12 pr-6 py-4 bg-gray-100 dark:bg-zinc-900 border border-transparent rounded-full text-[15px] font-medium focus:border-black dark:focus:border-white focus:ring-0 focus:bg-white dark:focus:bg-black outline-none text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-600 transition-all'
                     placeholder='Username'
                     value={username}
                     onChange={(e) => setUsername(e.target.value)}
@@ -155,7 +156,7 @@ function LoginPageClient() {
               </div>
             )}
 
-            {/* 密码输入框 (胶囊风格) */}
+            {/* 密码输入框 */}
             <div>
               <div className="relative group">
                 <div className="absolute inset-y-0 left-0 pl-5 flex items-center pointer-events-none">
@@ -165,7 +166,7 @@ function LoginPageClient() {
                   id='password'
                   type='password'
                   autoComplete={isRegisterMode ? 'new-password' : 'current-password'}
-                  className='block w-full pl-12 pr-6 py-4 bg-gray-100 dark:bg-zinc-900 border border-transparent rounded-full text-[15px] font-medium focus:ring-2 focus:ring-black dark:focus:ring-white focus:bg-white dark:focus:bg-black outline-none text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-600 transition-all'
+                  className='block w-full pl-12 pr-6 py-4 bg-gray-100 dark:bg-zinc-900 border border-transparent rounded-full text-[15px] font-medium focus:border-black dark:focus:border-white focus:ring-0 focus:bg-white dark:focus:bg-black outline-none text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-600 transition-all'
                   placeholder='Password'
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
@@ -173,7 +174,7 @@ function LoginPageClient() {
               </div>
             </div>
 
-            {/* 注册模式下的邀请码输入框 (胶囊风格) */}
+            {/* 注册模式下的邀请码输入框 */}
             {isRegisterMode && shouldAskUsername && enableRegister && requireInviteCode && (
               <div className="animate-in fade-in slide-in-from-top-2 duration-300">
                 <div className="relative group">
@@ -183,7 +184,7 @@ function LoginPageClient() {
                   <input
                     id='inviteCode'
                     type='text'
-                    className='block w-full pl-12 pr-6 py-4 bg-gray-100 dark:bg-zinc-900 border border-transparent rounded-full text-[15px] font-medium focus:ring-2 focus:ring-black dark:focus:ring-white focus:bg-white dark:focus:bg-black outline-none text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-600 transition-all'
+                    className='block w-full pl-12 pr-6 py-4 bg-gray-100 dark:bg-zinc-900 border border-transparent rounded-full text-[15px] font-medium focus:border-black dark:focus:border-white focus:ring-0 focus:bg-white dark:focus:bg-black outline-none text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-600 transition-all'
                     placeholder='Invite Code'
                     value={inviteCode}
                     onChange={(e) => setInviteCode(e.target.value)}
@@ -199,7 +200,7 @@ function LoginPageClient() {
               </div>
             )}
 
-            {/* 纯黑主操作按钮 */}
+            {/* 【修改点】：统一为极简的 Continue 文本 */}
             <button
               type='submit'
               disabled={!password || loading || (shouldAskUsername && !username)}
@@ -207,16 +208,8 @@ function LoginPageClient() {
             >
               {loading ? (
                 <div className="w-5 h-5 border-2 border-current border-t-transparent rounded-full animate-spin"></div>
-              ) : isRegisterMode ? (
-                <>
-                  <UserPlus className="w-[18px] h-[18px]" />
-                  Sign up
-                </>
               ) : (
-                <>
-                  <Lock className="w-[18px] h-[18px]" />
-                  Sign in
-                </>
+                'Continue'
               )}
             </button>
           </form>
