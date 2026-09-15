@@ -1,9 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
-
-// 如果你的项目有封装好的 getUserConfig 和 saveUserConfig 方法，
-// 这里直接导入复用。如果没有，我们直接使用 @upstash/redis 与 auth 校验。
 import { Redis } from '@upstash/redis';
 import { cookies } from 'next/headers';
+
+// 【关键修复】：声明 Edge Runtime 以支持 Cloudflare Pages 部署
+export const runtime = 'edge';
 
 // 从 cookie 获取用户验证信息
 function getAuthInfo() {
