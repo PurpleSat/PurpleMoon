@@ -32,7 +32,7 @@ export interface Favorite {
   search_title: string; // 搜索时使用的标题
 }
 
-// 存储接口
+// 存储接口（保持纯净，兼容所有存储引擎实现类）
 export interface IStorage {
   // 播放记录相关
   getPlayRecord(userName: string, key: string): Promise<PlayRecord | null>;
@@ -71,16 +71,6 @@ export interface IStorage {
   // 管理员配置相关
   getAdminConfig(): Promise<AdminConfig | null>;
   setAdminConfig(config: AdminConfig): Promise<void>;
-
-  // 【完整闭环】：跳过片头片尾配置相关
-  getSkipConfig(userName: string, key: string): Promise<SkipConfig | null>;
-  setSkipConfig(
-    userName: string,
-    key: string,
-    config: SkipConfig
-  ): Promise<void>;
-  getAllSkipConfigs(userName: string): Promise<{ [key: string]: SkipConfig }>;
-  deleteSkipConfig(userName: string, key: string): Promise<void>;
 }
 
 // 搜索结果数据结构
