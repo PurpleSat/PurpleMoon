@@ -91,24 +91,26 @@ function MemoPageClient() {
           </div>
         </div>
 
-        {/* 输入区 (升级为多行文本框) */}
-        <div className="w-full bg-white dark:bg-[#1E232D] rounded-2xl shadow-md hover:shadow-lg border border-gray-200 dark:border-white/5 overflow-hidden transition-all duration-300 focus-within:ring-2 focus-within:ring-green-500/50 focus-within:border-green-500">
+        {/* ========================================================================= */}
+        {/* 【边框与UI深度优化】：更柔和的光晕、交互联动变色、更精致的阴影 */}
+        {/* ========================================================================= */}
+        <div className="group w-full bg-white dark:bg-[#1E232D] rounded-2xl shadow-sm hover:shadow-md border border-gray-200 dark:border-gray-700/80 overflow-hidden transition-all duration-300 focus-within:border-green-500 dark:focus-within:border-green-500 focus-within:ring-[3px] focus-within:ring-green-500/20 dark:focus-within:ring-green-500/20 focus-within:shadow-lg">
           <textarea
             className="w-full bg-transparent px-6 py-5 text-base text-gray-900 dark:text-gray-100 placeholder-gray-400 outline-none resize-none min-h-[140px] leading-relaxed [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-thumb]:bg-gray-200 dark:[&::-webkit-scrollbar-thumb]:bg-gray-700 [&::-webkit-scrollbar-thumb]:rounded-full"
             placeholder="今天有什么灵感或待办？写在这里吧..."
             value={inputValue}
             onChange={(e) => setInputValue(e.target.value)}
             onKeyDown={(e) => {
-              // 多行文本框需要用 Ctrl/Cmd + Enter 快捷保存，单独的 Enter 留作正常换行
               if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
                 e.preventDefault();
                 handleAddMemo();
               }
             }}
           />
-          <div className="flex justify-between items-center px-5 py-3 bg-gray-50 dark:bg-black/20 border-t border-gray-100 dark:border-white/5">
-            <span className="text-xs text-gray-400 dark:text-gray-500 hidden sm:block">
-              提示：按 <kbd className="bg-gray-200 dark:bg-gray-700 px-1.5 py-0.5 rounded text-gray-600 dark:text-gray-300">Ctrl</kbd> + <kbd className="bg-gray-200 dark:bg-gray-700 px-1.5 py-0.5 rounded text-gray-600 dark:text-gray-300">Enter</kbd> 快捷保存
+          {/* 底部工具栏：当父容器（textarea）被聚焦时，背景和顶部分割线会泛起极淡的绿色联动光效 */}
+          <div className="flex justify-between items-center px-5 py-3 bg-gray-50/50 dark:bg-black/20 border-t border-gray-100 dark:border-gray-700/80 transition-colors duration-300 group-focus-within:bg-green-50/50 dark:group-focus-within:bg-green-500/5 group-focus-within:border-green-500/20 dark:group-focus-within:border-green-500/20">
+            <span className="text-xs text-gray-400 dark:text-gray-500 hidden sm:block transition-colors group-focus-within:text-green-600/70 dark:group-focus-within:text-green-400/70">
+              提示：按 <kbd className="bg-gray-200 dark:bg-gray-700/80 px-1.5 py-0.5 rounded text-gray-500 dark:text-gray-400 group-focus-within:bg-green-100 dark:group-focus-within:bg-green-500/20 group-focus-within:text-green-600 dark:group-focus-within:text-green-400">Ctrl</kbd> + <kbd className="bg-gray-200 dark:bg-gray-700/80 px-1.5 py-0.5 rounded text-gray-500 dark:text-gray-400 group-focus-within:bg-green-100 dark:group-focus-within:bg-green-500/20 group-focus-within:text-green-600 dark:group-focus-within:text-green-400">Enter</kbd> 快捷保存
             </span>
             <span className="text-xs text-gray-400 sm:hidden">
               {inputValue.length} 字
@@ -122,6 +124,7 @@ function MemoPageClient() {
             </button>
           </div>
         </div>
+        {/* ========================================================================= */}
 
         {/* 瀑布流卡片区 */}
         <div className="mt-2">
@@ -137,15 +140,12 @@ function MemoPageClient() {
               <p className="text-gray-500 dark:text-gray-400 text-lg font-medium">还没有任何记录，开始写下你的第一条便利贴吧</p>
             </div>
           ) : (
-            // 【核心修改】：使用 columns-X 替代 grid，实现完美瀑布流布局
             <div className="columns-1 sm:columns-2 lg:columns-3 gap-6 space-y-6">
               {memos.map((memo) => (
                 <div 
                   key={memo.id} 
-                  // break-inside-avoid 防止卡片在瀑布流中被从中间截断
-                  className="break-inside-avoid group relative bg-white dark:bg-[#1E232D] p-6 rounded-2xl border border-gray-100 dark:border-white/5 shadow-sm hover:shadow-xl hover:-translate-y-1 transition-all duration-300 flex flex-col"
+                  className="break-inside-avoid group relative bg-white dark:bg-[#1E232D] p-6 rounded-2xl border border-gray-100 dark:border-gray-700/50 shadow-sm hover:shadow-xl hover:-translate-y-1 transition-all duration-300 flex flex-col hover:border-green-500/30 dark:hover:border-green-500/30"
                 >
-                  {/* 【核心修改】：限制最大高度，超长文本内部滚动，配合隐形滚动条 */}
                   <div className="max-h-[350px] overflow-y-auto pr-2 mb-4 [&::-webkit-scrollbar]:w-1 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:bg-gray-200 dark:[&::-webkit-scrollbar-thumb]:bg-gray-700 [&::-webkit-scrollbar-thumb]:rounded-full">
                     <p className="text-gray-700 dark:text-gray-300 text-[15px] leading-relaxed break-words whitespace-pre-wrap">
                       {memo.content}
@@ -176,7 +176,6 @@ function MemoPageClient() {
 }
 
 export default function MemoPage() {
-  // Suspense 包裹以兼容 Next.js App Router 的服务端渲染逻辑
   return (
     <Suspense fallback={
       <div className="flex items-center justify-center min-h-screen bg-gray-50 dark:bg-[#0F111A]">
