@@ -1,5 +1,12 @@
 import { AdminConfig } from './admin.types';
 
+// 跳过片头片尾配置类型
+export interface SkipConfig {
+  enable: boolean;
+  intro_time: number;
+  outro_time: number;
+}
+
 // 播放记录数据结构
 export interface PlayRecord {
   title: string;
@@ -64,6 +71,16 @@ export interface IStorage {
   // 管理员配置相关
   getAdminConfig(): Promise<AdminConfig | null>;
   setAdminConfig(config: AdminConfig): Promise<void>;
+
+  // 【完整闭环】：跳过片头片尾配置相关
+  getSkipConfig(userName: string, key: string): Promise<SkipConfig | null>;
+  setSkipConfig(
+    userName: string,
+    key: string,
+    config: SkipConfig
+  ): Promise<void>;
+  getAllSkipConfigs(userName: string): Promise<{ [key: string]: SkipConfig }>;
+  deleteSkipConfig(userName: string, key: string): Promise<void>;
 }
 
 // 搜索结果数据结构
@@ -96,7 +113,7 @@ export interface DoubanResult {
   list: DoubanItem[];
 }
 
-// --- 追加在 src/lib/types.ts 末尾 ---
+// --- 日历相关 ---
 export type ReleaseCalendarItem = {
   id: string;
   title: string;
@@ -107,7 +124,7 @@ export type ReleaseCalendarItem = {
   director: string;
   actors: string;
   poster?: string;
-  episodes?: number | string; // <--- 补上这个缺失的属性
+  episodes?: number | string;
 };
 
 export type ReleaseCalendarResult = {
