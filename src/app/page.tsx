@@ -3,6 +3,8 @@
 'use client';
 
 import { Suspense, useEffect, useState } from 'react';
+import { useRouter } from 'next/navigation';
+import { PenLine } from 'lucide-react'; // 引入便利贴图标
 
 // 客户端收藏与播放记录 API
 import {
@@ -19,6 +21,7 @@ import { useSite } from '@/components/SiteProvider';
 import VideoCard from '@/components/VideoCard';
 
 function HomeClient() {
+  const router = useRouter();
   const [activeTab, setActiveTab] = useState<'home' | 'favorites'>('home');
   const { announcement } = useSite();
   const [showAnnouncement, setShowAnnouncement] = useState(false);
@@ -109,7 +112,23 @@ function HomeClient() {
 
   return (
     <PageLayout>
-      <div className='px-2 sm:px-10 py-4 sm:py-8 overflow-visible'>
+      {/* 增加 relative 以便右上角的悬浮按钮定位 */}
+      <div className='px-2 sm:px-10 py-4 sm:py-8 overflow-visible relative min-h-screen'>
+        
+        {/* ========================================================================= */}
+        {/* 【新增】：随手记 (Memo) 入口按钮 */}
+        {/* 根据你的要求放在右上角，若与设置按钮重叠，可微调 right-2 或 right-16 的值 */}
+        {/* ========================================================================= */}
+        <div className="absolute top-2 right-2 sm:top-4 sm:right-4 z-40">
+          <button
+            onClick={() => router.push('/memo')}
+            title="我的随手记"
+            className="group flex items-center justify-center p-2.5 sm:p-3 bg-white/70 dark:bg-[#1E232D]/70 backdrop-blur-md border border-gray-200 dark:border-gray-700/50 rounded-full shadow-sm hover:shadow-lg hover:border-green-500/50 dark:hover:border-green-500/50 focus:outline-none focus:ring-2 focus:ring-green-500/50 transition-all duration-300 transform hover:-translate-y-0.5 active:translate-y-0"
+          >
+            <PenLine className="w-5 h-5 text-gray-600 dark:text-gray-300 group-hover:text-green-500 transition-colors" />
+          </button>
+        </div>
+
         {/* 顶部 Tab 切换 */}
         <div className='mb-8 flex justify-center'>
           <CapsuleSwitch
@@ -132,7 +151,7 @@ function HomeClient() {
                 </h2>
                 {favoriteItems.length > 0 && (
                   <button
-                    className='text-sm text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200'
+                    className='text-sm text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 transition-colors'
                     onClick={async () => {
                       await clearAllFavorites();
                       setFavoriteItems([]);
@@ -185,12 +204,16 @@ function HomeClient() {
                 onClick={() => handleCloseAnnouncement(announcement)}
                 className='text-gray-400 hover:text-gray-500 dark:text-gray-500 dark:hover:text-white transition-colors'
                 aria-label='关闭'
-              ></button>
+              >
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12"></path>
+                </svg>
+              </button>
             </div>
             <div className='mb-6'>
               <div className='relative overflow-hidden rounded-lg mb-4 bg-green-50 dark:bg-green-900/20'>
                 <div className='absolute inset-y-0 left-0 w-1.5 bg-green-500 dark:bg-green-400'></div>
-                <p className='ml-4 text-gray-600 dark:text-gray-300 leading-relaxed'>
+                <p className='ml-4 py-3 pr-3 text-gray-600 dark:text-gray-300 leading-relaxed'>
                   {announcement}
                 </p>
               </div>
