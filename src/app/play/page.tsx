@@ -42,6 +42,27 @@ interface WakeLockSentinel {
   removeEventListener(type: 'release', listener: () => void): void;
 }
 
+// 【兼容修复】：本地化的跳过配置读写工具，完美替代不存在的云端 DB 接口
+const getLocalSkipConfig = (source: string, id: string) => {
+  if (typeof window === 'undefined') return null;
+  try {
+    const val = localStorage.getItem(`skip_config_${source}_${id}`);
+    return val ? JSON.parse(val) : null;
+  } catch (_e) {
+    return null;
+  }
+};
+
+const saveLocalSkipConfig = (source: string, id: string, config: any) => {
+  if (typeof window === 'undefined') return;
+  localStorage.setItem(`skip_config_${source}_${id}`, JSON.stringify(config));
+};
+
+const deleteLocalSkipConfig = (source: string, id: string) => {
+  if (typeof window === 'undefined') return;
+  localStorage.removeItem(`skip_config_${source}_${id}`);
+};
+
 function PlayPageClient() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -60,7 +81,7 @@ function PlayPageClient() {
   // 收藏状态
   const [favorited, setFavorited] = useState(false);
 
-  // 跳过片头片尾配置 (全面接入云端同步配置)
+  // 跳过片头片尾配置 (改为本地存储单剧集独立记忆)
   const [skipConfig, setSkipConfig] = useState<{
     enable: boolean;
     intro_time: number;
@@ -175,7 +196,9 @@ function PlayPageClient() {
       if (saved !== null) {
         try {
           return JSON.parse(saved);
-        } catch { }
+        } catch (_e) {
+          console.debug('解析 enableOptimization 配置失败', _e);
+        }
       }
     }
     return true;
@@ -229,7 +252,7 @@ function PlayPageClient() {
           source.episodes.length > 1 ? source.episodes[1] : source.episodes[0];
         const testResult = await getVideoResolutionFromM3u8(episodeUrl);
         allResults[index] = { source, testResult };
-      } catch (error) {
+      } catch (_error) {
         allResults[index] = null;
       }
     };
@@ -369,7 +392,9 @@ function PlayPageClient() {
       if ('wakeLock' in navigator) {
         wakeLockRef.current = await (navigator as any).wakeLock.request('screen');
       }
-    } catch (err) { }
+    } catch (_err) {
+      console.debug('Wake Lock 请求失败或未受支持');
+    }
   };
 
   const releaseWakeLock = async () => {
@@ -378,7 +403,9 @@ function PlayPageClient() {
         await wakeLockRef.current.release();
         wakeLockRef.current = null;
       }
-    } catch (err) { }
+    } catch (_err) {
+      console.debug('Wake Lock 释放失败');
+    }
   };
 
   const cleanupPlayer = () => {
@@ -389,8 +416,9 @@ function PlayPageClient() {
         }
         artPlayerRef.current.destroy();
         artPlayerRef.current = null;
-      } catch (err) {
+      } catch (_err) {
         artPlayerRef.current = null;
+        console.debug('清理播放器资源时出错');
       }
     }
   };
@@ -456,8 +484,8 @@ function PlayPageClient() {
       }
 
       console.log('跳过配置已同步:', newConfig);
-    } catch (err) {
-      console.error('保存跳过配置失败:', err);
+    } catch (_err) {
+      console.debug('保存跳过配置失败');
     }
   };
 
@@ -492,7 +520,7 @@ function PlayPageClient() {
         const detailData = (await detailResponse.json()) as SearchResult;
         setAvailableSources([detailData]);
         return [detailData];
-      } catch (err) {
+      } catch (_err) {
         return [];
       } finally {
         setSourceSearchLoading(false);
@@ -601,7 +629,9 @@ function PlayPageClient() {
           }
           resumeTimeRef.current = record.play_time;
         }
-      } catch (err) { }
+      } catch (_err) {
+        console.debug('读取历史进度失败');
+      }
     };
     initFromHistory();
   }, []);
@@ -618,8 +648,8 @@ function PlayPageClient() {
           // 确保切换电影时恢复默认状态
           setSkipConfig({ enable: false, intro_time: 0, outro_time: 0 });
         }
-      } catch (err) {
-        console.error('读取云端配置失败:', err);
+      } catch (_err) {
+        console.debug('读取云端跳过配置失败');
       }
     };
     initSkipConfig();
@@ -639,7 +669,9 @@ function PlayPageClient() {
           // 换源时平滑迁移跳过配置
           await deleteSkipConfig(currentSourceRef.current, currentIdRef.current);
           await saveSkipConfig(newSource, newId, skipConfigRef.current);
-        } catch (err) { }
+        } catch (_err) {
+          console.debug('清除旧源数据记录失败');
+        }
       }
 
       const newDetail = availableSources.find((s) => s.source === newSource && s.id === newId);
@@ -784,7 +816,9 @@ function PlayPageClient() {
         search_title: searchTitle,
       });
       lastSaveTimeRef.current = Date.now();
-    } catch (err) { }
+    } catch (_err) {
+      console.debug('保存播放进度失败');
+    }
   };
 
   useEffect(() => {
@@ -816,7 +850,9 @@ function PlayPageClient() {
       try {
         const fav = await isFavorited(currentSource, currentId);
         setFavorited(fav);
-      } catch (err) { }
+      } catch (_err) {
+        console.debug('获取收藏状态失败');
+      }
     })();
   }, [currentSource, currentId]);
 
@@ -847,7 +883,9 @@ function PlayPageClient() {
         });
         setFavorited(true);
       }
-    } catch (err) { }
+    } catch (_err) {
+      console.debug('切换收藏失败');
+    }
   };
 
   useEffect(() => {
@@ -974,7 +1012,9 @@ function PlayPageClient() {
                   artPlayerRef.current = null;
                 }
                 setBlockAdEnabled(newVal);
-              } catch (_) { }
+              } catch (_err) {
+                console.debug('去广告状态切换出错');
+              }
               return newVal ? '当前开启' : '当前关闭';
             },
           },
@@ -1055,7 +1095,9 @@ function PlayPageClient() {
             let target = resumeTimeRef.current;
             if (duration && target >= duration - 2) target = Math.max(0, duration - 5);
             artPlayerRef.current.currentTime = target;
-          } catch (err) { }
+          } catch (_err) {
+            console.debug('恢复播放进度失败');
+          }
         }
         resumeTimeRef.current = null;
 
@@ -1084,7 +1126,7 @@ function PlayPageClient() {
 
         // 1. 播放进度保存
         const now = Date.now();
-        let interval = process.env.NEXT_PUBLIC_STORAGE_TYPE === 'upstash' ? 20000 : 5000;
+        const interval = process.env.NEXT_PUBLIC_STORAGE_TYPE === 'upstash' ? 20000 : 5000;
         if (now - lastSaveTimeRef.current > interval) {
           saveCurrentPlayProgress();
           lastSaveTimeRef.current = now;
@@ -1134,7 +1176,7 @@ function PlayPageClient() {
       });
       // =========================================================================
 
-      artPlayerRef.current.on('error', (err: any) => {
+      artPlayerRef.current.on('error', (_err: any) => {
         if (artPlayerRef.current.currentTime > 0) return;
       });
 
@@ -1150,7 +1192,7 @@ function PlayPageClient() {
       if (artPlayerRef.current?.video) {
         ensureVideoSource(artPlayerRef.current.video as HTMLVideoElement, videoUrl);
       }
-    } catch (err) {
+    } catch (_err) {
       setError('播放器初始化失败');
     }
   }, [Artplayer, Hls, videoUrl, loading, blockAdEnabled]);
