@@ -411,10 +411,23 @@ function PlayPageClient() {
   const cleanupPlayer = () => {
     if (artPlayerRef.current) {
       try {
-        if (artPlayerRef.current.video && artPlayerRef.current.video.hls) {
-          artPlayerRef.current.video.hls.destroy();
+        const video = artPlayerRef.current.video;
+        if (video) {
+          // 1. 强制暂停当前播放，打断后台音频
+          video.pause();
+          
+          // 2. 彻底清空源并重载，切断数据流与 HLS 幽灵下载
+          video.removeAttribute('src');
+          video.load();
+          
+          if (video.hls) {
+            video.hls.destroy();
+          }
         }
-        artPlayerRef.current.destroy();
+        
+        // 3. destroy(true) 强制移除播放器创建的所有 DOM 节点
+        // 防止全屏模式下生成的节点残留在 <body> 中
+        artPlayerRef.current.destroy(true);
         artPlayerRef.current = null;
       } catch (_err) {
         artPlayerRef.current = null;
