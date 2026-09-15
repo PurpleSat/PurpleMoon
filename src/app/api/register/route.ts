@@ -65,10 +65,11 @@ async function generateSignature(
 }
 
 // 生成认证Cookie（带签名）
-async function generateAuthCookie(username: string): Promise<string> {
+async function generateAuthCookie(username: string, role = 'user'): Promise<string> {
   const authData: any = {
     username,
-    timestamp: Date.now(),
+    role, // 【新增】：注入角色
+    timestamp: Date.now(), // 确保包含时间戳
   };
 
   // 修复漏洞：优先使用独立的 AUTH_SECRET 作为签名密钥，隔离系统登录密码
@@ -77,7 +78,9 @@ async function generateAuthCookie(username: string): Promise<string> {
     console.warn('警告: 未配置 AUTH_SECRET，当前 Cookie 签名面临被暴力破解的风险');
   }
 
-  const signature = await generateSignature(username, signingKey);
+  // 【核心安全升级】：签名严格覆盖 username:timestamp:role
+  const signPayload = `${username}:${authData.timestamp}:${role}`;
+  const signature = await generateSignature(signPayload, signingKey);
   authData.signature = signature;
 
   return encodeURIComponent(JSON.stringify(authData));
@@ -142,10 +145,11 @@ export async function POST(req: NextRequest) {
 
       await db.registerUser(username, password);
 
-
       // 注册成功，设置认证cookie
       const response = NextResponse.json({ ok: true });
-      const cookieValue = await generateAuthCookie(username);
+      
+      // 【权限下发】：普通用户注册，角色绑定为 user
+      const cookieValue = await generateAuthCookie(username, 'user');
       const expires = new Date();
       expires.setDate(expires.getDate() + 7); // 7天过期
 
