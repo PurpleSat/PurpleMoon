@@ -1,11 +1,11 @@
 'use client';
 
-import { useEffect, useState } from 'react';
-import { Search, Trash2 } from 'lucide-react';
+import { Suspense, useEffect, useState } from 'react';
+import { Trash2 } from 'lucide-react';
 import PageLayout from '@/components/PageLayout';
 import { Memo } from '@/lib/types';
 
-export default function MemoPage() {
+function MemoPageClient() {
   const [memos, setMemos] = useState<Memo[]>([]);
   const [inputValue, setInputValue] = useState('');
   const [loading, setLoading] = useState(true);
@@ -138,5 +138,18 @@ export default function MemoPage() {
 
       </div>
     </PageLayout>
+  );
+}
+
+export default function MemoPage() {
+  // 必须用 Suspense 包裹，否则构建静态页面时会因为嵌套了路由 hook 导致报错
+  return (
+    <Suspense fallback={
+      <div className="flex items-center justify-center min-h-screen bg-gray-50 dark:bg-gray-900">
+        <div className="w-16 h-16 border-4 border-green-500 border-t-transparent rounded-full animate-spin"></div>
+      </div>
+    }>
+      <MemoPageClient />
+    </Suspense>
   );
 }
