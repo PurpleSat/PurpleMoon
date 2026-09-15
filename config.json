@@ -118,7 +118,7 @@
       "name": "闪电资源"    
     },
     "huya": {
-      "api": "hhttps://jyzyapi.com/provide/vod/from/jinyingyun/at/json",
+      "api": "https://jyzyapi.com/provide/vod/from/jinyingyun/at/json",
       "name": "金鹰资源"
       },
     "huya": {
