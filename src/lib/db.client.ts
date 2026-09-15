@@ -15,7 +15,13 @@
  */
 
 import { getAuthInfoFromBrowserCookie } from './auth';
-import { SkipConfig } from './types';
+
+// 【修复 1】：直接在本地声明 SkipConfig，彻底移除对 './types' 的错误导入依赖
+export interface SkipConfig {
+  enable: boolean;
+  intro_time: number;
+  outro_time: number;
+}
 
 // 全局错误触发函数
 function triggerGlobalError(message: string) {
@@ -1255,12 +1261,13 @@ export async function refreshAllCache(): Promise<void> {
 
   try {
     // 并行刷新所有数据
+    // 【修复 2】：这里的 fetch API 路径统一修改为单数 '/api/skipconfig' 避免 404
     const [playRecords, favorites, searchHistory, skipConfigs] =
       await Promise.allSettled([
         fetchFromApi<Record<string, PlayRecord>>(`/api/playrecords`),
         fetchFromApi<Record<string, Favorite>>(`/api/favorites`),
         fetchFromApi<string[]>(`/api/searchhistory`),
-        fetchFromApi<Record<string, SkipConfig>>(`/api/skipconfigs`),
+        fetchFromApi<Record<string, SkipConfig>>(`/api/skipconfig`),
       ]);
 
     if (playRecords.status === 'fulfilled') {
@@ -1422,7 +1429,8 @@ export async function getSkipConfig(
 
     if (cachedData) {
       // 返回缓存数据，同时后台异步更新
-      fetchFromApi<Record<string, SkipConfig>>(`/api/skipconfigs`)
+      // 【修复 3】：这里的 fetch API 路径修改为单数 '/api/skipconfig' 避免 404
+      fetchFromApi<Record<string, SkipConfig>>(`/api/skipconfig`)
         .then((freshData) => {
           // 只有数据真正不同时才更新缓存
           if (JSON.stringify(cachedData) !== JSON.stringify(freshData)) {
@@ -1443,8 +1451,9 @@ export async function getSkipConfig(
     } else {
       // 缓存为空，直接从 API 获取并缓存
       try {
+        // 【修复 4】：这里的 fetch API 路径修改为单数 '/api/skipconfig' 避免 404
         const freshData = await fetchFromApi<Record<string, SkipConfig>>(
-          `/api/skipconfigs`
+          `/api/skipconfig`
         );
         cacheManager.cacheSkipConfigs(freshData);
         return freshData[key] || null;
@@ -1496,7 +1505,8 @@ export async function saveSkipConfig(
 
     // 异步同步到数据库
     try {
-      await fetchWithAuth('/api/skipconfigs', {
+      // 【修复 5】：这里的 fetch API 路径修改为单数 '/api/skipconfig' 避免 404
+      await fetchWithAuth('/api/skipconfig', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -1550,7 +1560,8 @@ export async function getAllSkipConfigs(): Promise<Record<string, SkipConfig>> {
 
     if (cachedData) {
       // 返回缓存数据，同时后台异步更新
-      fetchFromApi<Record<string, SkipConfig>>(`/api/skipconfigs`)
+      // 【修复 6】：这里的 fetch API 路径修改为单数 '/api/skipconfig' 避免 404
+      fetchFromApi<Record<string, SkipConfig>>(`/api/skipconfig`)
         .then((freshData) => {
           // 只有数据真正不同时才更新缓存
           if (JSON.stringify(cachedData) !== JSON.stringify(freshData)) {
@@ -1572,8 +1583,9 @@ export async function getAllSkipConfigs(): Promise<Record<string, SkipConfig>> {
     } else {
       // 缓存为空，直接从 API 获取并缓存
       try {
+        // 【修复 7】：这里的 fetch API 路径修改为单数 '/api/skipconfig' 避免 404
         const freshData = await fetchFromApi<Record<string, SkipConfig>>(
-          `/api/skipconfigs`
+          `/api/skipconfig`
         );
         cacheManager.cacheSkipConfigs(freshData);
         return freshData;
@@ -1623,7 +1635,8 @@ export async function deleteSkipConfig(
 
     // 异步同步到数据库
     try {
-      await fetchWithAuth(`/api/skipconfigs?key=${encodeURIComponent(key)}`, {
+      // 【修复 8】：这里的 fetch API 路径修改为单数 '/api/skipconfig' 避免 404
+      await fetchWithAuth(`/api/skipconfig?key=${encodeURIComponent(key)}`, {
         method: 'DELETE',
       });
     } catch (err) {
