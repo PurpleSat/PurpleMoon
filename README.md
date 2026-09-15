@@ -221,6 +221,7 @@ networks:
 | TMDB_API_TOKEN              | 上映日程TMDBTOKEN                                     | API 读访问令牌                          | 空                                                                                                                         |
 | VALID_INVITE_CODE           | 注册邀请码（安全）                                            | 任意字符串                              | 空                                
 | AUTH_SECRET                 | 环境变量隔离（安全）                                            | 任意字符串越长越好                    | 空                                                                                                                                                                                                       
+| CRON_SECRET                 | 为 Cron 任务加上密钥校验 (安全)                                       | 任意字符串越长越好                    | 空                                                                                                                                                                                           
 ## 配置说明
 
 所有可自定义项集中在根目录的 `config.json` 中：
