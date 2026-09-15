@@ -84,7 +84,7 @@ function MemoPageClient() {
             <span className="p-2 bg-green-100 dark:bg-green-500/20 text-green-600 dark:text-green-400 rounded-xl">
               <PenLine size={24} />
             </span>
-            随手记
+            紫月纪
           </h1>
           <div className="text-sm text-gray-500 dark:text-gray-400 font-medium bg-gray-100 dark:bg-gray-800 px-4 py-1.5 rounded-full">
             共 {memos.length} 条记录
