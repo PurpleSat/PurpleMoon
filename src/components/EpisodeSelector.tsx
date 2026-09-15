@@ -139,7 +139,10 @@ const EpisodeSelector: React.FC<EpisodeSelectorProps> = ({
       if (saved !== null) {
         try {
           return JSON.parse(saved);
-        } catch { }
+        } catch (e) {
+          // 【修复 1】：添加日志打印，解决 ESLint 严格模式下的 no-empty 报错
+          console.warn('解析 enableOptimization 配置失败', e);
+        }
       }
     }
     return true;
@@ -338,7 +341,8 @@ const EpisodeSelector: React.FC<EpisodeSelectorProps> = ({
                   if (!aIsCurrent && bIsCurrent) return 1;
                   return 0;
                 })
-                .map((source, index) => {
+                // 【修复 2】：移除了未使用的 index 参数
+                .map((source) => {
                   const isCurrentSource = source.source?.toString() === currentSource?.toString() && source.id?.toString() === currentId?.toString();
                   return (
                     <div
