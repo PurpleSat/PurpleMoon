@@ -1,188 +1,240 @@
+/* eslint-disable @typescript-eslint/no-explicit-any, react-hooks/exhaustive-deps, no-console */
+
 'use client';
 
 import { Suspense, useEffect, useState } from 'react';
-import { Trash2, PenLine } from 'lucide-react';
+import { useRouter } from 'next/navigation';
+import { PenLine } from 'lucide-react'; // 引入便利贴图标
 
+// 客户端收藏与播放记录 API
+import {
+  clearAllFavorites,
+  getAllFavorites,
+  getAllPlayRecords,
+  subscribeToDataUpdates,
+} from '@/lib/db.client';
+
+import CapsuleSwitch from '@/components/CapsuleSwitch';
+import ContinueWatching from '@/components/ContinueWatching';
 import PageLayout from '@/components/PageLayout';
-import { Memo } from '@/lib/types';
+import { useSite } from '@/components/SiteProvider';
+import VideoCard from '@/components/VideoCard';
 
-function MemoPageClient() {
-  const [memos, setMemos] = useState<Memo[]>([]);
-  const [inputValue, setInputValue] = useState('');
-  const [loading, setLoading] = useState(true);
-  const [isSubmitting, setIsSubmitting] = useState(false);
+function HomeClient() {
+  const router = useRouter();
+  const [activeTab, setActiveTab] = useState<'home' | 'favorites'>('home');
+  const { announcement } = useSite();
+  const [showAnnouncement, setShowAnnouncement] = useState(false);
 
-  // 获取便利贴
-  const fetchMemos = async () => {
-    try {
-      const res = await fetch('/api/memos');
-      if (res.ok) {
-        const data = await res.json();
-        setMemos(data.memos || []);
-      }
-    } catch (e) {
-      console.error('获取便利贴失败', e);
-    } finally {
-      setLoading(false);
-    }
-  };
-
+  // 检查公告弹窗状态
   useEffect(() => {
-    fetchMemos();
-  }, []);
-
-  // 添加便利贴
-  const handleAddMemo = async () => {
-    if (!inputValue.trim() || isSubmitting) return;
-    setIsSubmitting(true);
-    try {
-      const res = await fetch('/api/memos', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ content: inputValue }),
-      });
-      if (res.ok) {
-        setInputValue('');
-        fetchMemos(); // 重新拉取最新列表
+    if (typeof window !== 'undefined' && announcement) {
+      const hasSeenAnnouncement = localStorage.getItem('hasSeenAnnouncement');
+      if (hasSeenAnnouncement !== announcement) {
+        setShowAnnouncement(true);
+      } else {
+        setShowAnnouncement(Boolean(!hasSeenAnnouncement && announcement));
       }
-    } catch (e) {
-      console.error('添加失败', e);
-    } finally {
-      setIsSubmitting(false);
     }
+  }, [announcement]);
+
+  // 收藏夹数据类型
+  type FavoriteItem = {
+    id: string;
+    source: string;
+    title: string;
+    poster: string;
+    episodes: number;
+    source_name: string;
+    currentEpisode?: number;
+    search_title?: string;
   };
 
-  // 删除便利贴
-  const handleDelete = async (id: number) => {
-    try {
-      const res = await fetch('/api/memos', {
-        method: 'DELETE',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id }),
+  const [favoriteItems, setFavoriteItems] = useState<FavoriteItem[]>([]);
+
+  // 处理收藏数据更新的函数
+  const updateFavoriteItems = async (allFavorites: Record<string, any>) => {
+    const allPlayRecords = await getAllPlayRecords();
+
+    // 根据保存时间排序（从近到远）
+    const sorted = Object.entries(allFavorites)
+      .sort(([, a], [, b]) => b.save_time - a.save_time)
+      .map(([key, fav]) => {
+        const plusIndex = key.indexOf('+');
+        const source = key.slice(0, plusIndex);
+        const id = key.slice(plusIndex + 1);
+
+        // 查找对应的播放记录，获取当前集数
+        const playRecord = allPlayRecords[key];
+        const currentEpisode = playRecord?.index;
+
+        return {
+          id,
+          source,
+          title: fav.title,
+          year: fav.year,
+          poster: fav.cover,
+          episodes: fav.total_episodes,
+          source_name: fav.source_name,
+          currentEpisode,
+          search_title: fav?.search_title,
+        } as FavoriteItem;
       });
-      if (res.ok) {
-        setMemos((prev) => prev.filter((m) => m.id !== id));
-      }
-    } catch (e) {
-      console.error('删除失败', e);
-    }
+    setFavoriteItems(sorted);
   };
 
-  // 格式化时间戳
-  const formatDate = (timestamp: number) => {
-    const d = new Date(timestamp);
-    return `${d.getFullYear()}-${(d.getMonth() + 1).toString().padStart(2, '0')}-${d.getDate().toString().padStart(2, '0')} ${d.getHours().toString().padStart(2, '0')}:${d.getMinutes().toString().padStart(2, '0')}`;
+  // 当切换到收藏夹时加载收藏数据
+  useEffect(() => {
+    if (activeTab !== 'favorites') return;
+
+    const loadFavorites = async () => {
+      const allFavorites = await getAllFavorites();
+      await updateFavoriteItems(allFavorites);
+    };
+
+    loadFavorites();
+
+    // 监听收藏更新事件
+    const unsubscribe = subscribeToDataUpdates(
+      'favoritesUpdated',
+      (newFavorites: Record<string, any>) => {
+        updateFavoriteItems(newFavorites);
+      }
+    );
+
+    return unsubscribe;
+  }, [activeTab]);
+
+  const handleCloseAnnouncement = (announcement: string) => {
+    setShowAnnouncement(false);
+    localStorage.setItem('hasSeenAnnouncement', announcement); // 记录已查看弹窗
   };
 
   return (
-    <PageLayout activePath="/memo">
-      <div className="flex flex-col gap-8 py-8 px-5 lg:px-[3rem] 2xl:px-20 max-w-6xl mx-auto min-h-[calc(100vh-80px)]">
+    <PageLayout>
+      {/* 增加 relative 以便左上角的悬浮按钮定位 */}
+      <div className='px-2 sm:px-10 py-4 sm:py-8 overflow-visible relative min-h-screen'>
         
-        {/* 顶部标题 */}
-        <div className="flex items-center justify-between">
-          <h1 className="text-3xl font-bold text-gray-900 dark:text-gray-100 flex items-center gap-3">
-            <span className="p-2 bg-green-100 dark:bg-green-500/20 text-green-600 dark:text-green-400 rounded-xl">
-              <PenLine size={24} />
-            </span>
-            紫月纪
-          </h1>
-          <div className="text-sm text-gray-500 dark:text-gray-400 font-medium bg-gray-100 dark:bg-gray-800 px-4 py-1.5 rounded-full">
-            共 {memos.length} 条记录
-          </div>
+        {/* ========================================================================= */}
+        {/* 【新增】：随手记 (Memo) 入口按钮 */}
+        {/* 已调整至页面左上角，避免与右上角的设置等按钮冲突 */}
+        {/* ========================================================================= */}
+        <div className="absolute top-2 left-2 sm:top-4 sm:left-4 z-40">
+          <button
+            onClick={() => router.push('/memo')}
+            title="我的随手记"
+            className="group flex items-center justify-center p-2.5 sm:p-3 bg-white/70 dark:bg-[#1E232D]/70 backdrop-blur-md border border-gray-200 dark:border-gray-700/50 rounded-full shadow-sm hover:shadow-lg hover:border-green-500/50 dark:hover:border-green-500/50 focus:outline-none focus:ring-2 focus:ring-green-500/50 transition-all duration-300 transform hover:-translate-y-0.5 active:translate-y-0"
+          >
+            <PenLine className="w-5 h-5 text-gray-600 dark:text-gray-300 group-hover:text-green-500 transition-colors" />
+          </button>
         </div>
 
-        {/* ========================================================================= */}
-        {/* 【边框与UI深度优化】：更柔和的光晕、交互联动变色、更精致的阴影 */}
-        {/* ========================================================================= */}
-        <div className="group w-full bg-white dark:bg-[#1E232D] rounded-2xl shadow-sm hover:shadow-md border border-gray-200 dark:border-gray-700/80 overflow-hidden transition-all duration-300 focus-within:border-green-500 dark:focus-within:border-green-500 focus-within:ring-[3px] focus-within:ring-green-500/20 dark:focus-within:ring-green-500/20 focus-within:shadow-lg">
-          <textarea
-            className="w-full bg-transparent px-6 py-5 text-base text-gray-900 dark:text-gray-100 placeholder-gray-400 outline-none resize-none min-h-[140px] leading-relaxed [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-thumb]:bg-gray-200 dark:[&::-webkit-scrollbar-thumb]:bg-gray-700 [&::-webkit-scrollbar-thumb]:rounded-full"
-            placeholder="今天有什么灵感或待办？写在这里吧..."
-            value={inputValue}
-            onChange={(e) => setInputValue(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
-                e.preventDefault();
-                handleAddMemo();
-              }
-            }}
+        {/* 顶部 Tab 切换 */}
+        <div className='mb-8 flex justify-center'>
+          <CapsuleSwitch
+            options={[
+              { label: '首页', value: 'home' },
+              { label: '收藏夹', value: 'favorites' },
+            ]}
+            active={activeTab}
+            onChange={(value) => setActiveTab(value as 'home' | 'favorites')}
           />
-          {/* 底部工具栏：当父容器（textarea）被聚焦时，背景和顶部分割线会泛起极淡的绿色联动光效 */}
-          <div className="flex justify-between items-center px-5 py-3 bg-gray-50/50 dark:bg-black/20 border-t border-gray-100 dark:border-gray-700/80 transition-colors duration-300 group-focus-within:bg-green-50/50 dark:group-focus-within:bg-green-500/5 group-focus-within:border-green-500/20 dark:group-focus-within:border-green-500/20">
-            <span className="text-xs text-gray-400 dark:text-gray-500 hidden sm:block transition-colors group-focus-within:text-green-600/70 dark:group-focus-within:text-green-400/70">
-              提示：按 <kbd className="bg-gray-200 dark:bg-gray-700/80 px-1.5 py-0.5 rounded text-gray-500 dark:text-gray-400 group-focus-within:bg-green-100 dark:group-focus-within:bg-green-500/20 group-focus-within:text-green-600 dark:group-focus-within:text-green-400">Ctrl</kbd> + <kbd className="bg-gray-200 dark:bg-gray-700/80 px-1.5 py-0.5 rounded text-gray-500 dark:text-gray-400 group-focus-within:bg-green-100 dark:group-focus-within:bg-green-500/20 group-focus-within:text-green-600 dark:group-focus-within:text-green-400">Enter</kbd> 快捷保存
-            </span>
-            <span className="text-xs text-gray-400 sm:hidden">
-              {inputValue.length} 字
-            </span>
+        </div>
+
+        <div className='max-w-[95%] mx-auto'>
+          {activeTab === 'favorites' ? (
+            // 收藏夹视图
+            <section className='mb-8'>
+              <div className='mb-4 flex items-center justify-between'>
+                <h2 className='text-xl font-bold text-gray-800 dark:text-gray-200'>
+                  我的收藏
+                </h2>
+                {favoriteItems.length > 0 && (
+                  <button
+                    className='text-sm text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 transition-colors'
+                    onClick={async () => {
+                      await clearAllFavorites();
+                      setFavoriteItems([]);
+                    }}
+                  >
+                    清空
+                  </button>
+                )}
+              </div>
+              <div className='justify-start grid grid-cols-3 gap-x-2 gap-y-14 sm:gap-y-20 px-0 sm:px-2 sm:grid-cols-[repeat(auto-fill,_minmax(11rem,_1fr))] sm:gap-x-8'>
+                {favoriteItems.map((item) => (
+                  <div key={item.id + item.source} className='w-full'>
+                    <VideoCard
+                      query={item.search_title}
+                      {...item}
+                      from='favorite'
+                      type={item.episodes > 1 ? 'tv' : ''}
+                    />
+                  </div>
+                ))}
+                {favoriteItems.length === 0 && (
+                  <div className='col-span-full text-center text-gray-500 py-8 dark:text-gray-400'>
+                    暂无收藏内容
+                  </div>
+                )}
+              </div>
+            </section>
+          ) : (
+            // 首页视图：保留纯粹的继续观看组件
+            <>
+              <ContinueWatching />
+            </>
+          )}
+        </div>
+      </div>
+      
+      {/* 公告弹窗 */}
+      {announcement && showAnnouncement && (
+        <div
+          className={`fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm dark:bg-black/70 p-4 transition-opacity duration-300 ${
+            showAnnouncement ? '' : 'opacity-0 pointer-events-none'
+          }`}
+        >
+          <div className='w-full max-w-md rounded-xl bg-white p-6 shadow-xl dark:bg-gray-900 transform transition-all duration-300 hover:shadow-2xl'>
+            <div className='flex justify-between items-start mb-4'>
+              <h3 className='text-2xl font-bold tracking-tight text-gray-800 dark:text-white border-b border-green-500 pb-1'>
+                提示
+              </h3>
+              <button
+                onClick={() => handleCloseAnnouncement(announcement)}
+                className='text-gray-400 hover:text-gray-500 dark:text-gray-500 dark:hover:text-white transition-colors'
+                aria-label='关闭'
+              >
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12"></path>
+                </svg>
+              </button>
+            </div>
+            <div className='mb-6'>
+              <div className='relative overflow-hidden rounded-lg mb-4 bg-green-50 dark:bg-green-900/20'>
+                <div className='absolute inset-y-0 left-0 w-1.5 bg-green-500 dark:bg-green-400'></div>
+                <p className='ml-4 py-3 pr-3 text-gray-600 dark:text-gray-300 leading-relaxed'>
+                  {announcement}
+                </p>
+              </div>
+            </div>
             <button
-              onClick={handleAddMemo}
-              disabled={!inputValue.trim() || isSubmitting}
-              className="px-6 py-2 bg-gradient-to-r from-green-500 to-emerald-600 hover:from-green-600 hover:to-emerald-700 text-white text-sm font-semibold rounded-lg transition-all shadow-md hover:shadow-lg disabled:opacity-50 disabled:cursor-not-allowed transform active:scale-95"
+              onClick={() => handleCloseAnnouncement(announcement)}
+              className='w-full rounded-lg bg-gradient-to-r from-green-600 to-green-700 px-4 py-3 text-white font-medium shadow-md hover:shadow-lg hover:from-green-700 hover:to-green-800 dark:from-green-600 dark:to-green-700 dark:hover:from-green-700 dark:hover:to-green-800 transition-all duration-300 transform hover:-translate-y-0.5'
             >
-              {isSubmitting ? '保存中...' : '保存记录'}
+              我知道了
             </button>
           </div>
         </div>
-        {/* ========================================================================= */}
-
-        {/* 瀑布流卡片区 */}
-        <div className="mt-2">
-          {loading ? (
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-              {[1, 2, 3].map(i => (
-                <div key={i} className="bg-gray-100 dark:bg-gray-800/50 h-40 rounded-2xl animate-pulse"></div>
-              ))}
-            </div>
-          ) : memos.length === 0 ? (
-            <div className="text-center py-20 bg-white/50 dark:bg-[#1E232D]/50 rounded-3xl border border-dashed border-gray-300 dark:border-gray-700">
-              <span className="text-5xl mb-4 block opacity-50">📭</span>
-              <p className="text-gray-500 dark:text-gray-400 text-lg font-medium">还没有任何记录，开始写下你的第一条便利贴吧</p>
-            </div>
-          ) : (
-            <div className="columns-1 sm:columns-2 lg:columns-3 gap-6 space-y-6">
-              {memos.map((memo) => (
-                <div 
-                  key={memo.id} 
-                  className="break-inside-avoid group relative bg-white dark:bg-[#1E232D] p-6 rounded-2xl border border-gray-100 dark:border-gray-700/50 shadow-sm hover:shadow-xl hover:-translate-y-1 transition-all duration-300 flex flex-col hover:border-green-500/30 dark:hover:border-green-500/30"
-                >
-                  <div className="max-h-[350px] overflow-y-auto pr-2 mb-4 [&::-webkit-scrollbar]:w-1 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:bg-gray-200 dark:[&::-webkit-scrollbar-thumb]:bg-gray-700 [&::-webkit-scrollbar-thumb]:rounded-full">
-                    <p className="text-gray-700 dark:text-gray-300 text-[15px] leading-relaxed break-words whitespace-pre-wrap">
-                      {memo.content}
-                    </p>
-                  </div>
-                  
-                  <div className="flex items-center justify-between mt-auto pt-4 border-t border-gray-100 dark:border-gray-700/50">
-                    <span className="text-[11px] text-gray-400 dark:text-gray-500 font-mono tracking-wider">
-                      {formatDate(memo.created_at)}
-                    </span>
-                    <button
-                      onClick={() => handleDelete(memo.id)}
-                      className="p-1.5 text-gray-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-500/10 rounded-lg transition-colors opacity-0 group-hover:opacity-100 focus:opacity-100"
-                      title="删除这条记录"
-                    >
-                      <Trash2 size={16} />
-                    </button>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-
-      </div>
+      )}
     </PageLayout>
   );
 }
 
-export default function MemoPage() {
+export default function Home() {
   return (
-    <Suspense fallback={
-      <div className="flex items-center justify-center min-h-screen bg-gray-50 dark:bg-[#0F111A]">
-        <div className="w-16 h-16 border-4 border-green-500 border-t-transparent rounded-full animate-spin"></div>
-      </div>
-    }>
-      <MemoPageClient />
+    <Suspense>
+      <HomeClient />
     </Suspense>
   );
 }
