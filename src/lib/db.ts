@@ -6,6 +6,13 @@ import { RedisStorage } from './redis.db';
 import { Favorite, IStorage, PlayRecord } from './types';
 import { UpstashRedisStorage } from './upstash.db';
 
+// 【新增】：跳过片头片尾的类型定义
+export interface SkipConfig {
+  enable: boolean;
+  intro_time: number;
+  outro_time: number;
+}
+
 // storage type 常量: 'localstorage' | 'redis' | 'd1' | 'upstash'，默认 'localstorage'
 const STORAGE_TYPE =
   (process.env.NEXT_PUBLIC_STORAGE_TYPE as
@@ -179,6 +186,55 @@ export class DbManager {
   async saveAdminConfig(config: AdminConfig): Promise<void> {
     if (typeof (this.storage as any).setAdminConfig === 'function') {
       await (this.storage as any).setAdminConfig(config);
+    }
+  }
+
+  // =========================================================================
+  // 【新增核心】：跳过片头片尾配置 (单剧集记忆)
+  // 使用安全降级策略：底层如果还没写对应方法，也不会引发服务崩溃
+  // =========================================================================
+  
+  async getSkipConfig(
+    userName: string,
+    source: string,
+    id: string
+  ): Promise<SkipConfig | null> {
+    const key = generateStorageKey(source, id);
+    if (this.storage && typeof (this.storage as any).getSkipConfig === 'function') {
+      return (this.storage as any).getSkipConfig(userName, key);
+    }
+    return null;
+  }
+
+  async setSkipConfig(
+    userName: string,
+    source: string,
+    id: string,
+    config: SkipConfig
+  ): Promise<void> {
+    const key = generateStorageKey(source, id);
+    if (this.storage && typeof (this.storage as any).setSkipConfig === 'function') {
+      await (this.storage as any).setSkipConfig(userName, key, config);
+    }
+  }
+
+  async getAllSkipConfigs(
+    userName: string
+  ): Promise<{ [key: string]: SkipConfig }> {
+    if (this.storage && typeof (this.storage as any).getAllSkipConfigs === 'function') {
+      return (this.storage as any).getAllSkipConfigs(userName);
+    }
+    return {};
+  }
+
+  async deleteSkipConfig(
+    userName: string,
+    source: string,
+    id: string
+  ): Promise<void> {
+    const key = generateStorageKey(source, id);
+    if (this.storage && typeof (this.storage as any).deleteSkipConfig === 'function') {
+      await (this.storage as any).deleteSkipConfig(userName, key);
     }
   }
 }
