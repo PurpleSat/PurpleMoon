@@ -5,9 +5,16 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getAuthInfoFromCookie } from '@/lib/auth';
 import { getConfig } from '@/lib/config';
 import { db } from '@/lib/db';
-import { SkipConfig } from '@/lib/types';
 
-export const runtime = 'nodejs';
+// 【修复 1】：在当前文件直接声明 SkipConfig 类型，解决找不到导出的问题
+export interface SkipConfig {
+  enable: boolean;
+  intro_time: number;
+  outro_time: number;
+}
+
+// 【修复 2】：必须强制使用 edge 运行时，否则 Cloudflare Pages 部署会再次失败
+export const runtime = 'edge';
 
 export async function GET(request: NextRequest) {
   try {
@@ -36,8 +43,8 @@ export async function GET(request: NextRequest) {
 
     if (source && id) {
       // 获取单个配置
-      const config = await db.getSkipConfig(authInfo.username, source, id);
-      return NextResponse.json(config);
+      const skipConfig = await db.getSkipConfig(authInfo.username, source, id);
+      return NextResponse.json(skipConfig);
     } else {
       // 获取所有配置
       const configs = await db.getAllSkipConfigs(authInfo.username);
