@@ -1,7 +1,7 @@
 /* eslint-disable no-console, @typescript-eslint/no-explicit-any, @typescript-eslint/no-non-null-assertion */
 
 import { AdminConfig } from './admin.types';
-import { Favorite, IStorage, PlayRecord, SkipConfig } from './types';
+import { Favorite, IStorage, PlayRecord, SkipConfig, Memo } from './types'; // 【修改】：引入 Memo 类型
 
 // 搜索历史最大条数
 const SEARCH_HISTORY_LIMIT = 20;
@@ -344,14 +344,18 @@ export class D1Storage implements IStorage {
         db
           .prepare('DELETE FROM skip_configs WHERE username = ?')
           .bind(userName),
+        // 【新增】：同步级联删除用户的便利贴记录
+        db
+          .prepare('DELETE FROM user_memos WHERE username = ?')
+          .bind(userName),
       ];
 
       await db.batch(statements);
     } catch (err: any) {
       console.error('Failed to delete user:', err);
-      // 如果 skip_configs 尚不存在，忽略该异常避免删号失败
-      if (err.message && err.message.includes('no such table: skip_configs')) {
-        console.warn('忽略缺少 skip_configs 表引起的删号警告。');
+      // 如果 skip_configs 或 user_memos 尚不存在，忽略该异常避免删号失败
+      if (err.message && err.message.includes('no such table')) {
+        console.warn('忽略缺少附加表引起的删号警告。');
         return;
       }
       throw err;
@@ -485,7 +489,6 @@ export class D1Storage implements IStorage {
 
   // =========================================================================
   // 【核心补全】：跳过片头片尾配置持久化支持
-  // D1 原生语法支持，且带有“无表安全降级”的防弹处理
   // =========================================================================
   
   async getSkipConfig(
@@ -507,7 +510,6 @@ export class D1Storage implements IStorage {
         outro_time: Number(result.outro_time) || 0,
       };
     } catch (err: any) {
-      // 安全降级：如果用户没有运行建表脚本，直接拦截错误并返回 null，不抛出异常
       if (err.message && err.message.includes('no such table')) {
         console.warn('D1 数据库缺少 skip_configs 表，请先在云端执行建表 SQL。当前已自动降级。');
         return null;
@@ -532,7 +534,6 @@ export class D1Storage implements IStorage {
           VALUES (?, ?, ?, ?, ?)
         `
         )
-        // SQLite 没有 boolean 类型，存为 1 或 0
         .bind(
           userName,
           key,
@@ -593,6 +594,62 @@ export class D1Storage implements IStorage {
         return;
       }
       console.error('Failed to delete skip config:', err);
+      throw err;
+    }
+  }
+
+  // =========================================================================
+  // 【新增工具】：我的便利贴 (Memos) 数据层实现
+  // =========================================================================
+
+  async getMemos(userName: string): Promise<Memo[]> {
+    try {
+      const db = await this.getDatabase();
+      const result = await db
+        .prepare('SELECT id, content, created_at FROM user_memos WHERE username = ? ORDER BY created_at DESC')
+        .bind(userName)
+        .all<any>();
+
+      return (result.results as Memo[]) || [];
+    } catch (err: any) {
+      if (err.message && err.message.includes('no such table')) {
+        console.warn('D1 数据库缺少 user_memos 表，自动降级返回空列表。');
+        return [];
+      }
+      console.error('Failed to get memos:', err);
+      throw err;
+    }
+  }
+
+  async addMemo(userName: string, content: string): Promise<void> {
+    try {
+      const db = await this.getDatabase();
+      await db
+        .prepare('INSERT INTO user_memos (username, content, created_at) VALUES (?, ?, ?)')
+        .bind(userName, content, Date.now())
+        .run();
+    } catch (err: any) {
+      if (err.message && err.message.includes('no such table')) {
+        console.warn('D1 数据库缺少 user_memos 表，添加失败。');
+        return;
+      }
+      console.error('Failed to add memo:', err);
+      throw err;
+    }
+  }
+
+  async deleteMemo(userName: string, memoId: number): Promise<void> {
+    try {
+      const db = await this.getDatabase();
+      await db
+        .prepare('DELETE FROM user_memos WHERE username = ? AND id = ?')
+        .bind(userName, memoId)
+        .run();
+    } catch (err: any) {
+      if (err.message && err.message.includes('no such table')) {
+        return;
+      }
+      console.error('Failed to delete memo:', err);
       throw err;
     }
   }
