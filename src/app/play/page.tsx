@@ -42,27 +42,6 @@ interface WakeLockSentinel {
   removeEventListener(type: 'release', listener: () => void): void;
 }
 
-// 【兼容修复】：本地化的跳过配置读写工具，完美替代不存在的云端 DB 接口
-const getLocalSkipConfig = (source: string, id: string) => {
-  if (typeof window === 'undefined') return null;
-  try {
-    const val = localStorage.getItem(`skip_config_${source}_${id}`);
-    return val ? JSON.parse(val) : null;
-  } catch (_e) {
-    return null;
-  }
-};
-
-const saveLocalSkipConfig = (source: string, id: string, config: any) => {
-  if (typeof window === 'undefined') return;
-  localStorage.setItem(`skip_config_${source}_${id}`, JSON.stringify(config));
-};
-
-const deleteLocalSkipConfig = (source: string, id: string) => {
-  if (typeof window === 'undefined') return;
-  localStorage.removeItem(`skip_config_${source}_${id}`);
-};
-
 function PlayPageClient() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -81,7 +60,7 @@ function PlayPageClient() {
   // 收藏状态
   const [favorited, setFavorited] = useState(false);
 
-  // 跳过片头片尾配置 (改为本地存储单剧集独立记忆)
+  // 跳过片头片尾配置 (全面接入云端同步配置)
   const [skipConfig, setSkipConfig] = useState<{
     enable: boolean;
     intro_time: number;
@@ -413,20 +392,13 @@ function PlayPageClient() {
       try {
         const video = artPlayerRef.current.video;
         if (video) {
-          // 1. 强制暂停当前播放，打断后台音频
           video.pause();
-          
-          // 2. 彻底清空源并重载，切断数据流与 HLS 幽灵下载
           video.removeAttribute('src');
           video.load();
-          
           if (video.hls) {
             video.hls.destroy();
           }
         }
-        
-        // 3. destroy(true) 强制移除播放器创建的所有 DOM 节点
-        // 防止全屏模式下生成的节点残留在 <body> 中
         artPlayerRef.current.destroy(true);
         artPlayerRef.current = null;
       } catch (_err) {
@@ -1315,8 +1287,7 @@ function PlayPageClient() {
             {videoTitle || '影片标题'}
             {totalEpisodes > 1 && (
               <span className='text-gray-500 dark:text-gray-400'>
-                {/* 彻底绕过类型检查：使用 any 断言读取 episodes_titles */}
-                {` > ${(detail as any)?.episodes_titles?.[currentEpisodeIndex] || `第 ${currentEpisodeIndex + 1} 集`}`}
+                {` > 第 ${currentEpisodeIndex + 1} 集`}
               </span>
             )}
           </h1>
@@ -1367,7 +1338,6 @@ function PlayPageClient() {
             <div className={`h-[300px] lg:h-full md:overflow-hidden transition-all duration-300 ease-in-out ${isEpisodeSelectorCollapsed ? 'md:col-span-1 lg:hidden lg:opacity-0 lg:scale-95' : 'md:col-span-1 lg:opacity-100 lg:scale-100'}`}>
               <EpisodeSelector
                 totalEpisodes={totalEpisodes}
-                episodes_titles={(detail as any)?.episodes_titles || []}
                 value={currentEpisodeIndex + 1}
                 onChange={handleEpisodeChange}
                 onSourceChange={handleSourceChange}
