@@ -9,6 +9,24 @@ import { SearchResult } from '@/lib/types';
 export const runtime = 'edge';
 
 export async function GET(request: NextRequest) {
+  // ============================================================================
+  // 【核心安全升级】：防 DoS 资源耗尽，严格拦截非法的匿名 Cron 请求
+  // ============================================================================
+  const authHeader = request.headers.get('authorization');
+  const cronSecret = process.env.CRON_SECRET;
+
+  if (!cronSecret) {
+    console.error('拦截：服务器未配置 CRON_SECRET 环境变量，出于安全考虑拒绝执行批量刷新任务。');
+    return NextResponse.json({ error: 'Unauthorized: CRON_SECRET is not configured' }, { status: 401 });
+  }
+
+  // 严格比对 Bearer Token
+  if (authHeader !== `Bearer ${cronSecret}`) {
+    console.warn(`拦截：检测到伪造的 Cron 触发请求！(IP: ${request.headers.get('cf-connecting-ip') || 'unknown'})`);
+    return NextResponse.json({ error: 'Unauthorized: Invalid token' }, { status: 401 });
+  }
+  // ============================================================================
+
   console.log(request.url);
   try {
     console.log('Cron job triggered:', new Date().toISOString());
