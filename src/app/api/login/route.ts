@@ -68,7 +68,8 @@ async function generateSignature(
 async function generateAuthCookie(
   username?: string,
   password?: string,
-  includePassword = false
+  includePassword = false,
+  role: string = 'user' // 【新增】：默认角色参数
 ): Promise<string> {
   const authData: any = {};
 
@@ -79,15 +80,19 @@ async function generateAuthCookie(
 
   if (username) {
     authData.username = username;
+    authData.role = role;            // 【新增】：注入角色
     authData.timestamp = Date.now(); // 添加时间戳防重放攻击
     
-    // 【核心修复】：与注册和中间件保持对齐，优先使用 AUTH_SECRET 进行安全签名
+    // 与注册和中间件保持对齐，优先使用 AUTH_SECRET 进行安全签名
     const signingKey = process.env.AUTH_SECRET || process.env.PASSWORD || '';
     if (!process.env.AUTH_SECRET) {
       console.warn('警告: 未配置 AUTH_SECRET，当前登录 Cookie 签名面临被暴力破解的风险');
     }
     
-    const signature = await generateSignature(username, signingKey);
+    // 【核心安全升级】：签名覆盖 username:timestamp:role
+    // 任何对时间戳或角色的篡改都会导致签名验证失败
+    const signPayload = `${username}:${authData.timestamp}:${role}`;
+    const signature = await generateSignature(signPayload, signingKey);
     authData.signature = signature;
   }
 
@@ -151,7 +156,7 @@ export async function POST(req: NextRequest) {
       return response;
     }
 
-    // 数据库 / redis 模式——校验用户名并尝试连接数据库
+    // 数据库 / redis / d1 模式——校验用户名并尝试连接数据库
     const { username, password } = await req.json();
 
     if (!username || typeof username !== 'string') {
@@ -168,7 +173,8 @@ export async function POST(req: NextRequest) {
     ) {
       // 验证成功，设置认证cookie
       const response = NextResponse.json({ ok: true });
-      const cookieValue = await generateAuthCookie(username, password, false); // 数据库模式不包含 password
+      // 【权限下发】：站长登录，角色强制绑定为 admin
+      const cookieValue = await generateAuthCookie(username, password, false, 'admin'); 
       const expires = new Date();
       expires.setDate(expires.getDate() + 7); // 7天过期
 
@@ -191,7 +197,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: '用户被封禁' }, { status: 401 });
     }
 
-    // 校验用户密码
+    // 校验普通用户密码
     try {
       const pass = await db.verifyUser(username, password);
       if (!pass) {
@@ -203,7 +209,8 @@ export async function POST(req: NextRequest) {
 
       // 验证成功，设置认证cookie
       const response = NextResponse.json({ ok: true });
-      const cookieValue = await generateAuthCookie(username, password, false); // 数据库模式不包含 password
+      // 【权限下发】：普通数据库用户登录，角色绑定为 user
+      const cookieValue = await generateAuthCookie(username, password, false, 'user'); 
       const expires = new Date();
       expires.setDate(expires.getDate() + 7); // 7天过期
 
