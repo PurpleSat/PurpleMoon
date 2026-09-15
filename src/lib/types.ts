@@ -7,6 +7,13 @@ export interface SkipConfig {
   outro_time: number;
 }
 
+// 【新增】：便利贴数据结构
+export interface Memo {
+  id: number;
+  content: string;
+  created_at: number;
+}
+
 // 播放记录数据结构
 export interface PlayRecord {
   title: string;
@@ -71,6 +78,11 @@ export interface IStorage {
   // 管理员配置相关
   getAdminConfig(): Promise<AdminConfig | null>;
   setAdminConfig(config: AdminConfig): Promise<void>;
+
+  // 【新增】：便利贴相关
+  getMemos(userName: string): Promise<Memo[]>;
+  addMemo(userName: string, content: string): Promise<void>;
+  deleteMemo(userName: string, memoId: number): Promise<void>;
 }
 
 // 搜索结果数据结构
@@ -127,16 +139,3 @@ export type ReleaseCalendarResult = {
     genres: { label: string; value: string; count: number }[];
   };
 };
-
-// 便利贴数据结构
-export interface Memo {
-  id: number;
-  content: string;
-  created_at: number;
-}
-
-// 在 export interface IStorage { ... } 内部追加以下三个方法：
-  // 便利贴相关
-  getMemos(userName: string): Promise<Memo[]>;
-  addMemo(userName: string, content: string): Promise<void>;
-  deleteMemo(userName: string, memoId: number): Promise<void>;
