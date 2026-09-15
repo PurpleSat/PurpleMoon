@@ -128,7 +128,7 @@ function ParserPageClient() {
               className="h-10 md:h-12 object-contain drop-shadow-lg opacity-80 hover:opacity-100 hover:scale-105 transition-all duration-300"
             />
             <div className="text-center text-sm text-gray-400 dark:text-gray-500">
-              &copy; {new Date().getFullYear()} 紫月-TV 视频解析引擎
+              &copy; {new Date().getFullYear()} PurpleMoon-视频解析UI
             </div>
           </div>
 
