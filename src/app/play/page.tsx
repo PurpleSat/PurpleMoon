@@ -217,7 +217,6 @@ function PlayPageClient() {
   ): Promise<SearchResult> => {
     if (sources.length === 1) return sources[0];
 
-    // 将播放源均分为两批，并发测速各批，避免一次性过多请求
     const batchSize = Math.ceil(sources.length / 2);
     const allResults: Array<{
       source: SearchResult;
@@ -1174,7 +1173,7 @@ function PlayPageClient() {
                     return val > 0 ? `${val}s` : '关闭';
                   }
                 }
-                return false; // 取消或无效输入，状态保持不变
+                return false; 
               }
               setSkipIntro(item.value);
               return item.value > 0 ? `${item.value}s` : '关闭';
@@ -1195,7 +1194,7 @@ function PlayPageClient() {
                     return val > 0 ? `${val}s` : '关闭';
                   }
                 }
-                return false; // 取消或无效输入，状态保持不变
+                return false; 
               }
               setSkipOutro(item.value);
               return item.value > 0 ? `${item.value}s` : '关闭';
@@ -1268,12 +1267,28 @@ function PlayPageClient() {
         }
       });
 
+      // 【核心重构区】：彻底修复跳过失效、无限跳集、回退被弹的 Bug
       artPlayerRef.current.on('video:timeupdate', () => {
         const player = artPlayerRef.current;
         if (!player) return;
 
         const currentTime = player.currentTime || 0;
         const duration = player.duration || 0;
+
+        // 【防御机制 1】竞态锁：如果系统正在准备跳转到历史播放进度，必须挂起一切自动跳过逻辑，否则会相互覆盖打断。
+        if (resumeTimeRef.current && resumeTimeRef.current > 0) {
+          return; 
+        }
+
+        // 【防御机制 2】回退保护：如果用户是从历史进度恢复（比如接着看第10分钟），或者手动拉过了片头。
+        // 我们必须立刻将“片头已跳过”标记为 true，以防止用户手动拖回片头时，被系统再次强行弹飞到 30 秒。
+        if (
+          skipIntroRef.current > 0 &&
+          currentTime > skipIntroRef.current &&
+          !hasSkippedIntroRef.current
+        ) {
+          hasSkippedIntroRef.current = true;
+        }
 
         // 1. 自动跳过片头
         if (
@@ -1287,16 +1302,18 @@ function PlayPageClient() {
         }
 
         // 2. 自动跳过片尾
+        // 【防御机制 3】幽灵时长锁：M3U8 刚加载时，duration 经常极短（比如等于第一个 10秒 切片），
+        // 此时 (duration - skipOutro) 为负数，必定触发下面导致无限换集。必须确保 duration 大于设定的跳过阈值！
         if (
           skipOutroRef.current > 0 &&
-          duration > 0 &&
+          duration > skipOutroRef.current && 
           currentTime >= duration - skipOutroRef.current &&
           !hasSkippedOutroRef.current
         ) {
           const d = detailRef.current;
           const idx = currentEpisodeIndexRef.current;
           if (d && d.episodes && idx < d.episodes.length - 1 && !player.paused) {
-            hasSkippedOutroRef.current = true; // 锁定触发，防止乱跳
+            hasSkippedOutroRef.current = true; 
             player.notice.show = '已自动跳过片尾，即将播放下一集';
             player.pause(); 
             setCurrentEpisodeIndex(idx + 1);
