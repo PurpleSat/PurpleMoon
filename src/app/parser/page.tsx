@@ -62,18 +62,8 @@ function ParserPageClient() {
 
         <div className="w-full max-w-5xl mx-auto flex flex-col gap-6 relative z-10">
           
-          {/* Header 区域：纯文本渐变标题 */}
-          <div className="text-center mt-4 md:mt-8 mb-4">
-            <h1 className="text-3xl md:text-4xl font-bold bg-gradient-to-r from-red-500 to-rose-600 bg-clip-text text-transparent inline-block tracking-wide mb-2">
-              紫月-VIP视频无界解析
-            </h1>
-            <p className="text-gray-500 dark:text-gray-400 text-sm md:text-base mt-1">
-              功能说明：突破平台限制，粘贴腾讯、爱奇艺、优酷等外部视频播放页链接即可观看高清VIP会员视频。
-            </p>
-          </div>
-
-          {/* 播放器 Iframe 区 */}
-          <div className="w-full aspect-video bg-black/90 dark:bg-black rounded-2xl overflow-hidden shadow-2xl border border-gray-200/20 dark:border-gray-800 relative group">
+          {/* 播放器 Iframe 区（置顶） */}
+          <div className="w-full aspect-video bg-black/90 dark:bg-black rounded-2xl overflow-hidden shadow-2xl border border-gray-200/20 dark:border-gray-800 relative group mt-2 md:mt-4">
             {!activeIframeSrc ? (
               <div className="absolute inset-0 flex flex-col items-center justify-center text-gray-500 dark:text-gray-400">
                 <svg xmlns="http://www.w3.org/2000/svg" className="w-16 h-16 mb-4 opacity-50" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -130,9 +120,18 @@ function ParserPageClient() {
             </div>
           </div>
           
-          <div className="text-center text-sm text-gray-400 dark:text-gray-500 mt-6 mb-8">
-            &copy; {new Date().getFullYear()} 紫月-TV 视频解析引擎
+          {/* 底部版权与 Logo 区域 */}
+          <div className="flex flex-col items-center justify-center mt-6 mb-8 gap-3">
+            <img 
+              src="/logo.png" 
+              alt="紫月-TV Logo" 
+              className="h-10 md:h-12 object-contain drop-shadow-lg opacity-80 hover:opacity-100 hover:scale-105 transition-all duration-300"
+            />
+            <div className="text-center text-sm text-gray-400 dark:text-gray-500">
+              &copy; {new Date().getFullYear()} 紫月-TV 视频解析引擎
+            </div>
           </div>
+
         </div>
       </div>
     </PageLayout>
