@@ -69,7 +69,7 @@ async function generateAuthCookie(
   username?: string,
   password?: string,
   includePassword = false,
-  role: string = 'user' // 【新增】：默认角色参数
+  role = 'user' // 【修复】：移除冗余的 : string 类型声明，满足最严格的 ESLint 规范
 ): Promise<string> {
   const authData: any = {};
 
