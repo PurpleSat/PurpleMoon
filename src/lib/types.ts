@@ -127,3 +127,16 @@ export type ReleaseCalendarResult = {
     genres: { label: string; value: string; count: number }[];
   };
 };
+
+// 便利贴数据结构
+export interface Memo {
+  id: number;
+  content: string;
+  created_at: number;
+}
+
+// 在 export interface IStorage { ... } 内部追加以下三个方法：
+  // 便利贴相关
+  getMemos(userName: string): Promise<Memo[]>;
+  addMemo(userName: string, content: string): Promise<void>;
+  deleteMemo(userName: string, memoId: number): Promise<void>;
