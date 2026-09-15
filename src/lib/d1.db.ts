@@ -1,7 +1,7 @@
 /* eslint-disable no-console, @typescript-eslint/no-explicit-any, @typescript-eslint/no-non-null-assertion */
 
 import { AdminConfig } from './admin.types';
-import { Favorite, IStorage, PlayRecord } from './types';
+import { Favorite, IStorage, PlayRecord, SkipConfig } from './types';
 
 // 搜索历史最大条数
 const SEARCH_HISTORY_LIMIT = 20;
@@ -340,11 +340,20 @@ export class D1Storage implements IStorage {
         db
           .prepare('DELETE FROM search_history WHERE username = ?')
           .bind(userName),
+        // 同步级联删除跳过配置
+        db
+          .prepare('DELETE FROM skip_configs WHERE username = ?')
+          .bind(userName),
       ];
 
       await db.batch(statements);
-    } catch (err) {
+    } catch (err: any) {
       console.error('Failed to delete user:', err);
+      // 如果 skip_configs 尚不存在，忽略该异常避免删号失败
+      if (err.message && err.message.includes('no such table: skip_configs')) {
+        console.warn('忽略缺少 skip_configs 表引起的删号警告。');
+        return;
+      }
       throw err;
     }
   }
@@ -470,6 +479,120 @@ export class D1Storage implements IStorage {
         .run();
     } catch (err) {
       console.error('Failed to set admin config:', err);
+      throw err;
+    }
+  }
+
+  // =========================================================================
+  // 【核心补全】：跳过片头片尾配置持久化支持
+  // D1 原生语法支持，且带有“无表安全降级”的防弹处理
+  // =========================================================================
+  
+  async getSkipConfig(
+    userName: string,
+    key: string
+  ): Promise<SkipConfig | null> {
+    try {
+      const db = await this.getDatabase();
+      const result = await db
+        .prepare('SELECT * FROM skip_configs WHERE username = ? AND key = ?')
+        .bind(userName, key)
+        .first<any>();
+
+      if (!result) return null;
+
+      return {
+        enable: Boolean(result.enable),
+        intro_time: Number(result.intro_time) || 0,
+        outro_time: Number(result.outro_time) || 0,
+      };
+    } catch (err: any) {
+      // 安全降级：如果用户没有运行建表脚本，直接拦截错误并返回 null，不抛出异常
+      if (err.message && err.message.includes('no such table')) {
+        console.warn('D1 数据库缺少 skip_configs 表，请先在云端执行建表 SQL。当前已自动降级。');
+        return null;
+      }
+      console.error('Failed to get skip config:', err);
+      throw err;
+    }
+  }
+
+  async setSkipConfig(
+    userName: string,
+    key: string,
+    config: SkipConfig
+  ): Promise<void> {
+    try {
+      const db = await this.getDatabase();
+      await db
+        .prepare(
+          `
+          INSERT OR REPLACE INTO skip_configs 
+          (username, key, enable, intro_time, outro_time)
+          VALUES (?, ?, ?, ?, ?)
+        `
+        )
+        // SQLite 没有 boolean 类型，存为 1 或 0
+        .bind(
+          userName,
+          key,
+          config.enable ? 1 : 0,
+          config.intro_time,
+          config.outro_time
+        )
+        .run();
+    } catch (err: any) {
+      if (err.message && err.message.includes('no such table')) {
+        console.warn('D1 数据库缺少 skip_configs 表，保存失败。');
+        return;
+      }
+      console.error('Failed to set skip config:', err);
+      throw err;
+    }
+  }
+
+  async getAllSkipConfigs(
+    userName: string
+  ): Promise<Record<string, SkipConfig>> {
+    try {
+      const db = await this.getDatabase();
+      const result = await db
+        .prepare('SELECT * FROM skip_configs WHERE username = ?')
+        .bind(userName)
+        .all<any>();
+
+      const configs: Record<string, SkipConfig> = {};
+
+      result.results.forEach((row: any) => {
+        configs[row.key] = {
+          enable: Boolean(row.enable),
+          intro_time: Number(row.intro_time) || 0,
+          outro_time: Number(row.outro_time) || 0,
+        };
+      });
+
+      return configs;
+    } catch (err: any) {
+      if (err.message && err.message.includes('no such table')) {
+        return {};
+      }
+      console.error('Failed to get all skip configs:', err);
+      throw err;
+    }
+  }
+
+  async deleteSkipConfig(userName: string, key: string): Promise<void> {
+    try {
+      const db = await this.getDatabase();
+      await db
+        .prepare('DELETE FROM skip_configs WHERE username = ? AND key = ?')
+        .bind(userName, key)
+        .run();
+    } catch (err: any) {
+      if (err.message && err.message.includes('no such table')) {
+        return;
+      }
+      console.error('Failed to delete skip config:', err);
       throw err;
     }
   }
