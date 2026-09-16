@@ -4,7 +4,6 @@
 
 import { Suspense, useEffect, useState } from 'react';
 import Link from 'next/link'; // 引入 Next.js 原生 Link 组件
-import { useRouter } from 'next/navigation';
 import { PenLine } from 'lucide-react'; // 引入紫月纪图标
 
 // 客户端收藏与播放记录 API
