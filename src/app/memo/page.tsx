@@ -1,7 +1,7 @@
 'use client';
 
 import { Suspense, useEffect, useRef, useState } from 'react';
-import { Trash2, PenLine, Plus, ArrowUp } from 'lucide-react';
+import { Trash2, PenLine, ArrowUp } from 'lucide-react';
 
 import PageLayout from '@/components/PageLayout';
 import { Memo } from '@/lib/types';
@@ -34,7 +34,7 @@ function MemoPageClient() {
     fetchMemos();
   }, []);
 
-  // 根据内容自动调整 textarea 高度
+  // 根据内容自动调整 textarea 高度 (在常规文档流中会自动向下撑开)
   useEffect(() => {
     const textarea = textareaRef.current;
     if (textarea) {
@@ -57,7 +57,6 @@ function MemoPageClient() {
       if (res.ok) {
         setInputValue('');
         fetchMemos(); // 重新拉取最新列表
-        // 保存成功后输入框高度会因为 inputValue 清空而自动复原
       }
     } catch (e) {
       console.error('添加失败', e);
@@ -90,11 +89,10 @@ function MemoPageClient() {
 
   return (
     <PageLayout activePath="/memo">
-      {/* pb-36 预留底部悬浮输入框的空间，防止挡住最后一张便利贴 */}
-      <div className="flex flex-col gap-8 pt-8 pb-36 px-5 lg:px-[3rem] 2xl:px-20 max-w-6xl mx-auto min-h-[calc(100vh-80px)] relative">
+      <div className="flex flex-col gap-6 pt-8 pb-16 px-5 lg:px-[3rem] 2xl:px-20 max-w-6xl mx-auto min-h-[calc(100vh-80px)]">
         
         {/* 顶部标题 */}
-        <div className="flex items-center justify-between">
+        <div className="flex items-center justify-between mb-2">
           <h1 className="text-3xl font-bold text-gray-900 dark:text-gray-100 flex items-center gap-3">
             <span className="p-2 bg-green-100 dark:bg-green-500/20 text-green-600 dark:text-green-400 rounded-xl">
               <PenLine size={24} />
@@ -106,8 +104,58 @@ function MemoPageClient() {
           </div>
         </div>
 
-        {/* 瀑布流卡片区 (移至上方) */}
-        <div className="mt-2">
+        {/* ========================================================================= */}
+        {/* 【重构】：居中对话式输入框 (置于页面顶部，无边框，居中对齐，向下生长) */}
+        {/* ========================================================================= */}
+        <div className="w-full flex flex-col items-center z-20">
+          <div className="w-full max-w-4xl bg-white dark:bg-[#1E232D] rounded-[32px] shadow-[0_8px_30px_rgb(0,0,0,0.06)] dark:shadow-[0_8px_30px_rgb(0,0,0,0.4)] p-2 flex items-center gap-2 transition-all duration-300 focus-within:shadow-[0_8px_40px_rgb(0,0,0,0.12)] dark:focus-within:shadow-[0_8px_40px_rgb(0,0,0,0.6)]">
+            
+            {/* 左侧 Logo */}
+            <div className="p-1 ml-2 flex-shrink-0 select-none">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src="/logo.png" alt="logo" className="w-8 h-8 object-contain hover:scale-105 transition-transform duration-300 drop-shadow-sm" />
+            </div>
+
+            {/* 自适应高度的多行文本框 */}
+            <textarea
+              ref={textareaRef}
+              rows={1}
+              className="flex-1 max-h-[160px] bg-transparent outline-none resize-none py-3 px-2 text-base text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-500 [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:bg-gray-200 dark:[&::-webkit-scrollbar-thumb]:bg-gray-700 [&::-webkit-scrollbar-thumb]:rounded-full"
+              placeholder="记录点什么吧..."
+              value={inputValue}
+              onChange={(e) => setInputValue(e.target.value)}
+              onKeyDown={(e) => {
+                // 聊天式快捷键：Enter 直接发送，Shift + Enter 换行
+                if (e.key === 'Enter' && !e.shiftKey) {
+                  e.preventDefault();
+                  handleAddMemo();
+                }
+              }}
+            />
+
+            {/* 右侧发送按钮 */}
+            <button
+              onClick={handleAddMemo}
+              disabled={!inputValue.trim() || isSubmitting}
+              className={`p-2.5 mr-1 rounded-full transition-all duration-300 flex-shrink-0 ${
+                inputValue.trim() 
+                  ? 'bg-black text-white hover:bg-gray-800 dark:bg-white dark:text-black dark:hover:bg-gray-200 shadow-md transform active:scale-95' 
+                  : 'bg-gray-100 text-gray-400 dark:bg-gray-800 dark:text-gray-600'
+              }`}
+            >
+              <ArrowUp size={22} strokeWidth={2.5} />
+            </button>
+          </div>
+          
+          {/* 快捷键提示 */}
+          <div className="mt-3 text-[11px] text-gray-400 dark:text-gray-500 tracking-wide select-none">
+            按 <span className="font-semibold">Enter</span> 保存记录，<span className="font-semibold">Shift + Enter</span> 换行
+          </div>
+        </div>
+        {/* ========================================================================= */}
+
+        {/* 瀑布流卡片区 (位于输入框下方) */}
+        <div className="mt-4">
           {loading ? (
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
               {[1, 2, 3].map(i => (
@@ -115,7 +163,7 @@ function MemoPageClient() {
               ))}
             </div>
           ) : memos.length === 0 ? (
-            <div className="text-center py-32">
+            <div className="text-center py-24">
               <span className="text-6xl mb-4 block opacity-30 grayscale filter">📝</span>
               <p className="text-gray-500 dark:text-gray-400 text-lg font-medium">一切伟大的构想，都源于一次随手记...</p>
             </div>
@@ -124,9 +172,9 @@ function MemoPageClient() {
               {memos.map((memo) => (
                 <div 
                   key={memo.id} 
-                  className="break-inside-avoid group relative bg-white dark:bg-[#1E232D] p-6 rounded-2xl border border-gray-100 dark:border-gray-700/50 shadow-sm hover:shadow-xl hover:-translate-y-1 transition-all duration-300 flex flex-col hover:border-green-500/30 dark:hover:border-green-500/30"
+                  className="break-inside-avoid group relative bg-white dark:bg-[#1E232D] p-6 rounded-2xl shadow-sm hover:shadow-xl hover:-translate-y-1 transition-all duration-300 flex flex-col"
                 >
-                  <div className="max-h-[350px] overflow-y-auto pr-2 mb-4 [&::-webkit-scrollbar]:w-1 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:bg-gray-200 dark:[&::-webkit-scrollbar-thumb]:bg-gray-700 [&::-webkit-scrollbar-thumb]:rounded-full">
+                  <div className="max-h-[350px] overflow-y-auto pr-2 mb-4 [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:bg-gray-200 dark:[&::-webkit-scrollbar-thumb]:bg-gray-700 [&::-webkit-scrollbar-thumb]:rounded-full">
                     <p className="text-gray-700 dark:text-gray-300 text-[15px] leading-relaxed break-words whitespace-pre-wrap">
                       {memo.content}
                     </p>
@@ -151,56 +199,6 @@ function MemoPageClient() {
         </div>
 
       </div>
-
-      {/* ========================================================================= */}
-      {/* 【重构】：底部悬浮对话式输入框 (Gemini 风格) */}
-      {/* ========================================================================= */}
-      <div className="fixed bottom-6 left-0 right-0 z-40 px-4 pointer-events-none flex flex-col items-center">
-        {/* 输入框主容器 */}
-        <div className="w-full max-w-4xl bg-white/90 dark:bg-[#1E232D]/95 backdrop-blur-xl rounded-[32px] shadow-[0_8px_30px_rgb(0,0,0,0.08)] dark:shadow-[0_8px_30px_rgb(0,0,0,0.6)] border border-gray-200 dark:border-gray-700/80 p-2 flex items-end gap-2 transition-all duration-300 focus-within:shadow-[0_8px_40px_rgb(0,0,0,0.12)] focus-within:border-gray-300 dark:focus-within:border-gray-600 pointer-events-auto">
-          
-          {/* 左侧加号图标 (对齐 Gemini 风格) */}
-          <button className="p-2.5 ml-1 text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 transition-colors flex-shrink-0 rounded-full hover:bg-gray-100 dark:hover:bg-gray-800">
-            <Plus size={24} strokeWidth={2.5} />
-          </button>
-
-          {/* 自适应高度的多行文本框 */}
-          <textarea
-            ref={textareaRef}
-            rows={1}
-            className="flex-1 max-h-[160px] bg-transparent outline-none resize-none py-3 px-2 text-base text-gray-900 dark:text-gray-100 placeholder-gray-500 [&::-webkit-scrollbar]:w-1 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:bg-gray-300 dark:[&::-webkit-scrollbar-thumb]:bg-gray-600 [&::-webkit-scrollbar-thumb]:rounded-full"
-            placeholder="记录点什么吧..."
-            value={inputValue}
-            onChange={(e) => setInputValue(e.target.value)}
-            onKeyDown={(e) => {
-              // 聊天式快捷键：Enter 直接发送，Shift + Enter 换行
-              if (e.key === 'Enter' && !e.shiftKey) {
-                e.preventDefault();
-                handleAddMemo();
-              }
-            }}
-          />
-
-          {/* 右侧发送按钮 (有文字时高亮亮起) */}
-          <button
-            onClick={handleAddMemo}
-            disabled={!inputValue.trim() || isSubmitting}
-            className={`p-2.5 mr-1 rounded-full transition-all duration-300 flex-shrink-0 ${
-              inputValue.trim() 
-                ? 'bg-black text-white hover:bg-gray-800 dark:bg-white dark:text-black dark:hover:bg-gray-200 shadow-md transform active:scale-95' 
-                : 'bg-gray-100 text-gray-400 dark:bg-gray-800 dark:text-gray-600'
-            }`}
-          >
-            <ArrowUp size={22} strokeWidth={2.5} />
-          </button>
-        </div>
-        
-        {/* 底部快捷键提示 (细微辅助语) */}
-        <div className="mt-2 text-[11px] text-gray-400 dark:text-gray-500 pointer-events-auto tracking-wide">
-          按 <span className="font-semibold">Enter</span> 保存记录，<span className="font-semibold">Shift + Enter</span> 换行
-        </div>
-      </div>
-      
     </PageLayout>
   );
 }
