@@ -3,8 +3,8 @@
 'use client';
 
 import { Suspense, useEffect, useState } from 'react';
-import Link from 'next/link'; // 【核心修复】：引入 Next.js 原生 Link 组件
-import { PenLine } from 'lucide-react'; 
+import { useRouter } from 'next/navigation';
+import { PenLine } from 'lucide-react'; // 引入便利贴图标
 
 // 客户端收藏与播放记录 API
 import {
@@ -21,6 +21,7 @@ import { useSite } from '@/components/SiteProvider';
 import VideoCard from '@/components/VideoCard';
 
 function HomeClient() {
+  const router = useRouter();
   const [activeTab, setActiveTab] = useState<'home' | 'favorites'>('home');
   const { announcement } = useSite();
   const [showAnnouncement, setShowAnnouncement] = useState(false);
@@ -111,22 +112,21 @@ function HomeClient() {
 
   return (
     <PageLayout>
-      {/* 增加 relative 以便左上角的悬浮按钮定位 */}
+      {/* 增加 relative 以便右上角的悬浮按钮定位 */}
       <div className='px-2 sm:px-10 py-4 sm:py-8 overflow-visible relative min-h-screen'>
         
         {/* ========================================================================= */}
-        {/* 【修复】：随手记 (Memo) 入口按钮 */}
-        {/* 1. 确认定位在左上角 (left-2 sm:left-4) */}
-        {/* 2. 使用原生 <Link> 替代 button + router.push，杜绝热更新吞点击的问题 */}
+        {/* 【新增】：随手记 (Memo) 入口按钮 */}
+        {/* 根据你的要求放在右上角，若与设置按钮重叠，可微调 right-2 或 right-16 的值 */}
         {/* ========================================================================= */}
-        <div className="absolute top-2 left-2 sm:top-4 sm:left-4 z-40">
-          <Link
-            href="/memo"
-            title="紫月纪"
+        <div className="absolute top-2 right-2 sm:top-4 sm:right-4 z-40">
+          <button
+            onClick={() => router.push('/memo')}
+            title="我的随手记"
             className="group flex items-center justify-center p-2.5 sm:p-3 bg-white/70 dark:bg-[#1E232D]/70 backdrop-blur-md border border-gray-200 dark:border-gray-700/50 rounded-full shadow-sm hover:shadow-lg hover:border-green-500/50 dark:hover:border-green-500/50 focus:outline-none focus:ring-2 focus:ring-green-500/50 transition-all duration-300 transform hover:-translate-y-0.5 active:translate-y-0"
           >
             <PenLine className="w-5 h-5 text-gray-600 dark:text-gray-300 group-hover:text-green-500 transition-colors" />
-          </Link>
+          </button>
         </div>
 
         {/* 顶部 Tab 切换 */}
