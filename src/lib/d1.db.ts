@@ -6,6 +6,9 @@ import { Favorite, IStorage, PlayRecord, SkipConfig, Memo } from './types'; // �
 // 搜索历史最大条数
 const SEARCH_HISTORY_LIMIT = 20;
 
+// 【新增安全机制】：便利贴最大条数限制，防止恶意刷库占用空间
+const MEMO_LIMIT = 30;
+
 // D1 数据库接口
 interface D1Database {
   prepare(sql: string): D1PreparedStatement;
@@ -344,7 +347,7 @@ export class D1Storage implements IStorage {
         db
           .prepare('DELETE FROM skip_configs WHERE username = ?')
           .bind(userName),
-        // 【新增】：同步级联删除用户的便利贴记录
+        // 同步级联删除用户的便利贴记录
         db
           .prepare('DELETE FROM user_memos WHERE username = ?')
           .bind(userName),
@@ -624,10 +627,29 @@ export class D1Storage implements IStorage {
   async addMemo(userName: string, content: string): Promise<void> {
     try {
       const db = await this.getDatabase();
+      
+      // 1. 插入新的便利贴
       await db
         .prepare('INSERT INTO user_memos (username, content, created_at) VALUES (?, ?, ?)')
         .bind(userName, content, Date.now())
         .run();
+
+      // 2. 【核心防爆破】：强制清理超过 30 条的旧记录
+      await db
+        .prepare(
+          `
+          DELETE FROM user_memos 
+          WHERE username = ? AND id NOT IN (
+            SELECT id FROM user_memos 
+            WHERE username = ? 
+            ORDER BY created_at DESC 
+            LIMIT ?
+          )
+        `
+        )
+        .bind(userName, userName, MEMO_LIMIT)
+        .run();
+        
     } catch (err: any) {
       if (err.message && err.message.includes('no such table')) {
         console.warn('D1 数据库缺少 user_memos 表，添加失败。');
