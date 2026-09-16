@@ -3,8 +3,8 @@
 'use client';
 
 import { Suspense, useEffect, useState } from 'react';
-import Link from 'next/link'; // 引入 Next.js 原生 Link 组件
-import { PenLine } from 'lucide-react'; // 引入紫月纪图标
+import Link from 'next/link';
+import { PenLine } from 'lucide-react';
 
 // 客户端收藏与播放记录 API
 import {
@@ -21,7 +21,7 @@ import { useSite } from '@/components/SiteProvider';
 import VideoCard from '@/components/VideoCard';
 
 function HomeClient() {
-  const router = useRouter();
+  // 【修复】：彻底移除了多余的 const router = useRouter();
   const [activeTab, setActiveTab] = useState<'home' | 'favorites'>('home');
   const { announcement } = useSite();
   const [showAnnouncement, setShowAnnouncement] = useState(false);
@@ -115,7 +115,7 @@ function HomeClient() {
       {/* 增加 relative 以便左上角的悬浮按钮定位 */}
       <div className='px-2 sm:px-10 py-4 sm:py-8 overflow-visible relative min-h-screen'>
         
-      {/* 紫月纪 (Memo) 入口按钮 */}
+        {/* 紫月纪 (Memo) 入口按钮 */}
         <div className="absolute top-2 left-2 sm:top-4 sm:left-4 z-40">
           <Link
             href="/memo"
