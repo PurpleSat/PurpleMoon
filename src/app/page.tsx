@@ -112,17 +112,17 @@ function HomeClient() {
 
   return (
     <PageLayout>
-      {/* 增加 relative 以便右上角的悬浮按钮定位 */}
+      {/* 增加 relative 以便左上角的悬浮按钮定位 */}
       <div className='px-2 sm:px-10 py-4 sm:py-8 overflow-visible relative min-h-screen'>
         
         {/* ========================================================================= */}
-        {/* 【新增】：随手记 (Memo) 入口按钮 */}
-        {/* 根据你的要求放在右上角，若与设置按钮重叠，可微调 right-2 或 right-16 的值 */}
+        {/* 【新增】：紫月记 (Memo) 入口按钮 */}
+        {/* 已调整至页面左上角，避免与右上角的设置等按钮冲突 */}
         {/* ========================================================================= */}
-        <div className="absolute top-2 right-2 sm:top-4 sm:right-4 z-40">
+        <div className="absolute top-2 left-2 sm:top-4 sm:left-4 z-40">
           <button
             onClick={() => router.push('/memo')}
-            title="我的随手记"
+            title="紫月纪"
             className="group flex items-center justify-center p-2.5 sm:p-3 bg-white/70 dark:bg-[#1E232D]/70 backdrop-blur-md border border-gray-200 dark:border-gray-700/50 rounded-full shadow-sm hover:shadow-lg hover:border-green-500/50 dark:hover:border-green-500/50 focus:outline-none focus:ring-2 focus:ring-green-500/50 transition-all duration-300 transform hover:-translate-y-0.5 active:translate-y-0"
           >
             <PenLine className="w-5 h-5 text-gray-600 dark:text-gray-300 group-hover:text-green-500 transition-colors" />
