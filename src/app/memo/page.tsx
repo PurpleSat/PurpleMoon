@@ -163,7 +163,7 @@ function MemoPageClient() {
           ) : memos.length === 0 ? (
             <div className="text-center py-24">
               <span className="text-6xl mb-4 block opacity-30 grayscale filter">📝</span>
-              <p className="text-gray-500 dark:text-gray-400 text-lg font-medium">还没有任何记录，开始写下你的第一条随手记吧</p>
+              <p className="text-gray-500 dark:text-gray-400 text-lg font-medium">还没有任何记录，试着写下你的第一条Memo。</p>
             </div>
           ) : (
             <div className="flex flex-col gap-5">
