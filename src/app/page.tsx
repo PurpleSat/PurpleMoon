@@ -122,7 +122,7 @@ function HomeClient() {
         <div className="absolute top-2 left-2 sm:top-4 sm:left-4 z-40">
           <Link
             href="/memo"
-            title="我的随手记"
+            title="紫月纪"
             className="group flex items-center justify-center p-2.5 sm:p-3 bg-white/70 dark:bg-[#1E232D]/70 backdrop-blur-md border border-gray-200 dark:border-gray-700/50 rounded-full shadow-sm hover:shadow-lg hover:border-green-500/50 dark:hover:border-green-500/50 focus:outline-none focus:ring-2 focus:ring-green-500/50 transition-all duration-300 transform hover:-translate-y-0.5 active:translate-y-0"
           >
             <PenLine className="w-5 h-5 text-gray-600 dark:text-gray-300 group-hover:text-green-500 transition-colors" />
