@@ -34,19 +34,19 @@ function MemoPageClient() {
     fetchMemos();
   }, []);
 
-  // 根据内容自动调整 textarea 高度 (在常规文档流中会自动向下撑开)
+  // 根据内容自动调整 textarea 高度
   useEffect(() => {
     const textarea = textareaRef.current;
     if (textarea) {
-      textarea.style.height = 'auto'; // 重置高度以重新计算
-      // 限制最大高度约 6 行 (每行约 24px，加上 padding，限制在 160px 左右)
+      textarea.style.height = 'auto'; 
       textarea.style.height = `${Math.min(textarea.scrollHeight, 160)}px`;
     }
   }, [inputValue]);
 
   // 添加便利贴
   const handleAddMemo = async () => {
-    if (!inputValue.trim() || isSubmitting) return;
+    // 【新增安全机制】：超过 2000 字直接拦截
+    if (!inputValue.trim() || isSubmitting || inputValue.length > 2000) return;
     setIsSubmitting(true);
     try {
       const res = await fetch('/api/memos', {
@@ -91,9 +91,7 @@ function MemoPageClient() {
     <PageLayout activePath="/memo">
       <div className="flex flex-col gap-6 pt-8 pb-16 px-5 lg:px-[3rem] 2xl:px-20 max-w-6xl mx-auto min-h-[calc(100vh-80px)]">
         
-        {/* ========================================================================= */}
-        {/* 【重构】：极简输入框 (左侧数量、右侧Logo，垂直居中、向下生长) */}
-        {/* ========================================================================= */}
+        {/* 输入区容器 */}
         <div className="w-full flex flex-col items-center z-20 mt-2">
           <div className="w-full max-w-4xl bg-white dark:bg-[#1E232D] rounded-[32px] shadow-[0_8px_30px_rgb(0,0,0,0.06)] dark:shadow-[0_8px_30px_rgb(0,0,0,0.4)] p-2 flex items-center gap-1 transition-all duration-300 focus-within:shadow-[0_8px_40px_rgb(0,0,0,0.12)] dark:focus-within:shadow-[0_8px_40px_rgb(0,0,0,0.6)]">
             
@@ -104,18 +102,16 @@ function MemoPageClient() {
               </span>
             </div>
 
-            {/* ========================================================================= */}
-            {/* 【核心修复】：增加 border-0 focus:ring-0 focus:border-transparent 强制抹除插件样式 */}
-            {/* ========================================================================= */}
+            {/* 多行文本框 */}
             <textarea
               ref={textareaRef}
               rows={1}
+              maxLength={2000} // 【新增限制】：HTML 原生阻断超过 2000 字的输入
               className="flex-1 max-h-[160px] bg-transparent border-0 focus:ring-0 focus:border-transparent outline-none resize-none py-3 px-3 text-base text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-500 [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:bg-gray-200 dark:[&::-webkit-scrollbar-thumb]:bg-gray-700 [&::-webkit-scrollbar-thumb]:rounded-full"
               placeholder="记录点什么吧..."
               value={inputValue}
               onChange={(e) => setInputValue(e.target.value)}
               onKeyDown={(e) => {
-                // 聊天式快捷键：Enter 直接发送，Shift + Enter 换行
                 if (e.key === 'Enter' && !e.shiftKey) {
                   e.preventDefault();
                   handleAddMemo();
@@ -123,13 +119,14 @@ function MemoPageClient() {
               }}
             />
 
-            {/* 右侧：Logo 替换发送按钮 */}
+            {/* 右侧：Logo 保存按钮 */}
             <button
               onClick={handleAddMemo}
-              disabled={!inputValue.trim() || isSubmitting}
+              // 【新增限制】：超过 2000 字时按钮置灰禁用
+              disabled={!inputValue.trim() || isSubmitting || inputValue.length > 2000}
               title="保存记录"
               className={`p-1 mr-2 rounded-full transition-all duration-300 flex-shrink-0 ${
-                inputValue.trim() && !isSubmitting
+                inputValue.trim() && !isSubmitting && inputValue.length <= 2000
                   ? 'hover:scale-110 active:scale-95 opacity-100 drop-shadow-md cursor-pointer' 
                   : 'opacity-40 grayscale cursor-not-allowed'
               }`}
@@ -143,16 +140,18 @@ function MemoPageClient() {
             </button>
           </div>
           
-          {/* 快捷键提示 */}
-          <div className="mt-3 text-[11px] text-gray-400 dark:text-gray-500 tracking-wide select-none">
-            按 <span className="font-semibold">Enter</span> 保存，<span className="font-semibold">Shift + Enter</span> 换行
+          {/* 【升级】：快捷键提示与字数动态统计 */}
+          <div className="mt-3 w-full max-w-4xl flex justify-between items-center px-4 text-[11px] text-gray-400 dark:text-gray-500 tracking-wide select-none">
+            <span>
+              按 <span className="font-semibold">Enter</span> 保存，<span className="font-semibold">Shift + Enter</span> 换行
+            </span>
+            <span className={`font-mono transition-colors duration-300 ${inputValue.length >= 2000 ? 'text-red-500 dark:text-red-400 font-bold' : 'opacity-70'}`}>
+              {inputValue.length} / 2000
+            </span>
           </div>
         </div>
-        {/* ========================================================================= */}
 
-        {/* ========================================================================= */}
-        {/* 【重构】：纵向逐条显示区 (与上方输入框 max-w-4xl 同宽居中) */}
-        {/* ========================================================================= */}
+        {/* 纵向逐条显示区 */}
         <div className="mt-4 w-full max-w-4xl mx-auto">
           {loading ? (
             <div className="flex flex-col gap-5">
@@ -163,7 +162,7 @@ function MemoPageClient() {
           ) : memos.length === 0 ? (
             <div className="text-center py-24">
               <span className="text-6xl mb-4 block opacity-30 grayscale filter">📝</span>
-              <p className="text-gray-500 dark:text-gray-400 text-lg font-medium">还没有任何记录，试着写下你的第一条Memo。</p>
+              <p className="text-gray-500 dark:text-gray-400 text-lg font-medium">还没有任何记录，开始写下你的第一条随手记吧</p>
             </div>
           ) : (
             <div className="flex flex-col gap-5">
