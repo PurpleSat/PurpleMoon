@@ -2,6 +2,13 @@ import { NextResponse } from 'next/server';
 
 export const runtime = 'edge';
 
+const ALLOWED_IMAGE_HOSTS = new Set<string>([
+  'img1.doubanio.com',
+  'img2.doubanio.com',
+  'img3.doubanio.com',
+  'img9.doubanio.com',
+]);
+
 // OrionTV 兼容接口
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
@@ -11,8 +18,36 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: 'Missing image URL' }, { status: 400 });
   }
 
+  let parsedImageUrl: URL;
   try {
-    const imageResponse = await fetch(imageUrl, {
+    parsedImageUrl = new URL(imageUrl);
+  } catch {
+    return NextResponse.json({ error: 'Invalid image URL' }, { status: 400 });
+  }
+
+  if (parsedImageUrl.protocol !== 'https:') {
+    return NextResponse.json(
+      { error: 'Only HTTPS image URLs are allowed' },
+      { status: 400 }
+    );
+  }
+
+  if (parsedImageUrl.username || parsedImageUrl.password) {
+    return NextResponse.json(
+      { error: 'Credentials in image URL are not allowed' },
+      { status: 400 }
+    );
+  }
+
+  if (!ALLOWED_IMAGE_HOSTS.has(parsedImageUrl.hostname)) {
+    return NextResponse.json(
+      { error: 'Image host is not allowed' },
+      { status: 400 }
+    );
+  }
+
+  try {
+    const imageResponse = await fetch(parsedImageUrl.toString(), {
       headers: {
         Referer: 'https://movie.douban.com/',
         'User-Agent':
