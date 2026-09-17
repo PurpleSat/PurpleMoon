@@ -33,6 +33,7 @@ function ParserPageClient() {
   const [parserInputUrl, setParserInputUrl] = useState('');
   const [activeIframeSrc, setActiveIframeSrc] = useState('');
   const inputRef = useRef<HTMLInputElement>(null);
+  const allowedParserLines = new Set(PARSE_LINES.map((line) => line.url));
 
   const handleParsePlay = () => {
     const url = parserInputUrl.trim();
@@ -62,7 +63,12 @@ function ParserPageClient() {
       return;
     }
 
-    setActiveIframeSrc(`${parserLine}${encodeURIComponent(parsedUrl.toString())}`);
+    if (!allowedParserLines.has(parserLine)) {
+      return;
+    }
+
+    const safeParserLine = parserLine;
+    setActiveIframeSrc(`${safeParserLine}${encodeURIComponent(parsedUrl.toString())}`);
   };
 
   return (
