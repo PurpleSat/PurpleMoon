@@ -50,7 +50,19 @@ function ParserPageClient() {
       }
       return;
     }
-    setActiveIframeSrc(`${parserLine}${url}`);
+
+    let parsedUrl: URL;
+    try {
+      parsedUrl = new URL(url);
+    } catch {
+      return;
+    }
+
+    if (parsedUrl.protocol !== 'http:' && parsedUrl.protocol !== 'https:') {
+      return;
+    }
+
+    setActiveIframeSrc(`${parserLine}${encodeURIComponent(parsedUrl.toString())}`);
   };
 
   return (
