@@ -46,8 +46,23 @@ export async function GET(request: Request) {
     );
   }
 
+  const normalizedPath = parsedImageUrl.pathname.startsWith('/')
+    ? parsedImageUrl.pathname
+    : `/${parsedImageUrl.pathname}`;
+
+  if (normalizedPath.includes('..')) {
+    return NextResponse.json(
+      { error: 'Invalid image path' },
+      { status: 400 }
+    );
+  }
+
+  const sanitizedUrl = new URL(`https://${parsedImageUrl.hostname}`);
+  sanitizedUrl.pathname = normalizedPath;
+  sanitizedUrl.search = parsedImageUrl.search;
+
   try {
-    const imageResponse = await fetch(parsedImageUrl.toString(), {
+    const imageResponse = await fetch(sanitizedUrl.toString(), {
       headers: {
         Referer: 'https://movie.douban.com/',
         'User-Agent':
