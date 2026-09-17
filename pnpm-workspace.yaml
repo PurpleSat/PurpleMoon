@@ -1,0 +1,10 @@
+overrides:
+  glob: "^10.5.0"
+  semver: "^7.5.2"
+  serialize-javascript: "^7.0.3"
+  "undici@^5.0.0": "^6.28.0"
+  ws: "^8.21.0"
+  postcss: "^8.5.23"
+  esbuild: "^0.25.0"
+  cookie: "^0.7.0"
+  "@tootallnate/once": "^2.0.1"
