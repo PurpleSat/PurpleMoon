@@ -33,6 +33,7 @@ function ParserPageClient() {
   const [parserInputUrl, setParserInputUrl] = useState('');
   const [activeIframeSrc, setActiveIframeSrc] = useState('');
   const inputRef = useRef<HTMLInputElement>(null);
+  const allowedParserLines = new Set(PARSE_LINES.map((line) => line.url));
 
   const handleParsePlay = () => {
     const url = parserInputUrl.trim();
@@ -50,7 +51,24 @@ function ParserPageClient() {
       }
       return;
     }
-    setActiveIframeSrc(`${parserLine}${url}`);
+
+    let parsedUrl: URL;
+    try {
+      parsedUrl = new URL(url);
+    } catch {
+      return;
+    }
+
+    if (parsedUrl.protocol !== 'http:' && parsedUrl.protocol !== 'https:') {
+      return;
+    }
+
+    if (!allowedParserLines.has(parserLine)) {
+      return;
+    }
+
+    const safeParserLine = parserLine;
+    setActiveIframeSrc(`${safeParserLine}${encodeURIComponent(parsedUrl.toString())}`);
   };
 
   return (

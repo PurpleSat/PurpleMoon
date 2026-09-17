@@ -46,8 +46,6 @@ export async function GET(request: Request) {
     );
   }
 
-  try {
-    const imageResponse = await fetch(parsedImageUrl.toString(), {
       headers: {
         Referer: 'https://movie.douban.com/',
         'User-Agent':

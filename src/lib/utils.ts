@@ -2,6 +2,22 @@
 
 import Hls from 'hls.js';
 
+function sanitizeImageProxyUrl(url: string | null | undefined): string | null {
+  if (!url) return null;
+  const trimmed = url.trim();
+  if (!trimmed) return null;
+
+  try {
+    const parsed = new URL(trimmed);
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+      return null;
+    }
+    return parsed.toString();
+  } catch {
+    return null;
+  }
+}
+
 /**
  * 获取图片代理 URL 设置
  */
@@ -17,15 +33,14 @@ export function getImageProxyUrl(): string | null {
   }
 
   const localImageProxy = localStorage.getItem('imageProxyUrl');
-  if (localImageProxy != null) {
-    return localImageProxy.trim() ? localImageProxy.trim() : null;
+  const sanitizedLocalImageProxy = sanitizeImageProxyUrl(localImageProxy);
+  if (sanitizedLocalImageProxy) {
+    return sanitizedLocalImageProxy;
   }
 
   // 如果未设置，则使用全局对象
   const serverImageProxy = (window as any).RUNTIME_CONFIG?.IMAGE_PROXY;
-  return serverImageProxy && serverImageProxy.trim()
-    ? serverImageProxy.trim()
-    : null;
+  return sanitizeImageProxyUrl(serverImageProxy);
 }
 
 /**
