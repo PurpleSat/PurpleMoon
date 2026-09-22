@@ -1,0 +1,170 @@
+'use client';
+
+import { Suspense, useRef, useState } from 'react';
+
+import PageLayout from '@/components/PageLayout';
+
+const PARSE_LINES = [
+  { name: '1线', url: 'https://jx.xmflv.cc/?url=' },
+  { name: '2线', url: 'https://jx.xmflv.com/?url=' },
+  { name: '3线', url: 'https://z1.m1907.top/?jx=' },
+  { name: '4线', url: 'https://jx.77flv.cc/?url=' },
+  { name: '5线', url: 'https://jx.playerjy.com/?url=' },
+  { name: '6线', url: 'https://jx.xymp4.cc/?url=' },
+  { name: '7线', url: 'https://jx.202617.xyz/tv.php?url=' },
+  { name: '8线', url: 'https://jx.hls.one/?url=' },
+  { name: '9线', url: 'https://jx.2s0.cn/player/?url=' },
+  { name: '10线', url: 'https://jx.yparse.com/index.php?url=' },
+  { name: '11线', url: 'https://bfq.txnp.cn/player?url=' },
+  { name: '12线', url: 'https://super.playr.top/?url=' },
+  { name: '13线', url: 'https://jx.dmflv.cc/?url=' },
+  { name: '14线', url: 'https://yparse.ik9.cc/index.php?url=' },
+  { name: '15线', url: 'https://www.playm3u8.cn/jiexi.php?url=' },
+  { name: '16线', url: 'https://jiexi.789jiexi.icu:4433/?url=' },
+  { name: '17线', url: 'https://json.fongmi.cc/web?url=' },
+  { name: '18线', url: 'https://bd.jx.cn/?url=' },
+  { name: '19线', url: 'https://www.ckplayer.vip/jiexi/?url=' },
+  { name: '20线', url: 'https://www.huaqi.live/?url=' },
+  { name: '21线', url: 'https://video.isyour.love/player/getplayer?url=' },
+];
+
+function ParserPageClient() {
+  const [parserLine, setParserLine] = useState(PARSE_LINES[0].url);
+  const [parserInputUrl, setParserInputUrl] = useState('');
+  const [activeIframeSrc, setActiveIframeSrc] = useState('');
+  const inputRef = useRef<HTMLInputElement>(null);
+  const allowedParserLines = new Set(PARSE_LINES.map((line) => line.url));
+
+  const handleParsePlay = () => {
+    const url = parserInputUrl.trim();
+    if (!url) {
+      if (inputRef.current) {
+        inputRef.current.style.borderColor = '#e11d48';
+        inputRef.current.style.boxShadow = '0 0 0 3px rgba(225, 29, 72, 0.2)';
+        inputRef.current.focus();
+        setTimeout(() => {
+          if (inputRef.current) {
+            inputRef.current.style.borderColor = '';
+            inputRef.current.style.boxShadow = '';
+          }
+        }, 800);
+      }
+      return;
+    }
+
+    let parsedUrl: URL;
+    try {
+      parsedUrl = new URL(url);
+    } catch {
+      return;
+    }
+
+    if (parsedUrl.protocol !== 'http:' && parsedUrl.protocol !== 'https:') {
+      return;
+    }
+
+    if (!allowedParserLines.has(parserLine)) {
+      return;
+    }
+
+    const safeParserLine = parserLine;
+    setActiveIframeSrc(`${safeParserLine}${encodeURIComponent(parsedUrl.toString())}`);
+  };
+
+  return (
+    <PageLayout activePath="/parser">
+      <div className="flex flex-col gap-6 py-6 px-5 lg:px-[3rem] 2xl:px-20 min-h-[calc(100vh-80px)] relative overflow-hidden">
+        
+        {/* 背景光晕 */}
+        <div className="absolute top-[-10vh] left-1/2 -translate-x-1/2 w-[80vw] max-w-[800px] aspect-square bg-[radial-gradient(circle,rgba(225,29,72,0.12)_0%,rgba(15,17,26,0)_70%)] pointer-events-none -z-10" />
+
+        <div className="w-full max-w-5xl mx-auto flex flex-col gap-6 relative z-10">
+          
+          {/* 播放器 Iframe 区（置顶） */}
+          <div className="w-full aspect-video bg-black/90 dark:bg-black rounded-2xl overflow-hidden shadow-2xl border border-gray-200/20 dark:border-gray-800 relative group mt-2 md:mt-4">
+            {!activeIframeSrc ? (
+              <div className="absolute inset-0 flex flex-col items-center justify-center text-gray-500 dark:text-gray-400">
+                <svg xmlns="http://www.w3.org/2000/svg" className="w-16 h-16 mb-4 opacity-50" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+                <p className="text-lg font-medium tracking-wide">等待解析信号接入...</p>
+              </div>
+            ) : (
+              <iframe
+                src={activeIframeSrc}
+                className="w-full h-full border-0"
+                allowFullScreen
+                scrolling="no"
+              />
+            )}
+          </div>
+
+          {/* 控制台毛玻璃面板 */}
+          <div className="flex flex-col md:flex-row gap-4 bg-white/60 dark:bg-[#1E232D]/65 backdrop-blur-xl p-5 md:p-6 rounded-2xl border border-gray-200/50 dark:border-white/10 shadow-xl">
+            <input
+              ref={inputRef}
+              type="text"
+              value={parserInputUrl}
+              onChange={(e) => setParserInputUrl(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && handleParsePlay()}
+              placeholder="在此处粘贴 VIP 视频源链接..."
+              className="flex-1 bg-white dark:bg-black/30 border border-gray-300 dark:border-gray-700/50 rounded-xl px-5 py-4 text-base text-gray-800 dark:text-gray-100 focus:outline-none focus:border-red-500 focus:ring-2 focus:ring-red-500/20 transition-all placeholder-gray-400"
+            />
+            
+            <div className="flex gap-4">
+              <select
+                value={parserLine}
+                onChange={(e) => setParserLine(e.target.value)}
+                className="w-full md:w-48 bg-white dark:bg-black/30 border border-gray-300 dark:border-gray-700/50 rounded-xl px-4 py-4 text-base text-gray-800 dark:text-gray-100 focus:outline-none focus:border-red-500 focus:ring-2 focus:ring-red-500/20 transition-all cursor-pointer appearance-none"
+                style={{ backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 24 24' stroke='%2394a3b8'%3E%3Cpath stroke-linecap='round' stroke-linejoin='round' stroke-width='2' d='M19 9l-7 7-7-7'%3E%3C/path%3E%3C/svg%3E")`, backgroundPosition: 'right 1.2rem center', backgroundRepeat: 'no-repeat', backgroundSize: '1.2em' }}
+              >
+                {PARSE_LINES.map((line) => (
+                  <option key={line.url} value={line.url} className="bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100">
+                    ⚡ {line.name}
+                  </option>
+                ))}
+              </select>
+              
+              <button
+                onClick={handleParsePlay}
+                className="px-8 py-4 bg-gradient-to-r from-red-500 to-rose-600 text-white text-base font-semibold rounded-xl hover:from-red-600 hover:to-rose-700 shadow-[0_8px_20px_-6px_rgba(225,29,72,0.5)] hover:shadow-[0_12px_25px_-6px_rgba(225,29,72,0.7)] transform active:translate-y-[1px] transition-all flex items-center justify-center gap-2 whitespace-nowrap"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" fill="currentColor" viewBox="0 0 24 24">
+                  <path d="M8 5v14l11-7z" />
+                </svg>
+                立即播放
+              </button>
+            </div>
+          </div>
+          
+          {/* 底部版权与 Logo 区域 */}
+          <div className="flex flex-col items-center justify-center mt-6 mb-8 gap-3">
+            <img 
+              src="/logo.png" 
+              alt="紫月-TV Logo" 
+              className="h-10 md:h-12 object-contain drop-shadow-lg opacity-80 hover:opacity-100 hover:scale-105 transition-all duration-300"
+            />
+            <div className="text-center text-sm text-gray-400 dark:text-gray-500">
+              &copy; {new Date().getFullYear()} PurpleMoon-视频解析UI
+            </div>
+          </div>
+
+        </div>
+      </div>
+    </PageLayout>
+  );
+}
+
+export default function ParserPage() {
+  // 仅为了兼容 Next.js 对 PageLayout 内部路由 Hook 的编译规范而包裹 Suspense
+  return (
+    <Suspense fallback={
+      <div className="flex items-center justify-center min-h-screen bg-gray-50 dark:bg-gray-900">
+        <div className="w-16 h-16 border-4 border-red-500 border-t-transparent rounded-full animate-spin"></div>
+      </div>
+    }>
+      <ParserPageClient />
+    </Suspense>
+  );
+}
