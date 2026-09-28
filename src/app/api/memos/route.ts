@@ -8,9 +8,6 @@ import { db } from '@/lib/db';
 
 export const runtime = 'edge';
 
-// ==========================================
-// 🛡️ 结构防线 (Zod Schema)：防注入、垃圾数据与纯空格
-// ==========================================
 const postSchema = z.object({
   content: z
     .string({ required_error: '内容不能为空' })
@@ -30,9 +27,6 @@ const deleteSchema = z.object({
   ),
 });
 
-// ==========================================
-// 🛡️ 物理防线：限制请求体体积，防止内存溢出 (OOM)
-// ==========================================
 async function parseSafeBody(request: NextRequest, maxSizeKB: number) {
   const text = await request.text();
 
@@ -76,7 +70,6 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: '未授权' }, { status: 401 });
   }
 
-  // 🛡️ 安全修复 (P1 · L-04)：CSRF 纵深防御
   const csrf = checkCsrf(request);
   if (!csrf.ok) return csrf.response!;
 
@@ -123,7 +116,6 @@ export async function DELETE(request: NextRequest) {
     return NextResponse.json({ error: '未授权' }, { status: 401 });
   }
 
-  // 🛡️ 安全修复 (P1 · L-04)：CSRF 纵深防御
   const csrf = checkCsrf(request);
   if (!csrf.ok) return csrf.response!;
 
@@ -147,8 +139,6 @@ export async function DELETE(request: NextRequest) {
       return NextResponse.json({ error: '无效的便签 ID 格式' }, { status: 400 });
     }
 
-    // 🛡️ 逻辑修复 (P3 · L-03)：只有作者本人可以在存储层成功匹配并删除自己的便签；
-    // 根据返回值区分"确实删除了一条"与"未找到匹配记录"，不再对后者也返回虚假成功。
     const deleted = await (db as any).storage.deleteMemo(authInfo.username, memoId);
     if (!deleted) {
       return NextResponse.json(
