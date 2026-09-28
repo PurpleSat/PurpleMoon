@@ -1,4 +1,3 @@
-// 🛡️ 安全修复 (P1)：SSRF 防护工具。
 // 本模块提供统一的地址合法性校验，供新增/编辑资源站的管理接口调用。
 
 const PRIVATE_IPV4_RANGES: Array<(a: number, b: number) => boolean> = [
