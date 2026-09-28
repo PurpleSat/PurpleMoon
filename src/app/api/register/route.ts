@@ -46,21 +46,13 @@ async function checkRateLimit(ip: string): Promise<boolean> {
     return true; 
   }
 }
-// ==============================================
 
-// 🛡️ 安全修复 (P0)：与 login.ts 相同，移除本文件内重复的签名实现，
-// 该实现此前在密钥缺失时会静默退化为空字符串密钥（比硬编码默认值更弱），
-// 现统一改为调用 lib/auth.ts 中已加固（fail-closed、无兜底默认值）的
-// signAuthPayload，密钥缺失时会向上抛出错误，由 POST 处理函数统一捕获。
 async function generateAuthCookie(username: string, role = 'user'): Promise<string> {
   const timestamp = Date.now();
   const signature = await signAuthPayload(username, timestamp, role);
   return encodeURIComponent(JSON.stringify({ username, role, timestamp, signature }));
 }
 
-// ==========================================
-// 🛡️ 签发双 Cookie
-// ==========================================
 function setDualCookies(response: NextResponse, authValue: string, username: string, role: string) {
   const isProduction = process.env.NODE_ENV === 'production';
   const expires = new Date();
@@ -73,7 +65,6 @@ function setDualCookies(response: NextResponse, authValue: string, username: str
 
 export async function POST(req: NextRequest) {
   try {
-    // 🛡️ 安全修复 (P2 · L-05)：统一、可配置的 IP 识别逻辑（详见 lib/client-ip.ts）
     const ip = getClientIp(req);
     if (!(await checkRateLimit(ip))) {
       return NextResponse.json({ error: '请求过于频繁，请 1 分钟后再试' }, { status: 429 });
@@ -94,13 +85,6 @@ export async function POST(req: NextRequest) {
     const { username, password, inviteCode } = await req.json();
 
     // ================= 强制邀请码校验 (Fail Closed) =================
-    // 🛡️ 安全修复 (P1 · L-01)：
-    // 1) 原实现复用 NEXT_PUBLIC_ENABLE_REGISTER 同时表达"是否开放注册"和
-    //    "是否需要邀请码"两层语义，容易让运维在只想打开注册功能时，
-    //    无意中一并开启了邀请码强制校验。这里拆分为独立的 REQUIRE_INVITE_CODE
-    //    开关，同时向后兼容旧的 NEXT_PUBLIC_ENABLE_REGISTER 行为（未显式配置
-    //    REQUIRE_INVITE_CODE 时退回旧逻辑，避免已部署环境行为突变）。
-    // 2) 邀请码比较由 `!==` 改为恒定时间比较，避免逐字符比较带来的时序侧信道。
     const requireInviteCode =
       process.env.REQUIRE_INVITE_CODE !== undefined
         ? process.env.REQUIRE_INVITE_CODE === 'true'
