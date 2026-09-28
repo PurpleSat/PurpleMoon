@@ -8,9 +8,6 @@ import { resetConfig } from '@/lib/config';
 export const runtime = 'edge';
 
 export async function POST(request: NextRequest) {
-  // ==========================================
-  // 🛡️ CSRF 纵深防御第一道防线：Origin 校验
-  // ==========================================
   const origin = request.headers.get('origin');
   const host = request.headers.get('host');
   // 如果请求带有 Origin 且与当前主机的 host 不匹配，直接拦截
@@ -19,10 +16,6 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Forbidden: Invalid Origin' }, { status: 403 });
   }
 
-  // ==========================================
-  // 🛡️ CSRF 纵深防御第二道防线：Content-Type 校验
-  // 跨站表单 (<form>) 无法伪造 application/json，这会强制触发浏览器预检 (OPTIONS)
-  // ==========================================
   const contentType = request.headers.get('content-type') || '';
   if (!contentType.includes('application/json')) {
     return NextResponse.json({ error: 'Unsupported Media Type: must be application/json' }, { status: 415 });
@@ -38,9 +31,6 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  // ==========================================
-  // 🛡️ 权限校验
-  // ==========================================
   const authInfo = getAuthInfoFromCookie(request);
   if (!authInfo || !authInfo.username) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
@@ -51,9 +41,6 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: '仅支持站长重置配置' }, { status: 401 });
   }
 
-  // ==========================================
-  // 核心逻辑执行
-  // ==========================================
   try {
     await resetConfig();
 
@@ -76,7 +63,6 @@ export async function POST(request: NextRequest) {
   }
 }
 
-// 🛡️ 明确拒绝 GET 请求，防止从浏览器地址栏直接访问或被 <a> 标签跨站触发
 export async function GET() {
   return NextResponse.json({ error: 'Method Not Allowed' }, { status: 405 });
 }
