@@ -1,19 +1,6 @@
 /* eslint-disable no-console, @typescript-eslint/no-explicit-any, @typescript-eslint/no-empty-function */
 'use client';
 
-/**
- * 仅在浏览器端使用的数据库工具，目前基于 localStorage 实现。
- * 之所以单独拆分文件，是为了避免在客户端 bundle 中引入 `fs`, `path` 等 Node.js 内置模块，
- * 从而解决诸如 "Module not found: Can't resolve 'fs'" 的问题。
- *
- * 功能：
- * 1. 获取全部播放记录（getAllPlayRecords）。
- * 2. 保存播放记录（savePlayRecord）。
- * 3. 数据库存储模式下的混合缓存策略，提升用户体验。
- *
- * 如后续需要在客户端读取收藏等其它数据，可按同样方式在此文件中补充实现。
- */
-
 import { getAuthInfoFromBrowserCookie } from './auth';
 
 // 【修复 1】：直接在本地声明 SkipConfig，彻底移除对 './types' 的错误导入依赖
