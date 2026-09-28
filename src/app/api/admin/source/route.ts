@@ -19,7 +19,6 @@ interface BaseBody {
 }
 
 export async function POST(request: NextRequest) {
-  // 🛡️ CSRF 纵深防御（统一使用 lib/csrf-guard.ts）
   const csrf = checkCsrf(request);
   if (!csrf.ok) return csrf.response!;
 
@@ -49,9 +48,6 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: '参数格式错误' }, { status: 400 });
     }
 
-    // 🛡️ 逻辑修复 (P2 · L-02)：本接口的全部分支都是纯配置对象编辑
-    // （push/find/splice/重排），不含任何一次性副作用调用，可以安全地
-    // 整体重试：每次重试都会重新 getConfig() 拿到最新数据再重新应用。
     return await withConfigConflictRetry(async () => {
     // 获取配置与存储
     const adminConfig = await getConfig();
@@ -79,8 +75,6 @@ export async function POST(request: NextRequest) {
           return NextResponse.json({ error: '缺少必要参数' }, { status: 400 });
         }
 
-        // 🛡️ 安全修复 (P1)：校验上游地址，拒绝非 http/https 协议以及
-        // 指向内网/回环/链路本地地址的资源站，防止 SSRF。
         const apiSafety = checkUpstreamUrlSafety(api);
         if (!apiSafety.ok) {
           return NextResponse.json(
