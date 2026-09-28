@@ -18,7 +18,6 @@ const STORAGE_TYPE =
     | undefined) || 'localstorage';
 
 // =========== 防刷机制 (Rate Limiter) ===========
-// 本地降级回退缓存（当分布式存储异常时自动接管，确保 Fail-Closed/安全降级）
 const localRateLimitMap = new Map<string, { count: number; timestamp: number }>();
 
 function checkLocalRateLimit(ip: string): boolean {
@@ -39,7 +38,6 @@ function checkLocalRateLimit(ip: string): boolean {
 }
 
 async function checkRateLimit(req: NextRequest): Promise<boolean> {
-  // 🛡️ 安全修复 (P2 · L-05)：统一、可配置的 IP 识别逻辑（详见 lib/client-ip.ts）
   const ip = getClientIp(req);
 
   if (STORAGE_TYPE === 'localstorage') {
@@ -50,16 +48,10 @@ async function checkRateLimit(req: NextRequest): Promise<boolean> {
     const key = `rate_limit:login:${ip}`;
     return await db.checkRateLimit(key, 10, 60000);
   } catch (err) {
-    // 🛡️ 修复 Fail-Open 漏洞：分布式存储异常时，绝不直接放行，而是安全降级到本地内存限流
     console.error('分布式限流存储异常，已安全降级至本地内存限流:', err);
     return checkLocalRateLimit(ip);
   }
 }
-// ==============================================
-
-// 🛡️ 安全修复 (P0)：不再在本文件内重复实现签名逻辑与密钥兜底策略。
-// 统一调用 lib/auth.ts 中唯一、已加固（无硬编码默认密钥、fail-closed）
-// 的 signAuthPayload，避免签发端与校验端出现密钥兜底不一致的问题。
 async function generateAuthCookie(
   username = 'admin',
   role = 'user'
@@ -70,9 +62,6 @@ async function generateAuthCookie(
   return encodeURIComponent(JSON.stringify(authData));
 }
 
-// ==========================================
-// 🛡️ 辅助方法：签发与清除双 Cookie
-// ==========================================
 function setDualCookies(response: NextResponse, authValue: string, username: string, role: string) {
   const isProduction = process.env.NODE_ENV === 'production';
   const expires = new Date();
@@ -90,11 +79,9 @@ function clearDualCookies(response: NextResponse) {
   response.cookies.set('auth', '', { ...opts, httpOnly: true });
   response.cookies.set('user_info', '', { ...opts, httpOnly: false });
 }
-// ==========================================
 
 export async function POST(req: NextRequest) {
   try {
-    // 🛡️ 接入加固后的防刷限流校验
     if (!(await checkRateLimit(req))) {
       return NextResponse.json({ error: '尝试登录过于频繁，请 1 分钟后再试' }, { status: 429 });
     }
@@ -113,7 +100,6 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ error: '密码不能为空' }, { status: 400 });
       }
 
-      // 🛡️ 安全修复 (P2)：改为恒定时间比较，避免逐字符比较造成的时序侧信道
       if (!timingSafeEqual(password, envPassword)) {
         return NextResponse.json(
           { ok: false, error: '密码错误' },
@@ -137,7 +123,6 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: '密码不能为空' }, { status: 400 });
     }
 
-    // 🛡️ 安全修复 (P2)：站长账号比较同样改为恒定时间比较
     const ownerUsername = process.env.USERNAME || '';
     const ownerPassword = process.env.PASSWORD || '';
     if (
