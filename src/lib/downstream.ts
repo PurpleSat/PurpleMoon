@@ -3,9 +3,6 @@ import { checkUpstreamUrlSafety } from '@/lib/ssrf-guard';
 import { SearchResult } from '@/lib/types';
 import { cleanHtmlTags } from '@/lib/utils';
 
-// 🛡️ 安全修复 (P1，纵深防御)：在真正发起出站请求前再校验一次目标地址。
-// 不仅依赖新增资源站时的入口校验——预置在 config.json 中的历史数据、
-// 或未来其他写入路径都可能绕过入口校验，这里作为最后一道防线。
 function assertSafeUpstream(url: string) {
   const result = checkUpstreamUrlSafety(url);
   if (!result.ok) {
