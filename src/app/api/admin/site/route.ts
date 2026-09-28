@@ -10,18 +10,11 @@ import { getStorage } from '@/lib/db';
 
 export const runtime = 'edge';
 
-// ==========================================
-// 🛡️ 结构防线 (Zod Schema)
-// ==========================================
 const siteConfigSchema = z.object({
   SiteName: z.string().min(1, '站点名称不能为空').max(100, '站点名称过长'),
   Announcement: z.string().max(5000, '公告内容过长'),
   SearchDownstreamMaxPage: z.number().min(1, '页数不能小于1').max(100, '页数限制过大'),
   SiteInterfaceCacheTime: z.number().min(0, '缓存时间不能为负'),
-  // 🛡️ 安全修复 (P1)：ImageProxy 会通过 JSON.stringify 注入到首页内联
-  // <script> 标签中（见 layout.tsx），此前仅做长度限制。虽然 layout.tsx
-  // 已改为转义 "<" 从根本上避免脚本注入，这里再额外要求该字段必须是合法
-  // 的 http/https URL，做纵深防御，避免非法字符被写入配置。
   ImageProxy: z
     .string()
     .max(200, '代理地址过长')
@@ -32,9 +25,6 @@ const siteConfigSchema = z.object({
     .or(z.literal('')),
 }).passthrough();
 
-// ==========================================
-// 🛡️ 物理防线：限制请求体体积
-// ==========================================
 async function parseSafeBody(request: NextRequest, maxSizeKB: number) {
   const text = await request.text();
   if (text.length > maxSizeKB * 1024) throw new Error('Payload Too Large');
@@ -43,7 +33,6 @@ async function parseSafeBody(request: NextRequest, maxSizeKB: number) {
 }
 
 export async function POST(request: NextRequest) {
-  // 🛡️ CSRF 纵深防御（统一使用 lib/csrf-guard.ts）
   const csrf = checkCsrf(request);
   if (!csrf.ok) return csrf.response!;
 
@@ -74,7 +63,6 @@ export async function POST(request: NextRequest) {
       ImageProxy,
     } = parsed.data;
 
-    // 🛡️ 逻辑修复 (P2 · L-02)：整体是纯配置替换，无一次性副作用，可安全整体重试
     return await withConfigConflictRetry(async () => {
     const adminConfig = await getConfig();
     const storage = getStorage();
@@ -93,7 +81,6 @@ export async function POST(request: NextRequest) {
       Announcement,
       SearchDownstreamMaxPage,
       SiteInterfaceCacheTime,
-      // 【核心修复】：提供空字符串兜底，消除 TypeScript 严格类型报错
       ImageProxy: ImageProxy || '',
     };
 
