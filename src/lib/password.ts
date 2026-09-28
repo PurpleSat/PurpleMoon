@@ -1,6 +1,3 @@
-// 文件路径：src/lib/password.ts
-// 使用 Web Crypto API 实现兼容 Cloudflare Edge 的密码加盐哈希与防时序攻击验证
-
 const ITERATIONS = 100000;
 const HASH_BYTES = 32;
 const SALT_BYTES = 16;
