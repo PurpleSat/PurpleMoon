@@ -16,6 +16,7 @@
 ![HLS](https://img.shields.io/badge/HLS-1.7.3-8A2BE2)
 ![Artplayer](https://img.shields.io/badge/Artplayer-5.4.0-RED)
 ![Version](https://img.shields.io/badge/Version-2.3-red)
+![Github](https://img.shields.io/badge/github-PurpleSat-8A2BE2?logo=github)
 
 </div>
 
