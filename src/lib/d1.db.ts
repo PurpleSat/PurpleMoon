@@ -6,10 +6,10 @@ import { hashPassword, verifyPassword } from './password'; // 修补密码明文
 import { Favorite, IStorage, Memo,PlayRecord, SkipConfig } from './types'; // 引入 Memo 类型
 
 // 搜索历史最大条数
-const SEARCH_HISTORY_LIMIT = 20;
+const SEARCH_HISTORY_LIMIT = 40;
 
-// 【新增安全机制】：全站共享便利贴最大条数限制，防止恶意刷库占用空间
-const MEMO_LIMIT = 30;
+// 【新增安全机制】：Memo留言板最大条数限制，防止恶意刷库占用空间
+const MEMO_LIMIT = 60;
 
 // D1 数据库接口
 interface D1Database {
