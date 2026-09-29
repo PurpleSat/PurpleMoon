@@ -13,6 +13,8 @@
 ![TypeScript](https://img.shields.io/badge/TypeScript-4.x-3178c6?logo=typescript)
 ![License](https://img.shields.io/badge/License-MIT-green)
 ![Docker Ready](https://img.shields.io/badge/Docker-ready-blue?logo=docker)
+![HLS](https://img.shields.io/badge/HLS-1.7.3-8A2BE2)
+![Artplayer](https://img.shields.io/badge/Artplayer-5.4.0-RED)
 
 </div>
 
