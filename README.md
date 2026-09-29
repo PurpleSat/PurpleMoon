@@ -15,6 +15,7 @@
 ![Docker Ready](https://img.shields.io/badge/Docker-ready-blue?logo=docker)
 ![HLS](https://img.shields.io/badge/HLS-1.7.3-8A2BE2)
 ![Artplayer](https://img.shields.io/badge/Artplayer-5.4.0-RED)
+![Version](https://img.shields.io/badge/Version-2.3-red)
 
 </div>
 
@@ -27,9 +28,10 @@
 - ▶️ **流畅在线播放**：集成 HLS.js & ArtPlayer。
 - ❤️ **收藏 + 继续观看**：支持 Redis/D1 存储，多端同步进度。
 - 📱 **PWA**：离线缓存、安装到桌面/主屏，移动端原生体验。
-- 🌗 **响应式布局**：桌面侧边栏 + 移动底部导航，自适应各种屏幕尺寸。
+- 🌗 **响应式布局**：桌面底部导航 + 移动底部导航，自适应各种屏幕尺寸。
 - 🚀 **极简部署**：一条 Docker 命令即可将完整服务跑起来，或免费部署到 Vercel 和 Cloudflare。
-- 👿 **智能去广告**：自动跳过视频中的切片广告（实验性）
+- 👿 **自定义跳过片头片尾**：多设备同步自定义跳过片头片尾功能。
+- 🔒 **鉴权防护**：企业级前后端交互鉴权。
 
 <details>
   <summary>点击查看项目截图</summary>
