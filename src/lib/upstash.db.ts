@@ -8,10 +8,10 @@ import { hashPassword, verifyPassword } from './password'; // 【安全升级】
 import { Favorite, IStorage, Memo,PlayRecord, SkipConfig } from './types'; // 引入 SkipConfig 和 Memo
 
 // 搜索历史最大条数
-const SEARCH_HISTORY_LIMIT = 20;
+const SEARCH_HISTORY_LIMIT = 40;
 
-// 【新增安全机制】：便利贴全站最大条数限制
-const MEMO_LIMIT = 30;
+// 【新增安全机制】：Memo留言板全站最大条数限制
+const MEMO_LIMIT = 60;
 
 // 添加Upstash Redis操作重试包装器
 async function withRetry<T>(
