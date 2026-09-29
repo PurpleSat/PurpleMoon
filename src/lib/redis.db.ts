@@ -8,10 +8,10 @@ import { hashPassword, verifyPassword } from './password';
 import { Favorite, IStorage, Memo,PlayRecord, SkipConfig } from './types';
 
 // 搜索历史最大条数
-const SEARCH_HISTORY_LIMIT = 20;
+const SEARCH_HISTORY_LIMIT = 40;
 
-// 便利贴全站最大条数限制
-const MEMO_LIMIT = 30;
+// Memo留言板全站最大条数限制
+const MEMO_LIMIT = 60;
 
 /**
  * 防御性 JSON 解析，防止脏数据导致进程崩溃
