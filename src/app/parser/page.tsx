@@ -6,9 +6,6 @@ import PageLayout from '@/components/PageLayout';
 
 const PARSE_LINES = [
   { name: '1线', url: 'https://bfq.txnp.cn/player?url=' },
-  { name: '2线', url: 'https://yparse.ik9.cc/index.php?url=' },
-  { name: '3线', url: 'https://bd.jx.cn/?url=' },
-  { name: '4线', url: 'https://video.isyour.love/player/getplayer?url=' },
 ];
 
 function ParserPageClient() {
