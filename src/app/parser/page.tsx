@@ -5,27 +5,10 @@ import { Suspense, useRef, useState } from 'react';
 import PageLayout from '@/components/PageLayout';
 
 const PARSE_LINES = [
-  { name: '1线', url: 'https://jx.xmflv.cc/?url=' },
-  { name: '2线', url: 'https://jx.xmflv.com/?url=' },
-  { name: '3线', url: 'https://z1.m1907.top/?jx=' },
-  { name: '4线', url: 'https://jx.77flv.cc/?url=' },
-  { name: '5线', url: 'https://jx.playerjy.com/?url=' },
-  { name: '6线', url: 'https://jx.xymp4.cc/?url=' },
-  { name: '7线', url: 'https://jx.202617.xyz/tv.php?url=' },
-  { name: '8线', url: 'https://jx.hls.one/?url=' },
-  { name: '9线', url: 'https://jx.2s0.cn/player/?url=' },
-  { name: '10线', url: 'https://jx.yparse.com/index.php?url=' },
-  { name: '11线', url: 'https://bfq.txnp.cn/player?url=' },
-  { name: '12线', url: 'https://super.playr.top/?url=' },
-  { name: '13线', url: 'https://jx.dmflv.cc/?url=' },
-  { name: '14线', url: 'https://yparse.ik9.cc/index.php?url=' },
-  { name: '15线', url: 'https://www.playm3u8.cn/jiexi.php?url=' },
-  { name: '16线', url: 'https://jiexi.789jiexi.icu:4433/?url=' },
-  { name: '17线', url: 'https://json.fongmi.cc/web?url=' },
-  { name: '18线', url: 'https://bd.jx.cn/?url=' },
-  { name: '19线', url: 'https://www.ckplayer.vip/jiexi/?url=' },
-  { name: '20线', url: 'https://www.huaqi.live/?url=' },
-  { name: '21线', url: 'https://video.isyour.love/player/getplayer?url=' },
+  { name: '1线', url: 'https://bfq.txnp.cn/player?url=' },
+  { name: '2线', url: 'https://yparse.ik9.cc/index.php?url=' },
+  { name: '3线', url: 'https://bd.jx.cn/?url=' },
+  { name: '4线', url: 'https://video.isyour.love/player/getplayer?url=' },
 ];
 
 function ParserPageClient() {
