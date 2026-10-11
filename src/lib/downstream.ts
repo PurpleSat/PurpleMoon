@@ -35,7 +35,7 @@ export async function searchFromApi(
 
     assertSafeUpstream(apiUrl);
 
-    // 添加超时处理
+    // 添加超时处理（截断超过3500ms响应的源）
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 3500);
 
