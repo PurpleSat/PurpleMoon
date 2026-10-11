@@ -15,7 +15,7 @@
 ![Docker Ready](https://img.shields.io/badge/Docker-ready-blue?logo=docker)
 ![HLS](https://img.shields.io/badge/HLS-1.7.3-8A2BE2)
 ![Artplayer](https://img.shields.io/badge/Artplayer-5.4.0-RED)
-![Version](https://img.shields.io/badge/Version-2.5.2-red)
+![Version](https://img.shields.io/badge/Version-2.5.1-red)
 ![Github](https://img.shields.io/badge/github-PurpleSat-8A2BE2?logo=github)
 
 </div>
@@ -55,7 +55,7 @@
 - [AndroidTV 使用](#AndroidTV-使用)
 - [Roadmap](#roadmap)
 - [安全与隐私提醒](#安全与隐私提醒)
-- [V2.5.2版本更新内容](#V2.5.2版本更新内容)
+- [V2.5.1版本更新内容](#V2.5.1版本更新内容)
 - [License](#license)
 - [致谢](#致谢)
 
@@ -452,6 +452,10 @@ PurpleMoon 支持标准的苹果 CMS V10 API 格式。
 - 8.cron 接口改为 await 执行并使用恒定时间比较密钥
 - 9.播放记录 / 收藏 / 跳过片头片尾写入增加字段白名单与长度上限，防止存储被灌满
 - 10.source-browser 错误信息不再向客户端泄露内部细节
+- 11.搜索提速：资源站由“6 个一批串行等待”改为 8 路并发池 + 8 秒整体截止时间，慢源/坏源不再拖累整体
+- 12.新增流式搜索接口 `/api/search/stream`（NDJSON），搜索页改为“搜到一个源就立刻显示一个源”，首批结果通常 1 秒内出现；流式不可用时自动退回 `/api/search`
+- 13.同一关键词 5 分钟内重复搜索几乎瞬时返回；超时/报错的资源站 45 秒内自动跳过（缓存和熔断都是每个实例各自的内存）
+- 14.若前置 Nginx，流式接口已带 `X-Accel-Buffering: no`；其他代理需关闭对该路径的响应缓冲，否则只是变回“全部返回后一次性显示”
 
 ### V2.5.1版本更新内容
 

@@ -24,10 +24,26 @@ interface ApiSearchItem {
   type_name?: string;
 }
 
+export interface SearchFromApiOptions {
+  /** 绝对截止时间（ms 时间戳）。到点后不再发起新请求，进行中的请求也会被提前中止 */
+  deadline?: number;
+  /** 第一页结果一到就回调，便于流式输出（后续翻页结果仍包含在最终返回值里） */
+  onFirstPage?: (results: SearchResult[]) => void;
+  /** 首页请求失败/超时（上游本身有问题，而不是被整体截止时间打断）时回调，用于短时熔断 */
+  onFailure?: () => void;
+}
+
+const FIRST_PAGE_TIMEOUT_MS = 3500;
+const EXTRA_PAGE_TIMEOUT_MS = 4000;
+
 export async function searchFromApi(
   apiSite: ApiSite,
-  query: string
+  query: string,
+  opts: SearchFromApiOptions = {}
 ): Promise<SearchResult[]> {
+  const remaining = () =>
+    opts.deadline ? opts.deadline - Date.now() : Number.POSITIVE_INFINITY;
+  let fullBudget = false;
   try {
     const apiBaseUrl = apiSite.api;
     const apiUrl =
@@ -36,22 +52,27 @@ export async function searchFromApi(
 
     assertSafeUpstream(apiUrl);
 
-    // 添加超时处理（截断超过3500ms响应的源）
+    // 添加超时处理（截断超过3500ms响应的源），同时不超过整体截止时间
+    const firstBudget = Math.min(FIRST_PAGE_TIMEOUT_MS, remaining());
+    if (firstBudget <= 0) return [];
+    fullBudget = firstBudget >= FIRST_PAGE_TIMEOUT_MS;
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 3500);
+    const timeoutId = setTimeout(() => controller.abort(), firstBudget);
 
     const response = await safeFetch(apiUrl, {
       headers: API_CONFIG.search.headers,
       signal: controller.signal,
     });
 
-    clearTimeout(timeoutId);
-
     if (!response.ok) {
+      clearTimeout(timeoutId);
+      opts.onFailure?.();
       return [];
     }
 
+    // 响应体读取也要受超时保护，所以在 json() 完成后才清除定时器
     const data = await response.json();
+    clearTimeout(timeoutId);
     if (
       !data ||
       !data.list ||
@@ -101,6 +122,9 @@ export async function searchFromApi(
       };
     });
 
+    // 第一页已就绪，立即通知调用方（流式输出）
+    opts.onFirstPage?.(results.slice());
+
     const config = await getConfig();
     // 🛡️ 安全加固 (SEC-08)：对单次搜索的跨页抓取实施硬上限约束 (最多3页)，防范请求雪崩
     const MAX_SEARCH_PAGES: number = Math.min(Math.max(Number(config.SiteConfig.SearchDownstreamMaxPage) || 1, 1), 3);
@@ -110,8 +134,8 @@ export async function searchFromApi(
     // 确定需要获取的额外页数
     const pagesToFetch = Math.min(pageCount - 1, MAX_SEARCH_PAGES - 1);
 
-    // 如果有额外页数，获取更多页的结果
-    if (pagesToFetch > 0) {
+    // 如果有额外页数，且整体时限还够用，则获取更多页的结果
+    if (pagesToFetch > 0 && remaining() > 800) {
       const additionalPagePromises = [];
 
       for (let page = 2; page <= pagesToFetch + 1; page++) {
@@ -126,7 +150,7 @@ export async function searchFromApi(
             const pageController = new AbortController();
             const pageTimeoutId = setTimeout(
               () => pageController.abort(),
-              8000
+              Math.max(Math.min(EXTRA_PAGE_TIMEOUT_MS, remaining()), 1)
             );
 
             const pageResponse = await safeFetch(pageUrl, {
@@ -134,11 +158,13 @@ export async function searchFromApi(
               signal: pageController.signal,
             });
 
-            clearTimeout(pageTimeoutId);
-
-            if (!pageResponse.ok) return [];
+            if (!pageResponse.ok) {
+              clearTimeout(pageTimeoutId);
+              return [];
+            }
 
             const pageData = await pageResponse.json();
+            clearTimeout(pageTimeoutId);
 
             if (!pageData || !pageData.list || !Array.isArray(pageData.list))
               return [];
@@ -195,6 +221,8 @@ export async function searchFromApi(
 
     return results;
   } catch (error) {
+    // 仅当请求在“完整预算”内失败（超时 / 连接错误）才算上游故障；被整体截止时间打断不算
+    if (fullBudget) opts.onFailure?.();
     return [];
   }
 }

@@ -1,45 +1,13 @@
 import { NextResponse } from 'next/server';
 
 import { getClientIp } from '@/lib/client-ip';
-import { ApiSite, getAvailableApiSites, getCacheTime } from '@/lib/config';
-import { searchFromApi } from '@/lib/downstream';
-import { SearchResult } from '@/lib/types';
+import { getAvailableApiSites, getCacheTime } from '@/lib/config';
+import { checkSearchRateLimit, runSearch } from '@/lib/search-engine';
 
 export const runtime = 'edge';
 
-// 🛡️ 安全加固 (SEC-08)：轻量级内存限流，防止搜索接口被滥用做反射 DDoS
-const searchRateLimitMap = new Map<string, { count: number; timestamp: number }>();
-
-function checkSearchRateLimit(ip: string, maxRequests = 30, windowMs = 180000): boolean {
-  const now = Date.now();
-  const entry = searchRateLimitMap.get(ip);
-
-  searchRateLimitMap.forEach((v, k) => {
-    if (now - v.timestamp > windowMs) searchRateLimitMap.delete(k);
-  });
-
-  if (entry && now - entry.timestamp < windowMs) {
-    if (entry.count >= maxRequests) return false;
-    entry.count++;
-  } else {
-    searchRateLimitMap.set(ip, { count: 1, timestamp: now });
-  }
-  return true;
-}
-
-// 🛡️ 安全加固 (SEC-08)：分2批并发控制，避免瞬间发出数十上百个出站
-async function batchSearch(sites: ApiSite[], query: string, batchSize = 2): Promise<SearchResult[]> {
-  const allResults: SearchResult[] = [];
-  for (let i = 0; i < sites.length; i += batchSize) {
-    const batch = sites.slice(i, i + batchSize);
-    const batchResults = await Promise.all(batch.map((site) => searchFromApi(site, query)));
-    allResults.push(...batchResults.flat());
-  }
-  return allResults;
-}
-
 export async function GET(request: Request) {
-  const ip = getClientIp(request as any);
+  const ip = getClientIp(request as { headers: Headers });
   if (!checkSearchRateLimit(ip)) {
     return NextResponse.json(
       { error: '搜索请求过于频繁，请稍后再试' },
@@ -65,11 +33,13 @@ export async function GET(request: Request) {
 
   try {
     const apiSites = await getAvailableApiSites();
-    const flattenedResults = await batchSearch(apiSites, query, 2);
+    const results = await runSearch(apiSites, query, {
+      signal: request.signal,
+    });
     const cacheTime = await getCacheTime();
 
     return NextResponse.json(
-      { results: flattenedResults },
+      { results },
       {
         headers: {
           'Cache-Control': `public, max-age=${cacheTime}`,

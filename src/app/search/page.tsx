@@ -3,7 +3,7 @@
 
 import { Search, X } from 'lucide-react';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { Suspense, useEffect, useMemo, useState } from 'react';
+import { Suspense, useEffect, useMemo, useRef, useState } from 'react';
 
 import {
   addSearchHistory,
@@ -25,6 +25,10 @@ function SearchPageClient() {
   const searchParams = useSearchParams();
   const [searchQuery, setSearchQuery] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  // 已有部分结果、其余资源站仍在搜索中
+  const [isStreaming, setIsStreaming] = useState(false);
+  // 用于取消上一次尚未结束的搜索，避免旧结果覆盖新结果
+  const abortRef = useRef<AbortController | null>(null);
   const [showResults, setShowResults] = useState(false);
   const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
 
@@ -108,6 +112,10 @@ function SearchPageClient() {
   }, []);
 
   useEffect(() => {
+    return () => abortRef.current?.abort();
+  }, []);
+
+  useEffect(() => {
     // 当搜索参数变化时更新搜索状态
     const query = searchParams.get('q');
     if (query) {
@@ -121,45 +129,132 @@ function SearchPageClient() {
     }
   }, [searchParams]);
 
+  // 排序：标题与搜索词完全一致的优先，其次按年份从新到旧，最后按标题
+  const sortResults = (list: SearchResult[], query: string) => {
+    const q = query.trim();
+    return list.slice().sort((a, b) => {
+      const aExactMatch = a.title === q;
+      const bExactMatch = b.title === q;
+      if (aExactMatch && !bExactMatch) return -1;
+      if (!aExactMatch && bExactMatch) return 1;
+
+      if (a.year === b.year) {
+        return a.title.localeCompare(b.title);
+      }
+      if (a.year === 'unknown') return 1;
+      if (b.year === 'unknown') return -1;
+      return parseInt(a.year) > parseInt(b.year) ? -1 : 1;
+    });
+  };
+
   const fetchSearchResults = async (query: string) => {
-    try {
-      setIsLoading(true);
+    // 取消上一次搜索
+    abortRef.current?.abort();
+    const controller = new AbortController();
+    abortRef.current = controller;
+    const isStale = () => abortRef.current !== controller;
+
+    const trimmed = query.trim();
+    setIsLoading(true);
+    setIsStreaming(false);
+    setSearchResults([]);
+
+    // 按资源站累积结果；资源站返回顺序不定，渲染时统一重新排序
+    const bySource = new Map<string, SearchResult[]>();
+    let flushTimer: ReturnType<typeof setTimeout> | null = null;
+    const flush = () => {
+      flushTimer = null;
+      if (isStale()) return;
+      const merged = Array.from(bySource.values()).flat();
+      setSearchResults(sortResults(merged, trimmed));
+      setShowResults(true);
+      // 第一批结果到达后就撤掉整页转圈，只保留“仍在搜索”的小提示
+      setIsLoading(false);
+      setIsStreaming(true);
+    };
+    // 合并短时间内到达的多个资源站，减少重复渲染
+    const scheduleFlush = () => {
+      if (flushTimer === null) flushTimer = setTimeout(flush, 120);
+    };
+
+    const fallbackToPlainSearch = async () => {
       const response = await fetch(
-        `/api/search?q=${encodeURIComponent(query.trim())}`
+        `/api/search?q=${encodeURIComponent(trimmed)}`,
+        { signal: controller.signal }
       );
       const data = await response.json();
-      setSearchResults(
-        data.results.sort((a: SearchResult, b: SearchResult) => {
-          // 优先排序：标题与搜索词完全一致的排在前面
-          const aExactMatch = a.title === query.trim();
-          const bExactMatch = b.title === query.trim();
+      if (isStale()) return;
+      setSearchResults(sortResults(data.results || [], trimmed));
+    };
 
-          if (aExactMatch && !bExactMatch) return -1;
-          if (!aExactMatch && bExactMatch) return 1;
-
-          // 如果都匹配或都不匹配，则按原来的逻辑排序
-          if (a.year === b.year) {
-            return a.title.localeCompare(b.title);
-          } else {
-            // 处理 unknown 的情况
-            if (a.year === 'unknown' && b.year === 'unknown') {
-              return 0;
-            } else if (a.year === 'unknown') {
-              return 1; // a 排在后面
-            } else if (b.year === 'unknown') {
-              return -1; // b 排在后面
-            } else {
-              // 都是数字年份，按数字大小排序（大的在前面）
-              return parseInt(a.year) > parseInt(b.year) ? -1 : 1;
-            }
-          }
-        })
+    try {
+      const response = await fetch(
+        `/api/search/stream?q=${encodeURIComponent(trimmed)}`,
+        { signal: controller.signal }
       );
-      setShowResults(true);
-    } catch (error) {
-      setSearchResults([]);
+
+      if (response.status === 429) {
+        // 请求过于频繁：直接显示空结果，不再降级重试
+        if (!isStale()) setSearchResults([]);
+      } else if (!response.ok || !response.body) {
+        await fallbackToPlainSearch();
+      } else {
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
+
+        const handleLine = (line: string) => {
+          if (!line.trim()) return;
+          try {
+            const msg = JSON.parse(line);
+            if (msg.type === 'results' && Array.isArray(msg.results)) {
+              const prev = bySource.get(msg.source) || [];
+              bySource.set(msg.source, prev.concat(msg.results));
+              scheduleFlush();
+            }
+          } catch {
+            // 忽略损坏的行
+          }
+        };
+
+        for (;;) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          buffer += decoder.decode(value, { stream: true });
+          let nl: number;
+          while ((nl = buffer.indexOf('\n')) >= 0) {
+            handleLine(buffer.slice(0, nl));
+            buffer = buffer.slice(nl + 1);
+          }
+        }
+        handleLine(buffer);
+
+        if (flushTimer !== null) {
+          clearTimeout(flushTimer);
+          flushTimer = null;
+        }
+        if (!isStale()) {
+          setSearchResults(
+            sortResults(Array.from(bySource.values()).flat(), trimmed)
+          );
+        }
+      }
+      if (!isStale()) setShowResults(true);
+    } catch (error: any) {
+      if (error?.name === 'AbortError' || isStale()) return;
+      // 流式接口不可用（例如被代理拦截）时退回普通接口
+      try {
+        await fallbackToPlainSearch();
+        if (!isStale()) setShowResults(true);
+      } catch {
+        if (!isStale()) setSearchResults([]);
+      }
     } finally {
-      setIsLoading(false);
+      if (flushTimer !== null) clearTimeout(flushTimer);
+      if (!isStale()) {
+        setIsLoading(false);
+        setIsStreaming(false);
+      }
     }
   };
 
@@ -213,6 +308,12 @@ function SearchPageClient() {
               <div className='mb-8 flex items-center justify-between'>
                 <h2 className='text-xl font-bold text-gray-800 dark:text-gray-200'>
                   搜索结果
+                  {isStreaming && (
+                    <span className='ml-3 inline-flex items-center gap-1.5 text-sm font-normal text-gray-500 dark:text-gray-400'>
+                      <span className='inline-block h-3.5 w-3.5 animate-spin rounded-full border-b-2 border-green-500'></span>
+                      仍在搜索其他资源站…
+                    </span>
+                  )}
                 </h2>
                 {/* 聚合开关 */}
                 <label className='flex items-center gap-2 cursor-pointer select-none'>
@@ -276,7 +377,7 @@ function SearchPageClient() {
                         />
                       </div>
                     ))}
-                {searchResults.length === 0 && (
+                {searchResults.length === 0 && !isStreaming && (
                   <div className='col-span-full text-center text-gray-500 py-8 dark:text-gray-400'>
                     未找到相关结果
                   </div>
