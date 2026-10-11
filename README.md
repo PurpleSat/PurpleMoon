@@ -15,7 +15,7 @@
 ![Docker Ready](https://img.shields.io/badge/Docker-ready-blue?logo=docker)
 ![HLS](https://img.shields.io/badge/HLS-1.7.3-8A2BE2)
 ![Artplayer](https://img.shields.io/badge/Artplayer-5.4.0-RED)
-![Version](https://img.shields.io/badge/Version-2.5.2-red)
+![Version](https://img.shields.io/badge/Version-2.5.1-red)
 ![Github](https://img.shields.io/badge/github-PurpleSat-8A2BE2?logo=github)
 
 </div>
@@ -54,7 +54,7 @@
 - [AndroidTV 使用](#AndroidTV-使用)
 - [Roadmap](#roadmap)
 - [安全与隐私提醒](#安全与隐私提醒)
-- [V2.5.2版本更新内容](#V2.5.2版本更新内容)
+- [V2.5.1版本更新内容](#V2.5.1版本更新内容)
 - [License](#license)
 - [致谢](#致谢)
 
@@ -237,9 +237,9 @@ networks:
 | REQUIRE_INVITE_CODE         | 是否强制邀请码注册                                                        | true/false                    | 空                         
 | AUTH_SECRET                 | **必填**。用于签名登录 Cookie；缺失或少于 16 字符时，生产环境服务拒绝启动 | 建议 32 位以上随机字符串（`openssl rand -hex 32`） | 空 |
 | CRON_SECRET                 | 为 Cron 任务加上密钥校验 (安全)                                       | 建议任意32以上位字符串                     | 空                  
-| TRUST_CF_CONNECTING_IP | 设为 true 才会信任 `CF-Connecting-IP` 头做限流 IP 识别。仅当站点部署在 Cloudflare 后面（且源站只接受 Cloudflare 回源）时开启，否则客户端可伪造该头绕过限流 | true | 空 |
-| TRUST_X_REAL_IP | 设为 true 才会信任 `X-Real-IP` 头。仅当前置反向代理（如 Nginx 的 `proxy_set_header X-Real-IP $remote_addr;`）会覆盖该头时开启 | true | 空 |
-| TRUST_X_FORWARDED_FOR | 设为 true 才会信任 `X-Forwarded-For` 头，并取**倒数第 N 个**地址（N 见 TRUSTED_PROXY_HOPS），不再取最左侧值。仅当前置代理会追加真实来源地址时开启 | true | 空 |
+| TRUST_CF_CONNECTING_IP | 设为 true 才会信任 `CF-Connecting-IP` 头做限流 IP 识别。仅当站点部署在 Cloudflare （且源站只接受 Cloudflare 回源）时开启，否则客户端可伪造该头绕过限流 | true | 空 |
+| TRUST_X_REAL_IP | Docker容器部署时设为 true 才会信任 `X-Real-IP` 头。仅当前置反向代理（如 Nginx 的 `proxy_set_header X-Real-IP $remote_addr;`）会覆盖该头时开启 | true | 空 |
+| TRUST_X_FORWARDED_FOR | Docker容器部署时设为 true 才会信任 `X-Forwarded-For` 头，并取**倒数第 N 个**地址（N 见 TRUSTED_PROXY_HOPS），不再取最左侧值。仅当前置代理会追加真实来源地址时开启 | true | 空 |
 | TRUSTED_PROXY_HOPS | `X-Forwarded-For` 链上可信代理层数 | 1-5 | 1 |
 ## 配置说明
 
@@ -315,7 +315,7 @@ PurpleMoon 支持标准的苹果 CMS V10 API 格式。
 - 如因公开分享导致的任何法律问题，用户需自行承担责任
 - 项目开发者不对用户的使用行为承担任何法律责任
 
-### V2.5.2版本更新内容
+### V2.5.1版本更新内容
 
 - 1.增加视频解析
 - 2.增加MEMO功能
