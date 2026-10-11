@@ -15,7 +15,7 @@
 ![Docker Ready](https://img.shields.io/badge/Docker-ready-blue?logo=docker)
 ![HLS](https://img.shields.io/badge/HLS-1.7.3-8A2BE2)
 ![Artplayer](https://img.shields.io/badge/Artplayer-5.4.0-RED)
-![Version](https://img.shields.io/badge/Version-2.3-red)
+![Version](https://img.shields.io/badge/Version-2.5.2-red)
 ![Github](https://img.shields.io/badge/github-PurpleSat-8A2BE2?logo=github)
 
 </div>
@@ -32,11 +32,11 @@
 - 🌗 **响应式布局**：桌面底部导航 + 移动底部导航，自适应各种屏幕尺寸。
 - 🚀 **极简部署**：一条 Docker 命令即可将完整服务跑起来，或免费部署到 Vercel 和 Cloudflare。
 - 👿 **自定义跳过片头片尾**：多设备同步自定义跳过片头片尾功能。
-- 🔒 **鉴权防护**：企业级前后端交互鉴权。
+- 🔒 **鉴权交互**：企业级。
 - 💬 **留言板**：全用户留言板块。
-- 🌐 **源库分类浏览**：一览源站分类内容+一键点播。
-- 🎬 **视频解析**：数十个解析接口一键解析视频。
-- 🔔 **TMDB最近上映**：TMDB最新上映和热播+一键点播。
+- 🌐 **源库分类浏览**：一览源站分类内容。
+- 🎬 **视频解析**：一键解析视频。
+- 🔔 **TMDB最近上映**：TMDB最新上映和热播。
 
 <details>
   <summary>点击查看项目截图</summary>
@@ -54,7 +54,7 @@
 - [AndroidTV 使用](#AndroidTV-使用)
 - [Roadmap](#roadmap)
 - [安全与隐私提醒](#安全与隐私提醒)
-- [V2.3版本更新内容](#V2.3版本更新内容)
+- [V2.5.2版本更新内容](#V2.5.2版本更新内容)
 - [License](#license)
 - [致谢](#致谢)
 
@@ -315,7 +315,7 @@ PurpleMoon 支持标准的苹果 CMS V10 API 格式。
 - 如因公开分享导致的任何法律问题，用户需自行承担责任
 - 项目开发者不对用户的使用行为承担任何法律责任
 
-### V2.3版本更新内容
+### V2.5.2版本更新内容
 
 - 1.增加视频解析
 - 2.增加MEMO功能
