@@ -94,14 +94,17 @@ export async function POST(request: NextRequest) {
     }
     const { source, id } = parsedKey;
 
-    const clampTime = (v: unknown) => {
+    // 片头为正数（从开头起的秒数）；片尾为负数（距结尾的秒数，如 -90 表示结尾前 90 秒）。
+    // 注意：不能把片尾也限制为 >= 0，否则所有片尾设置都会被存成 0。
+    const MAX_SECONDS = 86400;
+    const toNumber = (v: unknown) => {
       const n = Number(v);
-      return Number.isFinite(n) ? Math.min(Math.max(n, 0), 86400) : 0;
+      return Number.isFinite(n) ? n : 0;
     };
     const skipConfig: SkipConfig = {
       enable: Boolean(config.enable),
-      intro_time: clampTime(config.intro_time),
-      outro_time: clampTime(config.outro_time),
+      intro_time: Math.min(Math.max(toNumber(config.intro_time), 0), MAX_SECONDS),
+      outro_time: Math.max(Math.min(toNumber(config.outro_time), 0), -MAX_SECONDS),
     };
 
     await db.setSkipConfig(authUser.username, source, id, skipConfig);
