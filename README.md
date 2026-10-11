@@ -15,7 +15,7 @@
 ![Docker Ready](https://img.shields.io/badge/Docker-ready-blue?logo=docker)
 ![HLS](https://img.shields.io/badge/HLS-1.7.3-8A2BE2)
 ![Artplayer](https://img.shields.io/badge/Artplayer-5.4.0-RED)
-![Version](https://img.shields.io/badge/Version-2.5.1-red)
+![Version](https://img.shields.io/badge/Version-2.5.2-red)
 ![Github](https://img.shields.io/badge/github-PurpleSat-8A2BE2?logo=github)
 
 </div>
@@ -55,7 +55,7 @@
 - [AndroidTV 使用](#AndroidTV-使用)
 - [Roadmap](#roadmap)
 - [安全与隐私提醒](#安全与隐私提醒)
-- [V2.5.1版本更新内容](#V2.5.1版本更新内容)
+- [V2.5.2版本更新内容](#V2.5.2版本更新内容)
 - [License](#license)
 - [致谢](#致谢)
 
