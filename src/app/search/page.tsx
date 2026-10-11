@@ -3,7 +3,7 @@
 
 import { Search, X } from 'lucide-react';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { Suspense, useEffect, useMemo, useRef, useState } from 'react';
+import { Suspense, useEffect, useMemo, useState } from 'react';
 
 import {
   addSearchHistory,
@@ -27,12 +27,6 @@ function SearchPageClient() {
   const [isLoading, setIsLoading] = useState(false);
   const [showResults, setShowResults] = useState(false);
   const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
-  const [searchProgress, setSearchProgress] = useState<{ completed: number; total: number }>({
-    completed: 0,
-    total: 0,
-  });
-
-  const abortControllerRef = useRef<AbortController | null>(null);
 
   // 获取默认聚合设置：只读取用户本地设置，默认为 true
   const getDefaultAggregate = () => {
@@ -48,36 +42,6 @@ function SearchPageClient() {
   const [viewMode, setViewMode] = useState<'agg' | 'all'>(() => {
     return getDefaultAggregate() ? 'agg' : 'all';
   });
-
-  // 排序辅助函数
-  const sortSearchResults = (results: SearchResult[], currentQuery: string) => {
-    const trimmedQuery = currentQuery.trim().replaceAll(' ', '');
-    return [...results].sort((a, b) => {
-      // 优先排序：标题与搜索词完全一致的排在前面
-      const aExactMatch = a.title.replaceAll(' ', '') === trimmedQuery;
-      const bExactMatch = b.title.replaceAll(' ', '') === trimmedQuery;
-
-      if (aExactMatch && !bExactMatch) return -1;
-      if (!aExactMatch && bExactMatch) return 1;
-
-      // 如果都匹配或都不匹配，则按原来的逻辑排序
-      if (a.year === b.year) {
-        return a.title.localeCompare(b.title);
-      } else {
-        // 处理 unknown 的情况
-        if (a.year === 'unknown' && b.year === 'unknown') {
-          return 0;
-        } else if (a.year === 'unknown') {
-          return 1; // a 排在后面
-        } else if (b.year === 'unknown') {
-          return -1; // b 排在后面
-        } else {
-          // 都是数字年份，按数字大小排序（大的在前面）
-          return parseInt(a.year) > parseInt(b.year) ? -1 : 1;
-        }
-      }
-    });
-  };
 
   // 聚合后的结果（按标题和年份分组）
   const aggregatedResults = useMemo(() => {
@@ -123,7 +87,7 @@ function SearchPageClient() {
         }
       }
     });
-  }, [searchResults, searchQuery]);
+  }, [searchResults]);
 
   useEffect(() => {
     // 无搜索参数时聚焦搜索框
@@ -140,161 +104,81 @@ function SearchPageClient() {
       }
     );
 
-    return () => {
-      unsubscribe();
-      abortControllerRef.current?.abort();
-    };
+    return unsubscribe;
   }, []);
 
-  // 当搜索参数变化时更新搜索状态（单向驱动，杜绝提交时重复请求两次）
   useEffect(() => {
+    // 当搜索参数变化时更新搜索状态
     const query = searchParams.get('q');
     if (query) {
-      const trimmed = query.trim();
-      setSearchQuery(trimmed);
-      fetchSearchResults(trimmed);
+      setSearchQuery(query);
+      fetchSearchResults(query);
 
       // 保存到搜索历史 (事件监听会自动更新界面)
-      addSearchHistory(trimmed);
+      addSearchHistory(query);
     } else {
       setShowResults(false);
-      setSearchResults([]);
-      setSearchProgress({ completed: 0, total: 0 });
     }
   }, [searchParams]);
 
-  // 边搜边显示的流式搜索请求函数
   const fetchSearchResults = async (query: string) => {
-    const trimmed = query.trim();
-    if (!trimmed) return;
-
-    // 中止任何之前正在进行的请求
-    if (abortControllerRef.current) {
-      abortControllerRef.current.abort();
-    }
-    const controller = new AbortController();
-    abortControllerRef.current = controller;
-
     try {
       setIsLoading(true);
-      setShowResults(true);
-      setSearchResults([]);
-      setSearchProgress({ completed: 0, total: 0 });
-
       const response = await fetch(
-        `/api/search?q=${encodeURIComponent(trimmed)}&stream=1`,
-        {
-          signal: controller.signal,
-          headers: {
-            Accept: 'text/event-stream, application/json',
-          },
-        }
+        `/api/search?q=${encodeURIComponent(query.trim())}`
       );
+      const data = await response.json();
+      setSearchResults(
+        data.results.sort((a: SearchResult, b: SearchResult) => {
+          // 优先排序：标题与搜索词完全一致的排在前面
+          const aExactMatch = a.title === query.trim();
+          const bExactMatch = b.title === query.trim();
 
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
+          if (aExactMatch && !bExactMatch) return -1;
+          if (!aExactMatch && bExactMatch) return 1;
 
-      const contentType = response.headers.get('content-type') || '';
-      if (contentType.includes('text/event-stream') && response.body) {
-        const reader = response.body.getReader();
-        const decoder = new TextDecoder();
-        let buffer = '';
-
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
-
-          buffer += decoder.decode(value, { stream: true });
-          const parts = buffer.split('\n\n');
-          buffer = parts.pop() || '';
-
-          for (const part of parts) {
-            const trimmedPart = part.trim();
-            if (!trimmedPart) continue;
-
-            const lines = trimmedPart.split('\n');
-            for (const line of lines) {
-              if (line.startsWith('data:')) {
-                const jsonStr = line.replace(/^data:\s*/, '').trim();
-                if (!jsonStr) continue;
-                try {
-                  const event = JSON.parse(jsonStr);
-                  if (event.type === 'start') {
-                    setSearchProgress((prev) => ({
-                      ...prev,
-                      total: event.totalSites || 0,
-                    }));
-                  } else if (event.type === 'progress') {
-                    setSearchProgress({
-                      completed: event.completed || 0,
-                      total: event.total || 0,
-                    });
-                  } else if (event.type === 'chunk' && Array.isArray(event.results) && event.results.length > 0) {
-                    setSearchResults((prev) => {
-                      const existingMap = new Set<string>();
-                      for (const item of prev) {
-                        existingMap.add(`${item.source}-${item.id}`);
-                      }
-                      const newItems: SearchResult[] = [];
-                      for (const item of event.results) {
-                        const key = `${item.source}-${item.id}`;
-                        if (!existingMap.has(key)) {
-                          existingMap.add(key);
-                          newItems.push(item);
-                        }
-                      }
-                      if (newItems.length === 0) return prev;
-                      return sortSearchResults([...prev, ...newItems], trimmed);
-                    });
-                  } else if (event.type === 'done') {
-                    setIsLoading(false);
-                  }
-                } catch {
-                  // 忽略个别异常分片
-                }
-              }
+          // 如果都匹配或都不匹配，则按原来的逻辑排序
+          if (a.year === b.year) {
+            return a.title.localeCompare(b.title);
+          } else {
+            // 处理 unknown 的情况
+            if (a.year === 'unknown' && b.year === 'unknown') {
+              return 0;
+            } else if (a.year === 'unknown') {
+              return 1; // a 排在后面
+            } else if (b.year === 'unknown') {
+              return -1; // b 排在后面
+            } else {
+              // 都是数字年份，按数字大小排序（大的在前面）
+              return parseInt(a.year) > parseInt(b.year) ? -1 : 1;
             }
           }
-        }
-      } else {
-        // 兼容降级非流式 JSON
-        const data = await response.json();
-        if (data && Array.isArray(data.results)) {
-          setSearchResults(sortSearchResults(data.results, trimmed));
-        } else {
-          setSearchResults([]);
-        }
-      }
-    } catch (error: any) {
-      if (error?.name === 'AbortError') {
-        // 请求被主动中止，无需处理
-        return;
-      }
-      console.error('搜索异常:', error);
+        })
+      );
+      setShowResults(true);
+    } catch (error) {
       setSearchResults([]);
     } finally {
       setIsLoading(false);
     }
   };
 
-  // 提交搜索：去重优化，统一由 router.push 驱动，解决重复发送两次请求问题
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault();
     const trimmed = searchQuery.trim().replace(/\s+/g, ' ');
     if (!trimmed) return;
 
+    // 回显搜索框
     setSearchQuery(trimmed);
+    setIsLoading(true);
+    setShowResults(true);
 
-    const currentUrlQ = searchParams.get('q')?.trim().replace(/\s+/g, ' ');
-    if (currentUrlQ === trimmed) {
-      // 词未变更时 router.push 不会产生变更，手动重新搜索
-      fetchSearchResults(trimmed);
-      addSearchHistory(trimmed);
-    } else {
-      // 路由跳转会更新 searchParams 并由 useEffect 统一触发搜索，杜绝重复请求
-      router.push(`/search?q=${encodeURIComponent(trimmed)}`);
-    }
+    router.push(`/search?q=${encodeURIComponent(trimmed)}`);
+    // 直接发请求
+    fetchSearchResults(trimmed);
+
+    // 保存到搜索历史 (事件监听会自动更新界面)
+    addSearchHistory(trimmed);
   };
 
   return (
@@ -319,31 +203,17 @@ function SearchPageClient() {
 
         {/* 搜索结果或搜索历史 */}
         <div className='max-w-[95%] mx-auto mt-12 overflow-visible'>
-          {isLoading && searchResults.length === 0 ? (
-            // 首次搜索、首条结果尚未返回时的等待状态
-            <div className='flex flex-col justify-center items-center h-40 gap-3'>
+          {isLoading ? (
+            <div className='flex justify-center items-center h-40'>
               <div className='animate-spin rounded-full h-8 w-8 border-b-2 border-green-500'></div>
-              <p className='text-sm text-gray-500 dark:text-gray-400'>
-                正在并发检索资源源...
-              </p>
             </div>
           ) : showResults ? (
             <section className='mb-12'>
-              {/* 标题 + 流式进行提示 + 聚合开关 */}
+              {/* 标题 + 聚合开关 */}
               <div className='mb-8 flex items-center justify-between'>
-                <div className='flex items-center gap-3'>
-                  <h2 className='text-xl font-bold text-gray-800 dark:text-gray-200'>
-                    搜索结果
-                  </h2>
-                  {isLoading && (
-                    <div className='flex items-center gap-2 text-xs text-green-600 dark:text-green-400 bg-green-50 dark:bg-green-950/40 px-2.5 py-1 rounded-full border border-green-200/60 dark:border-green-800/60 animate-pulse'>
-                      <span className='inline-block w-2 h-2 rounded-full bg-green-500'></span>
-                      <span>
-                        正在实时检索更多源 {searchProgress.total > 0 ? `(${searchProgress.completed}/${searchProgress.total})` : '...'}
-                      </span>
-                    </div>
-                  )}
-                </div>
+                <h2 className='text-xl font-bold text-gray-800 dark:text-gray-200'>
+                  搜索结果
+                </h2>
                 {/* 聚合开关 */}
                 <label className='flex items-center gap-2 cursor-pointer select-none'>
                   <span className='text-sm text-gray-700 dark:text-gray-300'>
@@ -406,7 +276,7 @@ function SearchPageClient() {
                         />
                       </div>
                     ))}
-                {searchResults.length === 0 && !isLoading && (
+                {searchResults.length === 0 && (
                   <div className='col-span-full text-center text-gray-500 py-8 dark:text-gray-400'>
                     未找到相关结果
                   </div>
@@ -434,16 +304,10 @@ function SearchPageClient() {
                   <div key={item} className='relative group'>
                     <button
                       onClick={() => {
-                        const trimmedItem = item.trim();
-                        setSearchQuery(trimmedItem);
-                        const currentUrlQ = searchParams.get('q')?.trim();
-                        if (currentUrlQ === trimmedItem) {
-                          fetchSearchResults(trimmedItem);
-                        } else {
-                          router.push(
-                            `/search?q=${encodeURIComponent(trimmedItem)}`
-                          );
-                        }
+                        setSearchQuery(item);
+                        router.push(
+                          `/search?q=${encodeURIComponent(item.trim())}`
+                        );
                       }}
                       className='px-4 py-2 bg-gray-500/10 hover:bg-gray-300 rounded-full text-sm text-gray-700 transition-colors duration-200 dark:bg-gray-700/50 dark:hover:bg-gray-600 dark:text-gray-300'
                     >
