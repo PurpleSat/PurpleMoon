@@ -15,7 +15,7 @@
 ![Docker Ready](https://img.shields.io/badge/Docker-ready-blue?logo=docker)
 ![HLS](https://img.shields.io/badge/HLS-1.7.3-8A2BE2)
 ![Artplayer](https://img.shields.io/badge/Artplayer-5.4.0-RED)
-![Version](https://img.shields.io/badge/Version-2.5.1-red)
+![Version](https://img.shields.io/badge/Version-2.5.3-red)
 ![Github](https://img.shields.io/badge/github-PurpleSat-8A2BE2?logo=github)
 
 </div>
@@ -55,7 +55,7 @@
 - [AndroidTV 使用](#AndroidTV-使用)
 - [Roadmap](#roadmap)
 - [安全与隐私提醒](#安全与隐私提醒)
-- [V2.5.1版本更新内容](#V2.5.1版本更新内容)
+- [V2.5.3版本更新内容](#V2.5.3 安全与稳定性修复)
 - [License](#license)
 - [致谢](#致谢)
 
@@ -440,7 +440,7 @@ PurpleMoon 支持标准的苹果 CMS V10 API 格式。
 - 如因公开分享导致的任何法律问题，用户需自行承担责任
 - 项目开发者不对用户的使用行为承担任何法律责任
 
-### V2.5.2 安全与稳定性修复
+### V2.5.3 安全与稳定性修复
 
 - 1.修复 source-browser 四个接口绕过 SSRF 防护（直连静态 config.json、无重定向校验），改为只读后台已启用资源源并统一走 safeFetch
 - 2.修复搜索/详情上游请求会自动跟随 3xx 重定向导致的 SSRF 绕过（全部改用 safeFetch 逐跳校验）
