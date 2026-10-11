@@ -27,8 +27,8 @@ function checkSearchRateLimit(ip: string, maxRequests = 30, windowMs = 60000): b
   return true;
 }
 
-// 🛡️ 安全加固 (SEC-08)：分3批并发控制，避免瞬间发出数十上百个出站
-async function batchSearch(sites: ApiSite[], query: string, batchSize = 3): Promise<SearchResult[]> {
+// 🛡️ 安全加固 (SEC-08)：分2批并发控制，避免瞬间发出数十上百个出站
+async function batchSearch(sites: ApiSite[], query: string, batchSize = 2): Promise<SearchResult[]> {
   const allResults: SearchResult[] = [];
   for (let i = 0; i < sites.length; i += batchSize) {
     const batch = sites.slice(i, i + batchSize);
