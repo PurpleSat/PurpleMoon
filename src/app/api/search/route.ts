@@ -10,7 +10,7 @@ export const runtime = 'edge';
 // 🛡️ 安全加固 (SEC-08)：轻量级内存限流，防止搜索接口被滥用做反射 DDoS
 const searchRateLimitMap = new Map<string, { count: number; timestamp: number }>();
 
-function checkSearchRateLimit(ip: string, maxRequests = 30, windowMs = 60000): boolean {
+function checkSearchRateLimit(ip: string, maxRequests = 30, windowMs = 180000): boolean {
   const now = Date.now();
   const entry = searchRateLimitMap.get(ip);
 
@@ -28,7 +28,7 @@ function checkSearchRateLimit(ip: string, maxRequests = 30, windowMs = 60000): b
 }
 
 // 🛡️ 安全加固 (SEC-08)：分2批并发控制，避免瞬间发出数十上百个出站
-async function batchSearch(sites: ApiSite[], query: string, batchSize = 2): Promise<SearchResult[]> {
+async function batchSearch(sites: ApiSite[], query: string, batchSize = 3): Promise<SearchResult[]> {
   const allResults: SearchResult[] = [];
   for (let i = 0; i < sites.length; i += batchSize) {
     const batch = sites.slice(i, i + batchSize);
@@ -65,7 +65,7 @@ export async function GET(request: Request) {
 
   try {
     const apiSites = await getAvailableApiSites();
-    const flattenedResults = await batchSearch(apiSites, query, 6);
+    const flattenedResults = await batchSearch(apiSites, query, 3);
     const cacheTime = await getCacheTime();
 
     return NextResponse.json(
