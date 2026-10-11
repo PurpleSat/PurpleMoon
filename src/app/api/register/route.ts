@@ -2,9 +2,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 
-import { signAuthPayload } from '@/lib/auth';
 import { getClientIp } from '@/lib/client-ip';
 import { getConfig } from '@/lib/config';
+import { buildAuthCookieValue, setAuthCookies } from '@/lib/cookies';
 import { db } from '@/lib/db';
 import { timingSafeEqual } from '@/lib/password';
 
@@ -65,22 +65,6 @@ async function checkRateLimit(ip: string): Promise<boolean> {
     console.error('全局限流检查异常，安全降级至内存限流:', err);
     return checkLocalRateLimit(ip);
   }
-}
-
-async function generateAuthCookie(username: string, role = 'user'): Promise<string> {
-  const timestamp = Date.now();
-  const signature = await signAuthPayload(username, timestamp, role);
-  return encodeURIComponent(JSON.stringify({ username, role, timestamp, signature }));
-}
-
-function setDualCookies(response: NextResponse, authValue: string, username: string, role: string) {
-  const isProduction = process.env.NODE_ENV === 'production';
-  const expires = new Date();
-  expires.setDate(expires.getDate() + 7);
-
-  response.cookies.set('auth', authValue, { path: '/', expires, sameSite: 'lax', httpOnly: true, secure: isProduction });
-  const userInfoValue = encodeURIComponent(JSON.stringify({ username, role }));
-  response.cookies.set('user_info', userInfoValue, { path: '/', expires, sameSite: 'lax', httpOnly: false, secure: isProduction });
 }
 
 export async function POST(req: NextRequest) {
@@ -149,10 +133,8 @@ export async function POST(req: NextRequest) {
       await db.registerUser(username, password);
 
       const response = NextResponse.json({ ok: true });
-      const cookieValue = await generateAuthCookie(username, 'user');
-      
-      // 使用双 Cookie 下发
-      setDualCookies(response, cookieValue, username, 'user');
+      const cookieValue = await buildAuthCookieValue(username, 'user');
+      setAuthCookies(response, req, cookieValue, username, 'user');
 
       return response;
     } catch (err) {

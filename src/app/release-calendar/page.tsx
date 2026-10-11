@@ -5,8 +5,9 @@ import { Calendar, CalendarDays, ChevronUp, Clock, Film, Filter, GitCommit, Layo
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { Suspense, useEffect, useRef, useState } from 'react';
 
-import PageLayout from '@/components/PageLayout';
 import { ReleaseCalendarItem, ReleaseCalendarResult } from '@/lib/types';
+
+import PageLayout from '@/components/PageLayout';
 
 function ReleaseCalendarClient() {
   const router = useRouter();

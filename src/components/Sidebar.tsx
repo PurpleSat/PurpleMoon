@@ -2,16 +2,12 @@
 
 import { 
   ChevronUp, 
-  Clapperboard, 
   Clover, 
   ExternalLink,
   Film, 
-  History, 
   Home, 
   Radio, 
-  Rocket, 
-  Search, 
-  Tv 
+  Search 
 } from 'lucide-react';
 import Link from 'next/link';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';

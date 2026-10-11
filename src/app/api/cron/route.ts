@@ -4,6 +4,7 @@ import { NextRequest, NextResponse } from 'next/server';
 
 import { db } from '@/lib/db';
 import { fetchVideoDetail } from '@/lib/fetchVideoDetail';
+import { timingSafeEqual } from '@/lib/password';
 import { SearchResult } from '@/lib/types';
 
 export const runtime = 'edge';
@@ -20,18 +21,18 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: 'Unauthorized: CRON_SECRET is not configured' }, { status: 401 });
   }
 
-  // 严格比对 Bearer Token
-  if (authHeader !== `Bearer ${cronSecret}`) {
-    console.warn(`拦截：检测到伪造的 Cron 触发请求！(IP: ${request.headers.get('cf-connecting-ip') || 'unknown'})`);
+  // 严格比对 Bearer Token（恒定时间比较）
+  if (!authHeader || !timingSafeEqual(authHeader, `Bearer ${cronSecret}`)) {
+    console.warn(`拦截：检测到伪造的 Cron 触发请求！`);
     return NextResponse.json({ error: 'Unauthorized: Invalid token' }, { status: 401 });
   }
   // ============================================================================
 
-  console.log(request.url);
   try {
     console.log('Cron job triggered:', new Date().toISOString());
 
-    refreshRecordAndFavorites();
+    // 必须 await：Serverless / Edge 运行时在响应返回后会终止未完成的任务
+    await refreshRecordAndFavorites();
 
     return NextResponse.json({
       success: true,

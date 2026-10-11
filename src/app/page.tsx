@@ -2,9 +2,9 @@
 
 'use client';
 
-import { Suspense, useEffect, useState } from 'react';
-import Link from 'next/link';
 import { PenLine } from 'lucide-react';
+import Link from 'next/link';
+import { Suspense, useEffect, useState } from 'react';
 
 // 客户端收藏与播放记录 API
 import {

@@ -1,6 +1,6 @@
 'use client';
 
-import { Clover, Film, Home, Search, Tv, Radio, History, Rocket, Clapperboard } from 'lucide-react';
+import {Clover, Film, Home, Radio, Search } from 'lucide-react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 

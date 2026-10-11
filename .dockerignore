@@ -1,0 +1,12 @@
+node_modules
+.next
+.git
+.github
+.env
+.env.*
+*.log
+npm-debug.log*
+.DS_Store
+coverage
+public/sw.js
+public/workbox-*.js

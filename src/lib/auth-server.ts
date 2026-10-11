@@ -3,7 +3,7 @@
 import { NextRequest } from 'next/server';
 
 import { getAuthInfoFromCookie, verifyAuthSignature } from '@/lib/auth';
-import { getConfig } from '@/lib/config';
+import { getConfig, invalidateConfigCache } from '@/lib/config';
 
 /**
  * 🛡️ 核心安全工具函数 (SEC-02, SEC-04)：提供业务 API 路由强校验与即时吊销检查
@@ -49,14 +49,29 @@ export async function getVerifiedAuthUser(
   // 封禁状态即时校验 (SEC-04)
   if (options.checkBan !== false && authInfo.username !== process.env.USERNAME) {
     try {
-      const config = await getConfig();
-      const userEntry = config.UserConfig?.Users?.find((u) => u.username === authInfo.username);
+      const storageType = process.env.NEXT_PUBLIC_STORAGE_TYPE || 'localstorage';
+      let config = await getConfig();
+      let userEntry = config.UserConfig?.Users?.find((u) => u.username === authInfo.username);
+
+      // 进程内配置缓存可能滞后（刚注册的用户、其它实例上的变更）。
+      // 查不到该用户时先强制从存储刷新一次再下结论，避免误杀新注册用户。
+      if (!userEntry && storageType !== 'localstorage') {
+        invalidateConfigCache();
+        config = await getConfig();
+        userEntry = config.UserConfig?.Users?.find((u) => u.username === authInfo.username);
+      }
+
       if (userEntry && userEntry.banned) {
         console.warn(`[会话吊销拦截] 已被封禁的用户尝试访问业务接口: ${authInfo.username}`);
         return null;
       }
+      // 已被管理员删除的用户：其 7 天有效期内的 Cookie 不应继续可用（否则会重新写入数据）
+      if (storageType !== 'localstorage' && !userEntry) {
+        console.warn(`[会话吊销拦截] 不存在（或已被删除）的用户尝试访问业务接口: ${authInfo.username}`);
+        return null;
+      }
     } catch (err) {
-      // 存储层未启用多用户配置时忽略
+      // 存储层暂时不可用：保持原有行为，不因此拒绝已通过签名校验的会话
     }
   }
 

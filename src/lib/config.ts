@@ -19,6 +19,8 @@ export async function withConfigConflictRetry<T>(
     } catch (err) {
       if (err instanceof ConfigConflictError) {
         lastError = err;
+        // 版本冲突说明本地缓存已过期，强制下次重新从存储读取最新配置
+        lastStorageSync = 0;
         continue;
       }
       throw err;
@@ -64,6 +66,36 @@ export const API_CONFIG = {
 // 在模块加载时根据环境决定配置来源
 let fileConfig: ConfigFileStruct;
 let cachedConfig: AdminConfig;
+// 上一次从数据库同步用户/配置的时间；Docker 模式下用于定时刷新进程内缓存
+let lastStorageSync = 0;
+const STORAGE_SYNC_TTL_MS = 5000;
+
+/** 使进程内配置缓存失效，下一次 getConfig 将重新从数据库同步 */
+export function invalidateConfigCache() {
+  lastStorageSync = 0;
+}
+
+/**
+ * Docker 模式下配置缓存常驻进程内存，导致：新注册用户不出现在后台用户列表、
+ * 封禁/删除用户不即时生效、多实例间配置版本不一致。这里按 TTL 从数据库刷新。
+ */
+async function refreshCachedConfigFromStorage() {
+  const storage = getStorage() as any;
+  if (!storage || typeof storage.getAdminConfig !== 'function') return;
+  try {
+    const fresh: AdminConfig | null = await storage.getAdminConfig();
+    if (!fresh) return;
+    let userNames: string[] = [];
+    if (typeof storage.getAllUsers === 'function') {
+      userNames = await storage.getAllUsers();
+    }
+    fresh.UserConfig.Users = syncUsers(fresh.UserConfig.Users, userNames);
+    cachedConfig = fresh;
+    lastStorageSync = Date.now();
+  } catch (e) {
+    console.error('刷新管理员配置缓存失败，沿用旧缓存:', e);
+  }
+}
 
 // ================== 核心同步逻辑抽离 ==================
 // 用于将真实的底层用户列表与 JSON 配置中的权限/封禁状态进行动态合并
@@ -250,7 +282,15 @@ async function initConfig() {
 export async function getConfig(): Promise<AdminConfig> {
   const storageType = process.env.NEXT_PUBLIC_STORAGE_TYPE || 'localstorage';
   if (process.env.DOCKER_ENV === 'true' || storageType === 'localstorage') {
+    const firstLoad = !cachedConfig;
     await initConfig();
+    if (storageType !== 'localstorage') {
+      if (firstLoad) {
+        lastStorageSync = Date.now();
+      } else if (Date.now() - lastStorageSync > STORAGE_SYNC_TTL_MS) {
+        await refreshCachedConfigFromStorage();
+      }
+    }
     return cachedConfig;
   }
   

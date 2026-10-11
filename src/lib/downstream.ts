@@ -1,4 +1,5 @@
 import { API_CONFIG, ApiSite, getConfig } from '@/lib/config';
+import { safeFetch } from '@/lib/safe-fetch';
 import { checkUpstreamUrlSafety } from '@/lib/ssrf-guard';
 import { SearchResult } from '@/lib/types';
 import { cleanHtmlTags } from '@/lib/utils';
@@ -39,7 +40,7 @@ export async function searchFromApi(
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 3500);
 
-    const response = await fetch(apiUrl, {
+    const response = await safeFetch(apiUrl, {
       headers: API_CONFIG.search.headers,
       signal: controller.signal,
     });
@@ -128,7 +129,7 @@ export async function searchFromApi(
               8000
             );
 
-            const pageResponse = await fetch(pageUrl, {
+            const pageResponse = await safeFetch(pageUrl, {
               headers: API_CONFIG.search.headers,
               signal: pageController.signal,
             });
@@ -216,7 +217,7 @@ export async function getDetailFromApi(
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), 10000);
 
-  const response = await fetch(detailUrl, {
+  const response = await safeFetch(detailUrl, {
     headers: API_CONFIG.detail.headers,
     signal: controller.signal,
   });
@@ -293,7 +294,7 @@ async function handleSpecialSourceDetail(
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), 10000);
 
-  const response = await fetch(detailUrl, {
+  const response = await safeFetch(detailUrl, {
     headers: API_CONFIG.detail.headers,
     signal: controller.signal,
   });

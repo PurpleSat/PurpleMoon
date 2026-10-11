@@ -1,10 +1,11 @@
 'use client';
 
+import { AlertCircle,Trash2, User } from 'lucide-react';
 import { Suspense, useEffect, useRef, useState } from 'react';
-import { Trash2, User, AlertCircle } from 'lucide-react';
+
+import { Memo } from '@/lib/types';
 
 import PageLayout from '@/components/PageLayout';
-import { Memo } from '@/lib/types';
 
 function MemoPageClient() {
   const [memos, setMemos] = useState<Memo[]>([]);

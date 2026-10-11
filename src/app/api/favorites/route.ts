@@ -5,7 +5,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getVerifiedAuthUser } from '@/lib/auth-server';
 import { checkCsrf } from '@/lib/csrf-guard';
 import { db } from '@/lib/db';
-import { Favorite } from '@/lib/types';
+import { parseFavorite, parseRecordKey } from '@/lib/validation';
 
 export const runtime = 'edge';
 
@@ -68,8 +68,8 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const body = await request.json();
-    const { key, favorite }: { key: string; favorite: Favorite } = body;
+    const body = await request.json().catch(() => null);
+    const { key, favorite } = (body || {}) as { key?: unknown; favorite?: unknown };
 
     if (!key || !favorite) {
       return NextResponse.json(
@@ -78,26 +78,19 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // 验证必要字段
-    if (!favorite.title || !favorite.source_name) {
-      return NextResponse.json(
-        { error: 'Invalid favorite data' },
-        { status: 400 }
-      );
-    }
-
-    const [source, id] = key.split('+');
-    if (!source || !id) {
+    const parsedKey = parseRecordKey(key);
+    if (!parsedKey) {
       return NextResponse.json(
         { error: 'Invalid key format' },
         { status: 400 }
       );
     }
-
-    const finalFavorite = {
-      ...favorite,
-      save_time: favorite.save_time ?? Date.now(),
-    } as Favorite;
+    const parsedFav = parseFavorite(favorite);
+    if (!parsedFav.ok) {
+      return NextResponse.json({ error: parsedFav.error }, { status: 400 });
+    }
+    const { source, id } = parsedKey;
+    const finalFavorite = parsedFav.data;
 
     await db.saveFavorite(authUser.username, source, id, finalFavorite);
 

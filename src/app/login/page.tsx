@@ -7,8 +7,9 @@ import { Lock, ShieldCheck, User } from 'lucide-react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Suspense, useEffect, useState } from 'react';
 
-import { useSite } from '@/components/SiteProvider';
 import { getSafeRedirectUrl } from '@/lib/utils';
+
+import { useSite } from '@/components/SiteProvider';
 
 function LoginPageClient() {
   const router = useRouter();

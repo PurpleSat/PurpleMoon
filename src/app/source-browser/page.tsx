@@ -4,7 +4,7 @@
 
 import { ChevronLeft, ChevronRight, Play, Server, Tv } from 'lucide-react';
 import { useRouter } from 'next/navigation';
-import { useCallback, useEffect, useMemo, useRef, useState, Suspense } from 'react';
+import { Suspense,useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import type { SearchResult as GlobalSearchResult } from '@/lib/types';
 

@@ -1,9 +1,9 @@
 /* eslint-disable no-console,@typescript-eslint/no-explicit-any */
 import { NextRequest, NextResponse } from 'next/server';
 
-import { signAuthPayload } from '@/lib/auth';
 import { getClientIp } from '@/lib/client-ip';
 import { getConfig } from '@/lib/config';
+import { buildAuthCookieValue, clearAuthCookies, setAuthCookies } from '@/lib/cookies';
 import { db } from '@/lib/db';
 import { timingSafeEqual } from '@/lib/password';
 
@@ -52,34 +52,6 @@ async function checkRateLimit(req: NextRequest): Promise<boolean> {
     return checkLocalRateLimit(ip);
   }
 }
-async function generateAuthCookie(
-  username = 'admin',
-  role = 'user'
-): Promise<string> {
-  const timestamp = Date.now();
-  const signature = await signAuthPayload(username, timestamp, role);
-  const authData = { username, role, timestamp, signature };
-  return encodeURIComponent(JSON.stringify(authData));
-}
-
-function setDualCookies(response: NextResponse, authValue: string, username: string, role: string) {
-  const isProduction = process.env.NODE_ENV === 'production';
-  const expires = new Date();
-  expires.setDate(expires.getDate() + 7);
-
-  response.cookies.set('auth', authValue, { path: '/', expires, sameSite: 'lax', httpOnly: true, secure: isProduction });
-  
-  const userInfoValue = encodeURIComponent(JSON.stringify({ username, role }));
-  response.cookies.set('user_info', userInfoValue, { path: '/', expires, sameSite: 'lax', httpOnly: false, secure: isProduction });
-}
-
-function clearDualCookies(response: NextResponse) {
-  const isProd = process.env.NODE_ENV === 'production';
-  const opts = { path: '/', expires: new Date(0), sameSite: 'lax' as const, secure: isProd };
-  response.cookies.set('auth', '', { ...opts, httpOnly: true });
-  response.cookies.set('user_info', '', { ...opts, httpOnly: false });
-}
-
 export async function POST(req: NextRequest) {
   try {
     if (!(await checkRateLimit(req))) {
@@ -91,7 +63,7 @@ export async function POST(req: NextRequest) {
 
       if (!envPassword) {
         const response = NextResponse.json({ ok: true });
-        clearDualCookies(response);
+        clearAuthCookies(response, req);
         return response;
       }
 
@@ -108,18 +80,18 @@ export async function POST(req: NextRequest) {
       }
 
       const response = NextResponse.json({ ok: true });
-      const cookieValue = await generateAuthCookie('admin', 'admin'); 
-      setDualCookies(response, cookieValue, 'admin', 'admin');
+      const cookieValue = await buildAuthCookieValue('admin', 'admin');
+      setAuthCookies(response, req, cookieValue, 'admin', 'admin');
 
       return response;
     }
 
     const { username, password } = await req.json();
 
-    if (!username || typeof username !== 'string') {
+    if (!username || typeof username !== 'string' || username.length > 64) {
       return NextResponse.json({ error: '用户名不能为空' }, { status: 400 });
     }
-    if (!password || typeof password !== 'string') {
+    if (!password || typeof password !== 'string' || password.length > 200) {
       return NextResponse.json({ error: '密码不能为空' }, { status: 400 });
     }
 
@@ -130,18 +102,12 @@ export async function POST(req: NextRequest) {
       timingSafeEqual(password, ownerPassword)
     ) {
       const response = NextResponse.json({ ok: true });
-      const cookieValue = await generateAuthCookie(username, 'admin'); 
-      setDualCookies(response, cookieValue, username, 'admin');
+      const cookieValue = await buildAuthCookieValue(username, 'admin');
+      setAuthCookies(response, req, cookieValue, username, 'admin');
 
       return response;
     } else if (username === process.env.USERNAME) {
       return NextResponse.json({ error: '用户名或密码错误' }, { status: 401 });
-    }
-
-    const config = await getConfig();
-    const user = config.UserConfig.Users.find((u) => u.username === username);
-    if (user && user.banned) {
-      return NextResponse.json({ error: '用户被封禁' }, { status: 401 });
     }
 
     try {
@@ -153,9 +119,16 @@ export async function POST(req: NextRequest) {
         );
       }
 
+      // 先校验密码再提示封禁，避免未认证者借此探测任意用户名是否存在/被封禁
+      const config = await getConfig();
+      const user = config.UserConfig.Users.find((u) => u.username === username);
+      if (user && user.banned) {
+        return NextResponse.json({ error: '用户被封禁' }, { status: 401 });
+      }
+
       const response = NextResponse.json({ ok: true });
-      const cookieValue = await generateAuthCookie(username, 'user'); 
-      setDualCookies(response, cookieValue, username, 'user');
+      const cookieValue = await buildAuthCookieValue(username, 'user');
+      setAuthCookies(response, req, cookieValue, username, 'user');
 
       return response;
     } catch (err) {

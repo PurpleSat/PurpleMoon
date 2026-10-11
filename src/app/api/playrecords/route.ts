@@ -5,7 +5,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getVerifiedAuthUser } from '@/lib/auth-server';
 import { checkCsrf } from '@/lib/csrf-guard';
 import { db } from '@/lib/db';
-import { PlayRecord } from '@/lib/types';
+import { parsePlayRecord, parseRecordKey } from '@/lib/validation';
 
 export const runtime = 'edge';
 
@@ -39,8 +39,8 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const body = await request.json();
-    const { key, record }: { key: string; record: PlayRecord } = body;
+    const body = await request.json().catch(() => null);
+    const { key, record } = (body || {}) as { key?: unknown; record?: unknown };
 
     if (!key || !record) {
       return NextResponse.json(
@@ -49,27 +49,19 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // 验证播放记录数据
-    if (!record.title || !record.source_name || record.index < 1) {
-      return NextResponse.json(
-        { error: 'Invalid record data' },
-        { status: 400 }
-      );
-    }
-
-    // 从key中解析source和id
-    const [source, id] = key.split('+');
-    if (!source || !id) {
+    const parsedKey = parseRecordKey(key);
+    if (!parsedKey) {
       return NextResponse.json(
         { error: 'Invalid key format' },
         { status: 400 }
       );
     }
-
-    const finalRecord = {
-      ...record,
-      save_time: record.save_time ?? Date.now(),
-    } as PlayRecord;
+    const parsedRecord = parsePlayRecord(record);
+    if (!parsedRecord.ok) {
+      return NextResponse.json({ error: parsedRecord.error }, { status: 400 });
+    }
+    const { source, id } = parsedKey;
+    const finalRecord = parsedRecord.data;
 
     await db.savePlayRecord(authUser.username, source, id, finalRecord);
 

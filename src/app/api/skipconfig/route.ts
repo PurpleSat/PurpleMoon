@@ -1,4 +1,4 @@
-/* eslint-disable no-console */
+/* eslint-disable no-console, @typescript-eslint/no-explicit-any */
 
 import { NextRequest, NextResponse } from 'next/server';
 
@@ -6,6 +6,7 @@ import { getVerifiedAuthUser } from '@/lib/auth-server';
 import { getConfig } from '@/lib/config';
 import { checkCsrf } from '@/lib/csrf-guard';
 import { db } from '@/lib/db';
+import { parseRecordKey } from '@/lib/validation';
 
 export interface SkipConfig {
   enable: boolean;
@@ -80,22 +81,27 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    const body = await request.json();
-    const { key, config } = body;
+    const body = await request.json().catch(() => null);
+    const { key, config } = (body || {}) as { key?: unknown; config?: any };
 
-    if (!key || !config) {
+    if (!key || !config || typeof config !== 'object') {
       return NextResponse.json({ error: '缺少必要参数' }, { status: 400 });
     }
 
-    const [source, id] = key.split('+');
-    if (!source || !id) {
+    const parsedKey = parseRecordKey(key);
+    if (!parsedKey) {
       return NextResponse.json({ error: '无效的key格式' }, { status: 400 });
     }
+    const { source, id } = parsedKey;
 
+    const clampTime = (v: unknown) => {
+      const n = Number(v);
+      return Number.isFinite(n) ? Math.min(Math.max(n, 0), 86400) : 0;
+    };
     const skipConfig: SkipConfig = {
       enable: Boolean(config.enable),
-      intro_time: Number(config.intro_time) || 0,
-      outro_time: Number(config.outro_time) || 0,
+      intro_time: clampTime(config.intro_time),
+      outro_time: clampTime(config.outro_time),
     };
 
     await db.setSkipConfig(authUser.username, source, id, skipConfig);

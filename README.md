@@ -240,6 +240,8 @@ networks:
 | TRUST_CF_CONNECTING_IP | 设为 true 才会信任 `CF-Connecting-IP` 头做限流 IP 识别。仅当站点部署在 Cloudflare （且源站只接受 Cloudflare 回源）时开启，否则客户端可伪造该头绕过限流 | true | 空 |
 | TRUST_X_REAL_IP | Docker容器部署时设为 true 才会信任 `X-Real-IP` 头。仅当前置反向代理（如 Nginx 的 `proxy_set_header X-Real-IP $remote_addr;`）会覆盖该头时开启 | true | 空 |
 | TRUST_X_FORWARDED_FOR | Docker容器部署时设为 true 才会信任 `X-Forwarded-For` 头，并取**倒数第 N 个**地址（N 见 TRUSTED_PROXY_HOPS），不再取最左侧值。仅当前置代理会追加真实来源地址时开启 | true | 空 |
+| COOKIE_SECURE | 显式控制登录 Cookie 是否带 `Secure`。默认：生产环境下仅当请求实际经由 HTTPS（`X-Forwarded-Proto: https`）时才加。通过 `http://IP:3000` 直连时请保持默认或设为 false，否则浏览器会丢弃 Cookie 导致“登录后立即回到登录页” | true / false | 空（自动） |
+| *限流 IP 兜底* | 未设置任何 `TRUST_*` 时，生产环境若请求带有 `X-Forwarded-For`，将取其**最右侧**一项（最近一层代理看到的来源）做限流。**请务必把服务放在反向代理之后**；若直接暴露公网，客户端可伪造该头规避限流，而且没有该头时所有请求会共用同一个限流桶 | - | - |
 | TRUSTED_PROXY_HOPS | `X-Forwarded-For` 链上可信代理层数 | 1-5 | 1 |
 ## 配置说明
 
@@ -314,6 +316,19 @@ PurpleMoon 支持标准的苹果 CMS V10 API 格式。
 - 请勿将部署的实例用于商业用途或公开服务
 - 如因公开分享导致的任何法律问题，用户需自行承担责任
 - 项目开发者不对用户的使用行为承担任何法律责任
+
+### V2.5.2 安全与稳定性修复
+
+- 1.修复 source-browser 四个接口绕过 SSRF 防护（直连静态 config.json、无重定向校验），改为只读后台已启用资源源并统一走 safeFetch
+- 2.修复搜索/详情上游请求会自动跟随 3xx 重定向导致的 SSRF 绕过（全部改用 safeFetch 逐跳校验）
+- 3.修复登录/注册/登出无条件下发 Secure Cookie，导致 http 直连时“登录后立即被踢回登录页”（统一使用 cookies.ts）
+- 4.修复未配置 TRUST_* 时所有用户共用同一限流桶，任意人 1 分钟 10 次请求即可让全站无法登录
+- 5.修复 Docker 模式配置缓存常驻内存：新注册用户不出现在后台、封禁/删除不即时生效、多实例不一致（5 秒 TTL + 版本冲突时强制刷新）
+- 6.已被管理员删除的用户，其 Cookie 不再继续可用
+- 7.登录接口先校验密码再提示“用户被封禁”，避免用户名枚举
+- 8.cron 接口改为 await 执行并使用恒定时间比较密钥
+- 9.播放记录 / 收藏 / 跳过片头片尾写入增加字段白名单与长度上限，防止存储被灌满
+- 10.source-browser 错误信息不再向客户端泄露内部细节
 
 ### V2.5.1版本更新内容
 

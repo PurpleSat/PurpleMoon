@@ -72,7 +72,21 @@ export function getClientIp(request: HeaderSource): string {
     }
   }
 
-  // 5. 开发环境允许回环地址，便于本地调试
+  // 5. 未显式声明可信代理时的生产环境兜底：
+  //    Next.js 15 已移除 request.ip，Docker / 自建部署无法拿到 TCP 对端地址。
+  //    若所有请求都落入同一个 'unknown_ip' 限流桶，任意一个攻击者发 10 次登录请求就能把
+  //    全站用户锁在登录页外（拒绝服务）。因此当前置反向代理（Nginx / Caddy / Traefik /
+  //    Cloudflare Tunnel 等）已附加 X-Forwarded-For 时，取其“最右侧”一项——这是最近一层
+  //    代理看到的连接来源，客户端无法覆盖。
+  //    注意：若服务直接暴露公网且没有任何反向代理，客户端可伪造该头来规避限流；
+  //    生产环境请务必置于反向代理之后，并按需设置上面的 TRUST_* 变量。
+  if (isProd && xff) {
+    const chain = xff.split(',').map((s) => s.trim()).filter(Boolean);
+    const ip = sanitizeIp(chain[chain.length - 1]);
+    if (ip) return ip;
+  }
+
+  // 6. 开发环境允许回环地址，便于本地调试
   if (!isProd) return '127.0.0.1';
 
   return UNKNOWN_IP;
