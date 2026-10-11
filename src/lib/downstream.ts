@@ -26,9 +26,14 @@ interface ApiSearchItem {
 
 export async function searchFromApi(
   apiSite: ApiSite,
-  query: string
+  query: string,
+  externalSignal?: AbortSignal
 ): Promise<SearchResult[]> {
   try {
+    if (externalSignal?.aborted) {
+      return [];
+    }
+
     const apiBaseUrl = apiSite.api;
     const apiUrl =
       apiBaseUrl + API_CONFIG.search.path + encodeURIComponent(query);
@@ -36,16 +41,27 @@ export async function searchFromApi(
 
     assertSafeUpstream(apiUrl);
 
-    // 添加超时处理（截断超过3500ms响应的源）
+    // 添加超时处理（截断超过3500ms响应的源，同时支持外部全局超时/取消信号）
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 3500);
 
-    const response = await safeFetch(apiUrl, {
-      headers: API_CONFIG.search.headers,
-      signal: controller.signal,
-    });
+    const onExternalAbort = () => controller.abort();
+    if (externalSignal) {
+      externalSignal.addEventListener('abort', onExternalAbort, { once: true });
+    }
 
-    clearTimeout(timeoutId);
+    let response: Response;
+    try {
+      response = await safeFetch(apiUrl, {
+        headers: API_CONFIG.search.headers,
+        signal: controller.signal,
+      });
+    } finally {
+      clearTimeout(timeoutId);
+      if (externalSignal) {
+        externalSignal.removeEventListener('abort', onExternalAbort);
+      }
+    }
 
     if (!response.ok) {
       return [];
@@ -110,11 +126,12 @@ export async function searchFromApi(
     // 确定需要获取的额外页数
     const pagesToFetch = Math.min(pageCount - 1, MAX_SEARCH_PAGES - 1);
 
-    // 如果有额外页数，获取更多页的结果
-    if (pagesToFetch > 0) {
+    // 如果有额外页数且全局超时未触发，获取更多页的结果
+    if (pagesToFetch > 0 && !externalSignal?.aborted) {
       const additionalPagePromises = [];
 
       for (let page = 2; page <= pagesToFetch + 1; page++) {
+        if (externalSignal?.aborted) break;
         const pageUrl =
           apiBaseUrl +
           API_CONFIG.search.pagePath
@@ -123,18 +140,31 @@ export async function searchFromApi(
 
         const pagePromise = (async () => {
           try {
+            if (externalSignal?.aborted) return [];
             const pageController = new AbortController();
+            // 翻页超时由 8000ms 优化为 3500ms，避免慢速次页大幅拖垮并发池与总时限
             const pageTimeoutId = setTimeout(
               () => pageController.abort(),
-              8000
+              3500
             );
 
-            const pageResponse = await safeFetch(pageUrl, {
-              headers: API_CONFIG.search.headers,
-              signal: pageController.signal,
-            });
+            const onPageExternalAbort = () => pageController.abort();
+            if (externalSignal) {
+              externalSignal.addEventListener('abort', onPageExternalAbort, { once: true });
+            }
 
-            clearTimeout(pageTimeoutId);
+            let pageResponse: Response;
+            try {
+              pageResponse = await safeFetch(pageUrl, {
+                headers: API_CONFIG.search.headers,
+                signal: pageController.signal,
+              });
+            } finally {
+              clearTimeout(pageTimeoutId);
+              if (externalSignal) {
+                externalSignal.removeEventListener('abort', onPageExternalAbort);
+              }
+            }
 
             if (!pageResponse.ok) return [];
 
