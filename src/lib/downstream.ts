@@ -37,7 +37,6 @@ export async function searchFromApi(
 
     // 添加超时处理
     const controller = new AbortController();
-    // ⚡ 性能优化：搜索单源超时缩短为 3500ms，对失活/拥堵源快速失败截断，保证整体搜索在 1~3 秒内返回
     const timeoutId = setTimeout(() => controller.abort(), 3500);
 
     const response = await fetch(apiUrl, {
@@ -126,7 +125,7 @@ export async function searchFromApi(
             const pageController = new AbortController();
             const pageTimeoutId = setTimeout(
               () => pageController.abort(),
-              3000
+              8000
             );
 
             const pageResponse = await fetch(pageUrl, {

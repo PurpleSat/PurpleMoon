@@ -46,9 +46,8 @@ export function getClientIp(request: HeaderSource): string {
   const direct = sanitizeIp(typeof request.ip === 'string' ? request.ip : null);
   if (direct) return direct;
 
-  // 2. Cloudflare: 显式开启环境变量，或处于 Cloudflare 边缘环境 (通过 CF_PAGES 变量或 cf-ray 边缘头识别)
-  const isCloudflare = Boolean(process.env.CF_PAGES || request.headers.get('cf-ray'));
-  if (envFlag('TRUST_CF_CONNECTING_IP') || isCloudflare) {
+  // 2. Cloudflare
+  if (envFlag('TRUST_CF_CONNECTING_IP')) {
     const cf = sanitizeIp(request.headers.get('cf-connecting-ip'));
     if (cf) return cf;
   }

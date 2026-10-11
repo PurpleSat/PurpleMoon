@@ -46,22 +46,14 @@ export async function getVerifiedAuthUser(
     if (authInfo.role !== 'admin' && authInfo.role !== 'owner') return null;
   }
 
-  // 封禁状态与注销即时校验 (SEC-04)
+  // 封禁状态即时校验 (SEC-04)
   if (options.checkBan !== false && authInfo.username !== process.env.USERNAME) {
     try {
       const config = await getConfig();
-      const storageType = process.env.NEXT_PUBLIC_STORAGE_TYPE || 'localstorage';
       const userEntry = config.UserConfig?.Users?.find((u) => u.username === authInfo.username);
-      if (storageType !== 'localstorage') {
-        if (!userEntry || userEntry.banned) {
-          console.warn(`[会话吊销拦截] 用户不存在或已被封禁: ${authInfo.username}`);
-          return null;
-        }
-      } else {
-        if (userEntry && userEntry.banned) {
-          console.warn(`[会话吊销拦截] 已被封禁的用户尝试访问业务接口: ${authInfo.username}`);
-          return null;
-        }
+      if (userEntry && userEntry.banned) {
+        console.warn(`[会话吊销拦截] 已被封禁的用户尝试访问业务接口: ${authInfo.username}`);
+        return null;
       }
     } catch (err) {
       // 存储层未启用多用户配置时忽略

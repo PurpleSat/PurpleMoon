@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 
 import { getClientIp } from '@/lib/client-ip';
-import { getAvailableApiSites, getCacheTime } from '@/lib/config';
+import { ApiSite, getAvailableApiSites, getCacheTime } from '@/lib/config';
 import { searchFromApi } from '@/lib/downstream';
 import { SearchResult } from '@/lib/types';
 
@@ -11,7 +11,6 @@ export const runtime = 'edge';
 const searchRateLimitMap = new Map<string, { count: number; timestamp: number }>();
 
 function checkSearchRateLimit(ip: string, maxRequests = 30, windowMs = 60000): boolean {
-  const effectiveMax = ip === 'unknown_ip' ? 100 : maxRequests;
   const now = Date.now();
   const entry = searchRateLimitMap.get(ip);
 
@@ -20,7 +19,7 @@ function checkSearchRateLimit(ip: string, maxRequests = 30, windowMs = 60000): b
   });
 
   if (entry && now - entry.timestamp < windowMs) {
-    if (entry.count >= effectiveMax) return false;
+    if (entry.count >= maxRequests) return false;
     entry.count++;
   } else {
     searchRateLimitMap.set(ip, { count: 1, timestamp: now });
@@ -28,25 +27,15 @@ function checkSearchRateLimit(ip: string, maxRequests = 30, windowMs = 60000): b
   return true;
 }
 
-// ⚡ 性能优化：热门搜索内存缓存 (TTL 5 分钟，容量 100 条)，极大减少重复全网检索延迟
-const searchCache = new Map<string, { results: SearchResult[]; expireAt: number }>();
-
-function getCachedSearch(key: string): SearchResult[] | null {
-  const entry = searchCache.get(key);
-  if (!entry) return null;
-  if (Date.now() > entry.expireAt) {
-    searchCache.delete(key);
-    return null;
+// 🛡️ 安全加固 (SEC-08)：分批并发控制，避免瞬间发出数十上百个出站套接字
+async function batchSearch(sites: ApiSite[], query: string, batchSize = 4): Promise<SearchResult[]> {
+  const allResults: SearchResult[] = [];
+  for (let i = 0; i < sites.length; i += batchSize) {
+    const batch = sites.slice(i, i + batchSize);
+    const batchResults = await Promise.all(batch.map((site) => searchFromApi(site, query)));
+    allResults.push(...batchResults.flat());
   }
-  return entry.results;
-}
-
-function setCachedSearch(key: string, results: SearchResult[], ttlMs = 300000): void {
-  if (searchCache.size >= 100) {
-    const oldestKey = searchCache.keys().next().value;
-    if (oldestKey) searchCache.delete(oldestKey);
-  }
-  searchCache.set(key, { results, expireAt: Date.now() + ttlMs });
+  return allResults;
 }
 
 export async function GET(request: Request) {
@@ -74,44 +63,10 @@ export async function GET(request: Request) {
     );
   }
 
-  const cacheTime = await getCacheTime();
-
-  // 1. 命中内存缓存直接返回 (0ms 秒开)
-  const cached = getCachedSearch(query.toLowerCase());
-  if (cached) {
-    return NextResponse.json(
-      { results: cached },
-      {
-        headers: {
-          'Cache-Control': `public, max-age=${cacheTime}`,
-        },
-      }
-    );
-  }
-
   try {
     const apiSites = await getAvailableApiSites();
-
-    // ⚡ 性能优化：全量并行异步拉取 (Promise.allSettled + 严格短超时)
-    // 消除串行分批瀑布流，各源独立并发请求，总耗时由全网最慢源截断控制
-    const searchPromises = apiSites.map((site) =>
-      searchFromApi(site, query).catch((err) => {
-        // 单个源异常/超时快速容错，不阻断其他源
-        return [];
-      })
-    );
-
-    const settledResults = await Promise.allSettled(searchPromises);
-    const flattenedResults: SearchResult[] = [];
-
-    for (const r of settledResults) {
-      if (r.status === 'fulfilled' && Array.isArray(r.value)) {
-        flattenedResults.push(...r.value);
-      }
-    }
-
-    // 写入内存缓存
-    setCachedSearch(query.toLowerCase(), flattenedResults);
+    const flattenedResults = await batchSearch(apiSites, query, 6);
+    const cacheTime = await getCacheTime();
 
     return NextResponse.json(
       { results: flattenedResults },

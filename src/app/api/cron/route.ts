@@ -1,4 +1,3 @@
-import { timingSafeEqual } from '@/lib/password';
 /* eslint-disable no-console */
 
 import { NextRequest, NextResponse } from 'next/server';
@@ -22,7 +21,7 @@ export async function GET(request: NextRequest) {
   }
 
   // 严格比对 Bearer Token
-  if (!authHeader || !timingSafeEqual(authHeader, `Bearer ${cronSecret}`)) {
+  if (authHeader !== `Bearer ${cronSecret}`) {
     console.warn(`拦截：检测到伪造的 Cron 触发请求！(IP: ${request.headers.get('cf-connecting-ip') || 'unknown'})`);
     return NextResponse.json({ error: 'Unauthorized: Invalid token' }, { status: 401 });
   }
