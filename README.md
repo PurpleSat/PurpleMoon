@@ -49,6 +49,7 @@
 - [部署](#部署)
 - [Docker Compose 最佳实践](#Docker-Compose-最佳实践)
 - [环境变量](#环境变量)
+- [不同部署环境的变量配置](#不同部署环境的变量配置)
 - [配置说明](#配置说明)
 - [管理员配置](#管理员配置)
 - [AndroidTV 使用](#AndroidTV-使用)
@@ -233,16 +234,138 @@ networks:
 | NEXT_PUBLIC_SEARCH_MAX_PAGE | 搜索接口可拉取的最大页数                                    | 1-50                             | 5                                                                                                                          |
 | NEXT_PUBLIC_IMAGE_PROXY     | 默认的浏览器端图片代理                                      | https://timis.dpdns.org/?url=     | 空                                                                                                                     |
 | TMDB_API_TOKEN              | 上映日程TMDBTOKEN                                     | API 读访问令牌                          | 空                                                                                                                         |
-| VALID_INVITE_CODE           | 注册邀请码                                                    | 任意字符串                              | 空                        
-| REQUIRE_INVITE_CODE         | 是否强制邀请码注册                                                        | true/false                    | 空                         
+| VALID_INVITE_CODE | 注册邀请码（开启邀请制时必填，否则注册接口返回配置异常） | 任意字符串，建议 16 位以上 | 空 |
+| REQUIRE_INVITE_CODE | 是否强制邀请码注册。未设置时跟随 `NEXT_PUBLIC_ENABLE_REGISTER`（开放注册即强制邀请码） | true / false | 空 |
+| TMDB_API_KEY | TMDB v3 API Key（与 `TMDB_API_TOKEN` 二选一，用于“最近上映”） | API Key | 空 |
+| TMDB_BASE_URL | TMDB API 地址（自建反代时修改） | URL | https://api.themoviedb.org/3 |
 | AUTH_SECRET                 | **必填**。用于签名登录 Cookie；缺失或少于 16 字符时，生产环境服务拒绝启动 | 建议 32 位以上随机字符串（`openssl rand -hex 32`） | 空 |
-| CRON_SECRET                 | 为 Cron 任务加上密钥校验 (安全)                                       | 建议任意32以上位字符串                     | 空                  
+| CRON_SECRET | `/api/cron` 的 Bearer 密钥。**未设置时 cron 接口一律返回 401**（不会刷新收藏/播放记录的集数）。Docker 内置定时器和 Vercel Cron 都会自动带上它 | 任意 32 位以上字符串 | 空 |
 | TRUST_CF_CONNECTING_IP | 设为 true 才会信任 `CF-Connecting-IP` 头做限流 IP 识别。仅当站点部署在 Cloudflare （且源站只接受 Cloudflare 回源）时开启，否则客户端可伪造该头绕过限流 | true | 空 |
-| TRUST_X_REAL_IP | Docker容器部署时设为 true 才会信任 `X-Real-IP` 头。仅当前置反向代理（如 Nginx 的 `proxy_set_header X-Real-IP $remote_addr;`）会覆盖该头时开启 | true | 空 |
-| TRUST_X_FORWARDED_FOR | Docker容器部署时设为 true 才会信任 `X-Forwarded-For` 头，并取**倒数第 N 个**地址（N 见 TRUSTED_PROXY_HOPS），不再取最左侧值。仅当前置代理会追加真实来源地址时开启 | true | 空 |
+| TRUST_X_REAL_IP | 设为 true 才会信任 `X-Real-IP` 头。仅当前置反向代理（如 Nginx 的 `proxy_set_header X-Real-IP $remote_addr;`）会覆盖该头时开启 | true | 空 |
+| TRUST_X_FORWARDED_FOR | 设为 true 才会信任 `X-Forwarded-For` 头，并取**倒数第 N 个**地址（N 见 TRUSTED_PROXY_HOPS），不再取最左侧值。仅当前置代理会追加真实来源地址时开启 | true | 空 |
 | COOKIE_SECURE | 显式控制登录 Cookie 是否带 `Secure`。默认：生产环境下仅当请求实际经由 HTTPS（`X-Forwarded-Proto: https`）时才加。通过 `http://IP:3000` 直连时请保持默认或设为 false，否则浏览器会丢弃 Cookie 导致“登录后立即回到登录页” | true / false | 空（自动） |
 | *限流 IP 兜底* | 未设置任何 `TRUST_*` 时，生产环境若请求带有 `X-Forwarded-For`，将取其**最右侧**一项（最近一层代理看到的来源）做限流。**请务必把服务放在反向代理之后**；若直接暴露公网，客户端可伪造该头规避限流，而且没有该头时所有请求会共用同一个限流桶 | - | - |
-| TRUSTED_PROXY_HOPS | `X-Forwarded-For` 链上可信代理层数 | 1-5 | 1 |
+| TRUSTED_PROXY_HOPS | `X-Forwarded-For` 链上可信代理层数，取倒数第 N 个。如 Cloudflare → Nginx → 应用 填 2 | 1-5 | 1 |
+
+## 不同部署环境的变量配置
+
+上面的表格是“所有变量的含义”，这一节说明**在 Docker、Vercel、Cloudflare Pages 上分别要配哪些**。
+
+图例：✅ 必填 · 🔶 按条件必填/强烈建议 · ⭕ 可选 · ➖ 不需要（或不可用）
+
+### 变量速查表
+
+| 变量 | Docker | Vercel | Cloudflare Pages | 备注 |
+| ---- | :----: | :----: | :--------------: | ---- |
+| `AUTH_SECRET` | ✅ | ✅ | ✅（密钥） | 三个平台都必填。缺失时 Docker 启动即报错，Vercel / Cloudflare 上所有登录请求会失败 |
+| `PASSWORD` | ✅ | ✅ | ✅（密钥） | localstorage 模式 = 全站唯一访问密码；数据库模式 = 站长密码。**不设置则整站免登录** |
+| `USERNAME` | 🔶 | 🔶 | 🔶 | 仅数据库模式（redis / d1 / upstash）需要，作为站长账号；localstorage 模式不用 |
+| `NEXT_PUBLIC_STORAGE_TYPE` | 🔶 | 🔶 | 🔶 | 不设 = localstorage。Docker：`redis` 或 `upstash`；Vercel：`upstash`；Cloudflare：`d1` 或 `upstash` |
+| `REDIS_URL` | 🔶（redis） | ➖ | ➖ | 原生 Redis 走 TCP，Vercel / Cloudflare 的 Edge 运行时不支持 |
+| `UPSTASH_URL` `UPSTASH_TOKEN` | 🔶（upstash） | 🔶（upstash） | 🔶（upstash） | 走 HTTPS，三个平台都能用 |
+| D1 数据库**绑定** `DB` | ➖ | ➖ | 🔶（d1） | 不是环境变量：在 **设置 → 绑定** 里添加 D1，变量名必须是 `DB` |
+| `NEXT_PUBLIC_ENABLE_REGISTER` | ⭕ | ⭕ | ⭕ | 仅数据库模式生效 |
+| `VALID_INVITE_CODE` | 🔶 | 🔶 | 🔶 | 开放注册时必填（默认开放注册 = 强制邀请码） |
+| `REQUIRE_INVITE_CODE` | ⭕ | ⭕ | ⭕ | 想“开放注册但不要邀请码”才需要设为 `false` |
+| `CRON_SECRET` | 🔶 | 🔶 | 🔶 | 见下方“定时任务” |
+| `SITE_NAME` `ANNOUNCEMENT` | ⭕ | ⭕ | ⭕ | 见下方“站点设置的优先级” |
+| `NEXT_PUBLIC_SEARCH_MAX_PAGE` `NEXT_PUBLIC_IMAGE_PROXY` | ⭕ | ⭕ | ⭕ | `NEXT_PUBLIC_*` 在构建时写入，**修改后 Vercel / Cloudflare 需重新部署** |
+| `TMDB_API_TOKEN` 或 `TMDB_API_KEY` | ⭕ | ⭕ | ⭕ | 不设则“最近上映”页面报错 |
+| `TRUST_CF_CONNECTING_IP` | 🔶（经 Cloudflare 时） | ➖ | ✅ 设为 `true` | 用于登录/注册/搜索限流识别真实 IP |
+| `TRUST_X_FORWARDED_FOR` `TRUSTED_PROXY_HOPS` | 🔶（经反向代理时） | ➖ | ➖ | Vercel 平台已自行覆盖 `X-Forwarded-For`，无需设置 |
+| `TRUST_X_REAL_IP` | ⭕ | ➖ | ➖ | 仅当 Nginx 用 `$remote_addr` 覆盖了 `X-Real-IP` |
+| `COOKIE_SECURE` | ⭕ | ➖ | ➖ | 仅 Docker 用 http 直连测试时才需要，见下 |
+| `DOCKER_ENV` `HOSTNAME` `PORT` | 镜像已内置，**不要改** | ➖ **不要设置** | ➖ **不要设置** | 在 Vercel / Cloudflare 设置 `DOCKER_ENV=true` 会导致配置加载异常 |
+
+### Docker
+
+环境变量在**运行时**读取，改完 `docker compose up -d` 重建容器即可，不需要重新构建镜像。`config.json` 也是运行时读取（可挂载）。
+
+最小 localstorage：
+
+```yaml
+environment:
+  - PASSWORD=强密码
+  - AUTH_SECRET=openssl rand -hex 32 的输出
+```
+
+推荐 Redis 版（放在 Nginx / Caddy 之后，对外 HTTPS）：
+
+```yaml
+environment:
+  - USERNAME=站长账号
+  - PASSWORD=站长密码
+  - AUTH_SECRET=openssl rand -hex 32 的输出
+  - CRON_SECRET=openssl rand -hex 32 的输出   # 容器内置定时器会自动带上，每小时刷新一次
+  - NEXT_PUBLIC_STORAGE_TYPE=redis
+  - REDIS_URL=redis://PurpleMoon-redis:6379
+  - NEXT_PUBLIC_ENABLE_REGISTER=true
+  - VALID_INVITE_CODE=你的邀请码
+  - TRUST_X_FORWARDED_FOR=true               # 前置的是会追加 X-Forwarded-For 的反向代理
+  - TRUSTED_PROXY_HOPS=1                     # 反向代理层数；Cloudflare → Nginx → 应用 填 2
+```
+
+- **HTTPS / Cookie**：Cookie 只有在请求经 HTTPS（`X-Forwarded-Proto: https`）时才带 `Secure`。反向代理必须传 `Host` 和 `X-Forwarded-Proto`，否则写操作会因 CSRF 校验失败返回 403。
+- **用 `http://IP:3000` 直连测试**：保持默认即可正常登录；不要把 `COOKIE_SECURE` 设成 `true`。
+- **前面是 Cloudflare 再接 Nginx**：用 `TRUST_CF_CONNECTING_IP=true`（并让源站只接受 Cloudflare 回源），或者 `TRUST_X_FORWARDED_FOR=true` + `TRUSTED_PROXY_HOPS=2`。
+- **源站必须只接受代理流量**（防火墙不要放行 3000 端口给公网），否则客户端可绕过代理伪造请求头规避限流。
+- **多个容器副本**：登录 / 注册 / 便签限流走共享的 Redis；`/api/search` 的限流仍是每个实例自己的内存，需要时在代理层再加一层限流。
+
+### Vercel
+
+在 **Project → Settings → Environment Variables** 添加，Environment 勾选 Production。**改完变量必须重新部署**（`NEXT_PUBLIC_*` 是构建时写入的）。
+
+最小配置（Upstash）：
+
+```
+AUTH_SECRET=openssl rand -hex 32 的输出
+USERNAME=站长账号
+PASSWORD=站长密码
+NEXT_PUBLIC_STORAGE_TYPE=upstash
+UPSTASH_URL=https://xxx.upstash.io
+UPSTASH_TOKEN=xxx
+CRON_SECRET=openssl rand -hex 32 的输出
+VALID_INVITE_CODE=你的邀请码        # 开放注册时
+NEXT_PUBLIC_ENABLE_REGISTER=true    # 开放注册时
+```
+
+- **不能用 `REDIS_URL`**：Vercel 不支持原生 Redis，用 Upstash。
+- **定时任务**：仓库自带 `vercel.json`，每天 01:00 UTC 调用 `/api/cron`。设置了 `CRON_SECRET` 后，Vercel 会自动带上 `Authorization: Bearer <CRON_SECRET>`，**不设置则 cron 一律 401**。
+- **真实 IP**：Vercel 会覆盖 `X-Forwarded-For`，不需要设置任何 `TRUST_*`，默认即可正确限流。
+- **不要设置** `DOCKER_ENV`、`COOKIE_SECURE`。
+- **改 `config.json`**（资源站列表）需提交到仓库触发重新构建。
+
+### Cloudflare Pages
+
+在 **设置 → 变量和机密** 添加。敏感值用**密钥（Secret）**：`AUTH_SECRET`、`PASSWORD`、`CRON_SECRET`、`UPSTASH_TOKEN`、`TMDB_API_TOKEN`、`VALID_INVITE_CODE`；`NEXT_PUBLIC_*`、`USERNAME`、`TRUST_*` 等非敏感值用文本变量。同样**改完需重新部署**，且兼容性标志要设为 `nodejs_compat`。
+
+D1 版：
+
+```
+AUTH_SECRET=openssl rand -hex 32 的输出        （密钥）
+USERNAME=站长账号
+PASSWORD=站长密码                              （密钥）
+NEXT_PUBLIC_STORAGE_TYPE=d1
+TRUST_CF_CONNECTING_IP=true
+CRON_SECRET=openssl rand -hex 32 的输出        （密钥）
+VALID_INVITE_CODE=你的邀请码                   （密钥，开放注册时）
+NEXT_PUBLIC_ENABLE_REGISTER=true               （开放注册时）
+```
+
+另外在 **设置 → 绑定** 添加 D1 数据库，变量名填 `DB`（不是环境变量）。Upstash 版把 `NEXT_PUBLIC_STORAGE_TYPE` 换成 `upstash` 并加 `UPSTASH_URL`、`UPSTASH_TOKEN`，不需要 D1 绑定。
+
+- **真实 IP**：必须设 `TRUST_CF_CONNECTING_IP=true`，否则取不到真实客户端 IP。
+- **定时任务**：Pages 本身没有 Cron，仓库里的 `vercel.json` 在 Cloudflare 上无效。需要刷新收藏/播放记录集数时，用 Cloudflare Worker 的 Cron Trigger 或任意外部定时服务，定时 `GET https://你的域名/api/cron`，请求头带 `Authorization: Bearer <CRON_SECRET>`；不需要这个功能可以不设。
+- **不能用 `REDIS_URL`**：Cloudflare 不支持原生 Redis。
+
+### 站点设置的优先级
+
+| 部署方式 | `SITE_NAME` / `ANNOUNCEMENT` / `NEXT_PUBLIC_ENABLE_REGISTER` / `NEXT_PUBLIC_IMAGE_PROXY` |
+| -------- | ---- |
+| Docker + 数据库 | 仅在**首次初始化**时作为默认值写入数据库，之后以后台 `/admin` 的修改为准 |
+| Vercel / Cloudflare + 数据库 | **每次请求都以环境变量为准**，后台修改这几项（如注册开关）不会持久生效，要改请改环境变量并重新部署 |
+| localstorage | 始终以环境变量为准，没有后台 |
+
 ## 配置说明
 
 所有可自定义项集中在根目录的 `config.json` 中：
