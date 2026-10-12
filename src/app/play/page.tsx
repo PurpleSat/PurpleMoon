@@ -79,6 +79,19 @@ function PlayPageClient() {
   const hasSkippedIntroRef = useRef(false);
   const hasSkippedOutroRef = useRef(false);
 
+  // 去广告开关
+  const [blockAdEnabled, setBlockAdEnabled] = useState<boolean>(() => {
+    if (typeof window !== 'undefined') {
+      const v = localStorage.getItem('enable_blockad');
+      if (v !== null) return v === 'true';
+    }
+    return true;
+  });
+  const blockAdEnabledRef = useRef(blockAdEnabled);
+  useEffect(() => {
+    blockAdEnabledRef.current = blockAdEnabled;
+  }, [blockAdEnabled]);
+
   // 视频基本信息
   const [videoTitle, setVideoTitle] = useState(searchParams.get('title') || '');
   const [videoYear, setVideoYear] = useState(searchParams.get('year') || '');
@@ -431,6 +444,19 @@ function PlayPageClient() {
     }
   };
 
+  function filterAdsFromM3U8(m3u8Content: string): string {
+    if (!m3u8Content) return '';
+    const lines = m3u8Content.split('\n');
+    const filteredLines = [];
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i];
+      if (!line.includes('#EXT-X-DISCONTINUITY')) {
+        filteredLines.push(line);
+      }
+    }
+    return filteredLines.join('\n');
+  }
+
   const formatTime = (seconds: number): string => {
     if (seconds === 0) return '00:00';
     const hours = Math.floor(seconds / 3600);
@@ -483,6 +509,25 @@ function PlayPageClient() {
       console.debug('保存跳过配置失败');
     }
   };
+
+  class CustomHlsJsLoader extends Hls.DefaultConfig.loader {
+    constructor(config: any) {
+      super(config);
+      const load = this.load.bind(this);
+      this.load = function (context: any, config: any, callbacks: any) {
+        if ((context as any).type === 'manifest' || (context as any).type === 'level') {
+          const onSuccess = callbacks.onSuccess;
+          callbacks.onSuccess = function (response: any, stats: any, context: any) {
+            if (response.data && typeof response.data === 'string') {
+              response.data = filterAdsFromM3U8(response.data);
+            }
+            return onSuccess(response, stats, context, null);
+          };
+        }
+        load(context, config, callbacks);
+      };
+    }
+  }
 
   useEffect(() => {
     updateVideoUrl(detail, currentEpisodeIndex);
@@ -941,6 +986,7 @@ function PlayPageClient() {
               maxMaxBufferLength: 120,
               backBufferLength: 30,
               maxBufferSize: 100 * 1000 * 1000,
+              loader: blockAdEnabledRef.current ? CustomHlsJsLoader : Hls.DefaultConfig.loader,
             });
 
             hls.loadSource(url);
@@ -970,6 +1016,29 @@ function PlayPageClient() {
           loading: '<img src="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI1MCIgaGVpZ2h0PSI1MCIgdmlld0JveD0iMCAwIDUwIDUwIj48cGF0aCBkPSJNMjUuMjUxIDYuNDYxYy0xMC4zMTggMC0xOC42ODMgOC4zNjUtMTguNjgzIDE4LjY4M2g0LjA2OGMwLTguMDcgNi41NDUtMTQuNjE1IDE0LjYxNS0xNC42MTVWNi40NjF6IiBmaWxsPSIjMDA5Njg4Ij48YW5pbWF0ZVRyYW5zZm9ybSBhdHRyaWJ1dGVOYW1lPSJ0cmFuc2Zvcm0iIGF0dHJpYnV0ZVR5cGU9IlhNTCIgZHVyPSIxcyIgZnJvbT0iMCAyNSAyNSIgcmVwZWF0Q291bnQ9ImluZGVmaW5pdGUiIHRvPSIzNjAgMjUgMjUiIHR5cGU9InJvdGF0ZSIvPjwvcGF0aD48L3N2Zz4=">',
         },
         settings: [
+          {
+            html: '去广告',
+            icon: '<text x="50%" y="50%" font-size="20" font-weight="bold" text-anchor="middle" dominant-baseline="middle" fill="#ffffff">AD</text>',
+            tooltip: blockAdEnabled ? '已开启' : '已关闭',
+            onClick() {
+              const newVal = !blockAdEnabled;
+              try {
+                localStorage.setItem('enable_blockad', String(newVal));
+                if (artPlayerRef.current) {
+                  resumeTimeRef.current = artPlayerRef.current.currentTime;
+                  if (artPlayerRef.current.video?.hls) {
+                    artPlayerRef.current.video.hls.destroy();
+                  }
+                  artPlayerRef.current.destroy();
+                  artPlayerRef.current = null;
+                }
+                setBlockAdEnabled(newVal);
+              } catch (_err) {
+                console.debug('去广告状态切换出错');
+              }
+              return newVal ? '当前开启' : '当前关闭';
+            },
+          },
           {
             name: '跳过片头片尾',
             html: '跳过片头片尾',
@@ -1147,7 +1216,7 @@ function PlayPageClient() {
     } catch (_err) {
       setError('播放器初始化失败');
     }
-  }, [Artplayer, Hls, videoUrl, loading]);
+  }, [Artplayer, Hls, videoUrl, loading, blockAdEnabled]);
 
   useEffect(() => {
     return () => {
