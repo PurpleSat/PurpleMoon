@@ -26,6 +26,7 @@ import { getVideoResolutionFromM3u8, processImageUrl } from '@/lib/utils';
 
 import EpisodeSelector from '@/components/EpisodeSelector';
 import PageLayout from '@/components/PageLayout';
+import { filterAdsFromM3U8 } from '@/lib/m3u8-ad-filter';
 
 // 扩展 HTMLVideoElement 类型以支持 hls 属性
 declare global {
@@ -444,19 +445,6 @@ function PlayPageClient() {
     }
   };
 
-  function filterAdsFromM3U8(m3u8Content: string): string {
-    if (!m3u8Content) return '';
-    const lines = m3u8Content.split('\n');
-    const filteredLines = [];
-    for (let i = 0; i < lines.length; i++) {
-      const line = lines[i];
-      if (!line.includes('#EXT-X-DISCONTINUITY')) {
-        filteredLines.push(line);
-      }
-    }
-    return filteredLines.join('\n');
-  }
-
   const formatTime = (seconds: number): string => {
     if (seconds === 0) return '00:00';
     const hours = Math.floor(seconds / 3600);
@@ -519,7 +507,24 @@ function PlayPageClient() {
           const onSuccess = callbacks.onSuccess;
           callbacks.onSuccess = function (response: any, stats: any, context: any) {
             if (response.data && typeof response.data === 'string') {
-              response.data = filterAdsFromM3U8(response.data);
+              try {
+                const extra = (process.env.NEXT_PUBLIC_AD_BLOCK_PATTERNS || '')
+                  .split(',')
+                  .map((x) => x.trim())
+                  .filter(Boolean);
+                const r = filterAdsFromM3U8(response.data, {
+                  baseUrl: context?.url,
+                  extraPatterns: extra,
+                });
+                if (r.removedSegments > 0) {
+                  console.info(`[去广告] 已移除 ${r.removedSegments} 个分片（约 ${r.removedSeconds.toFixed(1)} 秒）`);
+                } else if (r.skippedReason && r.skippedReason !== 'not-media-playlist') {
+                  console.debug(`[去广告] 未过滤：${r.skippedReason}`);
+                }
+                response.data = r.content;
+              } catch {
+                // 过滤出错时保持原始列表
+              }
             }
             return onSuccess(response, stats, context, null);
           };
