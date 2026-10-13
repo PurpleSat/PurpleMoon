@@ -1,43 +1,34 @@
-# ==========================================
-# 🛡️ 全局构建参数定义区
-# ==========================================
-ARG PNPM_VERSION=10.12.4
-
-# ---- 第 1 阶段：拉取依赖缓存 (Fetch 阶段) ----
+# ---- 第 1 阶段：安装依赖 ----
 FROM node:20-alpine AS deps
-ARG PNPM_VERSION
-RUN corepack enable && corepack prepare pnpm@${PNPM_VERSION} --activate
+
+# 启用 corepack 并激活 pnpm（Node20 默认提供 corepack）
+RUN corepack enable && corepack prepare pnpm@latest --activate
+
 WORKDIR /app
 
-# 【核心改变 1】：仅复制 lockfile
-# pnpm fetch 是专为 Docker 设计的命令，它不需要任何 package.json。
-# 它只读取 lockfile，并将所有包的压缩文件下载到全局虚拟存储 (Virtual Store) 中。
-# 这样不仅解决了 Workspace 找不到子包的问题，还最大化了 Docker 缓存！
-COPY pnpm-lock.yaml ./
-RUN pnpm fetch
+# 仅复制依赖清单，提高构建缓存利用率
+COPY package.json pnpm-lock.yaml ./
+
+# 安装所有依赖（含 devDependencies，后续会裁剪）
+RUN pnpm install --frozen-lockfile
 
 # ---- 第 2 阶段：构建项目 ----
 FROM node:20-alpine AS builder
-ARG PNPM_VERSION
-RUN corepack enable && corepack prepare pnpm@${PNPM_VERSION} --activate
+RUN corepack enable && corepack prepare pnpm@latest --activate
 WORKDIR /app
 
-# 复制全部源代码（此时包含了根目录、pnpm-workspace.yaml 以及所有子包的 package.json）
+# 复制依赖
+COPY --from=deps /app/node_modules ./node_modules
+# 复制全部源代码
 COPY . .
 
-# 【核心改变 2】：使用离线模式安装依赖
-# 因为前面 deps 阶段已经把包全 fetch 到本地了，这里加 --offline 会直接从本地硬链接，
-# 瞬间完成 Workspace 内部的链接与依赖安装，不会产生任何网络请求！
-RUN pnpm install -r --offline --frozen-lockfile
-
-# 显式设置 DOCKER_ENV，确保 Next.js 在编译时即选择 Node Runtime
+# 在构建阶段也显式设置 DOCKER_ENV，
+# 确保 Next.js 在编译时即选择 Node Runtime 而不是 Edge Runtime
 RUN find ./src -type f -name "route.ts" -print0 \
   | xargs -0 sed -i "s/export const runtime = 'edge';/export const runtime = 'nodejs';/g"
-
 ENV DOCKER_ENV=true
-ENV NEXT_TELEMETRY_DISABLED=1
 
-# 强制动态渲染
+# For Docker builds, force dynamic rendering to read runtime environment variables.
 RUN sed -i "/const inter = Inter({ subsets: \['latin'] });/a export const dynamic = 'force-dynamic';" src/app/layout.tsx
 
 # 生成生产构建
@@ -54,7 +45,6 @@ ENV NODE_ENV=production
 ENV HOSTNAME=0.0.0.0
 ENV PORT=3000
 ENV DOCKER_ENV=true
-ENV NEXT_TELEMETRY_DISABLED=1
 
 # 从构建器中复制 standalone 输出
 COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
@@ -73,4 +63,4 @@ USER nextjs
 EXPOSE 3000
 
 # 使用自定义启动脚本，先预加载配置再启动服务器
-CMD ["node", "start.js"]
+CMD ["node", "start.js"] 
