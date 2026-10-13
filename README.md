@@ -138,15 +138,15 @@
 
 ```bash
 # 拉取预构建镜像
-docker pull ghcr.io/purplemoon/PurpleMoon:latest
+docker pull ghcr.io/purplesat/purplemoon:latest
 
 # 运行容器
 # -d: 后台运行  -p: 映射端口 3000 -> 3000
 # AUTH_SECRET 为必填项（至少 16 字符，建议 32 字符以上），缺失时服务将拒绝启动
-docker run -d --name PurpleMoon -p 3000:3000 \
+docker run -d --name purplemoon -p 3000:3000 \
   -e PASSWORD=your_password \
   -e AUTH_SECRET=$(openssl rand -hex 32) \
-  ghcr.io/purplemoon/PurpleMoon:latest
+  ghcr.io/purplesat/purplemoon:latest
 ```
 
 访问 `http://服务器 IP:3000` 即可。（需自行到服务器控制台放通 `3000` 端口）
@@ -159,9 +159,9 @@ docker run -d --name PurpleMoon -p 3000:3000 \
 
 ```yaml
 services:
-  PurpleMoon:
-    image: ghcr.io/purplemoon/PurpleMoon:latest
-    container_name: PurpleMoon
+  purplemoon:
+    image: ghcr.io/purplesat/purplemoon:latest
+    container_name: purplemoon
     restart: unless-stopped
     ports:
       - '3000:3000'
@@ -177,9 +177,9 @@ services:
 
 ```yaml
 services:
-  PurpleMoon-core:
-    image: ghcr.io/purplemoon/PurpleMoon:latest
-    container_name: PurpleMoon
+  purplemoon-core:
+    image: ghcr.io/purplesat/purplemoon:latest
+    container_name: purplemoon
     restart: unless-stopped
     ports:
       - '3000:3000'
@@ -188,26 +188,26 @@ services:
       - PASSWORD=admin_password
       - AUTH_SECRET=CHANGE_ME   # 必填：必须替换为至少 32 位随机字符串（openssl rand -hex 32），保持 CHANGE_ME 将无法启动
       - NEXT_PUBLIC_STORAGE_TYPE=redis
-      - REDIS_URL=redis://PurpleMoon-redis:6379
+      - REDIS_URL=redis://purplemoon-redis:6379
       - NEXT_PUBLIC_ENABLE_REGISTER=true
     networks:
-      - PurpleMoon-network
+      - purplemoon-network
     depends_on:
-      - PurpleMoon-redis
+      - purplemoon-redis
     # 如需自定义配置，可挂载文件
     # volumes:
     #   - ./config.json:/app/config.json:ro
-  PurpleMoon-redis:
+  purplemoon-redis:
     image: redis
-    container_name: PurpleMoon-redis
+    container_name: purplemoon-redis
     restart: unless-stopped
     networks:
-      - PurpleMoon-network
+      - purplemoon-network
     # 如需持久化
     # volumes:
     #   - ./data:/data
 networks:
-  PurpleMoon-network:
+  purplemoon-network:
     driver: bridge
 ```
 
@@ -223,7 +223,7 @@ networks:
 | --------------------------- | ----------------------------------------------------------- | -------------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
 | USERNAME                    | redis 部署时的管理员账号                                    | 任意字符串                       | 空                                                                                                                   |
 | PASSWORD                    | 默认部署时为唯一访问密码，redis 部署时为管理员密码              | 任意字符串                       | 空                                                                                                                   |
-| SITE_NAME                   | 站点名称                                                   | 任意字符串                       | PurpleMoon                                                                                                                     |
+| SITE_NAME                   | 站点名称                                                   | 任意字符串                       | purplemoon                                                                                                                     |
 | ANNOUNCEMENT                | 站点公告                                                 | 任意字符串                       | 本网站仅提供影视信息搜索服务，所有内容均来自第三方网站。本站不存储任何视频资源，不对任何内容的准确性、合法性、完整性负责。 |
 | NEXT_PUBLIC_STORAGE_TYPE    | 播放记录/收藏的存储方式                                     | localstorage、redis、d1、upstash | localstorage                                                                                                               |
 | REDIS_URL                   | redis 连接 url，若 NEXT_PUBLIC_STORAGE_TYPE 为 redis 则必填 | 连接 url                         | 空                                                                                                                         |
@@ -297,7 +297,7 @@ environment:
   - AUTH_SECRET=openssl rand -hex 32 的输出
   - CRON_SECRET=openssl rand -hex 32 的输出   # 容器内置定时器会自动带上，每小时刷新一次
   - NEXT_PUBLIC_STORAGE_TYPE=redis
-  - REDIS_URL=redis://PurpleMoon-redis:6379
+  - REDIS_URL=redis://purplemoon-redis:6379
   - NEXT_PUBLIC_ENABLE_REGISTER=true
   - VALID_INVITE_CODE=你的邀请码
   - TRUST_X_FORWARDED_FOR=true               # 前置的是会追加 X-Forwarded-For 的反向代理
