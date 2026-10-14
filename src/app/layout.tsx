@@ -8,6 +8,7 @@ import { getConfig } from '@/lib/config';
 
 import { SiteProvider } from '../components/SiteProvider';
 import { ThemeProvider } from '../components/ThemeProvider';
+import { isInviteCodeRequired } from '@/lib/invite';
 
 const inter = Inter({ subsets: ['latin'] });
 
@@ -59,6 +60,7 @@ export default async function RootLayout({
   const runtimeConfig = {
     STORAGE_TYPE: process.env.NEXT_PUBLIC_STORAGE_TYPE || 'localstorage',
     ENABLE_REGISTER: enableRegister,
+    REQUIRE_INVITE_CODE: isInviteCodeRequired(),
     IMAGE_PROXY: imageProxy,
   };
 
