@@ -1,7 +1,7 @@
 # PurpleMoon
 
 <div align="center">
-  <img src="public/logo.png" alt="LibreTV Logo" width="120">
+  <img src="public/logo.png" alt="PurpleMoon Logo" width="120">
 </div>
 
 > 🎬 PurpleMoon 是一个开箱即用的、跨平台的影视聚合播放器。它基于 **Next.js 15** + **Tailwind&nbsp;CSS** + **TypeScript** 构建，支持多资源搜索、在线播放、收藏同步、播放记录、本地/云端存储，让你可以随时随地畅享海量免费影视内容。
@@ -15,7 +15,7 @@
 ![Docker Ready](https://img.shields.io/badge/Docker-ready-blue?logo=docker)
 ![HLS](https://img.shields.io/badge/HLS-1.7.3-8A2BE2)
 ![Artplayer](https://img.shields.io/badge/Artplayer-5.4.0-RED)
-![Version](https://img.shields.io/badge/Version-2.5.3-red)
+![Version](https://img.shields.io/badge/Version-2.5.4-red)
 ![Github](https://img.shields.io/badge/github-PurpleSat-8A2BE2?logo=github)
 
 </div>
@@ -32,7 +32,7 @@
 - 🌗 **响应式布局**：桌面底部导航 + 移动底部导航，自适应各种屏幕尺寸。
 - 🚀 **极简部署**：一条 Docker 命令即可将完整服务跑起来，或免费部署到 Vercel 和 Cloudflare。
 - 👿 **自定义跳过片头片尾**：多设备同步自定义跳过片头片尾功能。
-- 🔒 **鉴权交互**：企业级。
+- 🔒 **鉴权交互**：中级防护。
 - 💬 **留言板**：全用户留言板块。
 - 🌐 **源库分类浏览**：一览源站分类内容。
 - 🎬 **视频解析**：一键解析视频。
@@ -54,7 +54,7 @@
 - [管理员配置](#管理员配置)
 - [AndroidTV 使用](#AndroidTV-使用)
 - [Roadmap](#roadmap)
-- [V2.5.3版本更新内容](#V2.5.3安全与稳定修复)
+- [V2.5.4版本更新内容](#V2.5.4安全与稳定修复)
 - [License](#license)
 - [致谢](#致谢)
 
@@ -211,11 +211,6 @@ networks:
     driver: bridge
 ```
 
-## 自动同步最近更改
-
-建议在 fork 的仓库中启用本仓库自带的 GitHub Actions 自动同步功能（见 `.github/workflows/sync.yml`）。
-
-如需手动同步主仓库更新，也可以使用 GitHub 官方的 [Sync fork](https://docs.github.com/cn/github/collaborating-with-issues-and-pull-requests/syncing-a-fork) 功能。
 
 ## 环境变量
 
@@ -417,7 +412,7 @@ PurpleMoon 支持标准的苹果 CMS V10 API 格式。
 - [x] 多账户
 
 
-### V2.5.3 安全与稳定性修复
+### V2.5.4 安全与稳定性修复
 
 - 1.修复 source-browser 四个接口绕过 SSRF 防护（直连静态 config.json、无重定向校验），改为只读后台已启用资源源并统一走 safeFetch
 - 2.修复搜索/详情上游请求会自动跟随 3xx 重定向导致的 SSRF 绕过（全部改用 safeFetch 逐跳校验）
@@ -438,11 +433,12 @@ PurpleMoon 支持标准的苹果 CMS V10 API 格式。
 - 11-6.多实例部署	按单实例配置	同上	缓存、熔断、搜索限流都是每个实例自己的内存，需要时在代理层再加限流
 - 12.新增流式搜索接口 `/api/search/stream`（NDJSON），搜索页改为“搜到一个源就立刻显示一个源”，首批结果通常 1 秒内出现；流式不可用时自动退回 `/api/search`
 - 13.同一关键词 5 分钟内重复搜索几乎瞬时返回；超时/报错的资源站 45 秒内自动跳过（缓存和熔断都是每个实例各自的内存）
-- 14.修复跳过片尾无法保存到数据库：此前加入的入参校验把片尾时间限制为 ≥0，而片尾是以负数保存的（距结尾的秒数），导致一律被存成 0；现片头限制在 0~86400、片尾限制在 -86400~0
+- 14.修复跳过片尾无法保存到数据库：此前加入的入参校验把片尾时间限制为 ≥0，而片尾是以负数保存的（距结尾的秒数），导致一律被存成 0；现片头限制在 0~86400、片尾限制在 -86400~0，代码文件：src/app/api/skipconfig/route.ts
 - 15.若前置 Nginx，流式接口已带 `X-Accel-Buffering: no`；其他代理需关闭对该路径的响应缓冲，否则只是变回“全部返回后一次性显示”
-- 16.重写“去广告”：原 `filterAdsFromM3U8` 只删除 `#EXT-X-DISCONTINUITY` 标记、不删任何广告分片，还会破坏正片的时间戳重置标记。现改为按“分片特征（域名+目录+文件名模板）”识别并整段删除广告分片（新增 `src/lib/m3u8-ad-filter.ts` 与 15 条单元测试），带多重保险：直播流、找不到明确正片、删除量过大、解析异常时一律原样播放；可用 `NEXT_PUBLIC_AD_BLOCK_PATTERNS`（逗号分隔的域名/路径关键词，构建时注入）补充规则；浏览器控制台会输出 `[去广告]` 日志便于排查。限制：与正片同域名同目录且无标记的广告无法在播放列表层面识别（已废除回退版本至2.5.1）
+- 16.重写“去广告”：原 `filterAdsFromM3U8` 只删除 `#EXT-X-DISCONTINUITY` 标记、不删任何广告分片，还会破坏正片的时间戳重置标记。现改为按“分片特征（域名+目录+文件名模板）”识别并整段删除广告分片（新增 `src/lib/m3u8-ad-filter.ts` 与 15 条单元测试），带多重保险：直播流、找不到明确正片、删除量过大、解析异常时一律原样播放；可用 `NEXT_PUBLIC_AD_BLOCK_PATTERNS`（逗号分隔的域名/路径关键词，构建时注入）补充规则；浏览器控制台会输出 `[去广告]` 日志便于排查。限制：与正片同域名同目录且无标记的广告无法在播放列表层面识别（此项已废除，修改项：删除src/lib/m3u8-ad-filter.ts、src/lib/__tests__/m3u8-ad-filter.test.ts回退版本至2.5.1版本src/app/play/page.tsx
 - 17.修复 Dockerfile 构建必然失败：原 `pnpm install --offline` 依赖第一阶段 `pnpm fetch` 的缓存，但该缓存从未带入构建阶段，报 `ERR_PNPM_NO_OFFLINE_TARBALL`。现改为分层 `pnpm install --frozen-lockfile`（依赖层可缓存），并加入 `HUSKY=0` 与可选的 `NPM_REGISTRY` 构建参数
-- 18.修复 Docker 部署开启注册并配置 `VALID_INVITE_CODE` 后注册页不显示邀请码输入框：登录页原先在客户端读取 `process.env.NEXT_PUBLIC_ENABLE_REGISTER`，该变量在构建时已被内联，Docker 运行时才设置的值读不到（Vercel/Cloudflare 在构建时就带有变量，所以正常）。现改为由服务端在运行时判断（`src/lib/invite.ts`），经 `window.RUNTIME_CONFIG.REQUIRE_INVITE_CODE` 下发，注册接口与前端使用同一判断逻辑
+- 18.修复 Docker 部署开启注册并配置 `VALID_INVITE_CODE` 后注册页不显示邀请码输入框：登录页原先在客户端读取 `process.env.NEXT_PUBLIC_ENABLE_REGISTER`，该变量在构建时已被内联，Docker 运行时才设置的值读不到（Vercel/Cloudflare 在构建时就带有变量，所以正常）。现改为由服务端在运行时判断（`src/lib/invite.ts`），经 `window.RUNTIME_CONFIG.REQUIRE_INVITE_CODE` 下发，注册接口与前端使用同一判断逻辑。
+- 18-1.修改项-新增 src/lib/invite.ts：由服务端在运行时判断是否强制邀请码。优先看 REQUIRE_INVITE_CODE，没设置就跟随 NEXT_PUBLIC_ENABLE_REGISTER。src/app/layout.tsx：把判断结果写进 window.RUNTIME_CONFIG.REQUIRE_INVITE_CODE。src/app/login/page.tsx：改为读这个运行时配置来决定是否显示邀请码输入框。src/app/api/register/route.ts：改用同一个判断函数，前后端不会再不一致。
 
 
 ### V2.5.1版本更新内容
