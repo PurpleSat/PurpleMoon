@@ -7,6 +7,7 @@ import { getConfig } from '@/lib/config';
 import { buildAuthCookieValue, setAuthCookies } from '@/lib/cookies';
 import { db } from '@/lib/db';
 import { timingSafeEqual } from '@/lib/password';
+import { isInviteCodeRequired } from '@/lib/invite';
 
 export const runtime = 'edge';
 
@@ -98,10 +99,7 @@ export async function POST(req: NextRequest) {
     const { username, password, inviteCode } = parseResult.data;
 
     // ================= 强制邀请码校验 (Fail Closed) =================
-    const requireInviteCode =
-      process.env.REQUIRE_INVITE_CODE !== undefined
-        ? process.env.REQUIRE_INVITE_CODE === 'true'
-        : process.env.NEXT_PUBLIC_ENABLE_REGISTER === 'true';
+    const requireInviteCode = isInviteCodeRequired();
     const validInviteCode = process.env.VALID_INVITE_CODE;
 
     if (requireInviteCode) {
