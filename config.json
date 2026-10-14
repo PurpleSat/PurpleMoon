@@ -140,10 +140,6 @@
     "youzhi": {
       "api": "https://api.yzzy-api.com/inc/apijson.php",
       "name": "优质资源"
-    },
-    "dnz": {
-      "api": "https://apidanaizi.com/api.php/provide/vod",
-      "name": "大奶子"
     }
   }
 }
