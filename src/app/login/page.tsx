@@ -29,13 +29,14 @@ function LoginPageClient() {
   // 调用全局变量
   const { siteName } = useSite();
 
-  const requireInviteCode = process.env.NEXT_PUBLIC_ENABLE_REGISTER === 'true';
+  const [requireInviteCode, setRequireInviteCode] = useState(false);
 
   useEffect(() => {
     if (typeof window !== 'undefined') {
       const storageType = (window as any).RUNTIME_CONFIG?.STORAGE_TYPE;
       setShouldAskUsername(storageType && storageType !== 'localstorage');
       setEnableRegister(Boolean((window as any).RUNTIME_CONFIG?.ENABLE_REGISTER));
+      setRequireInviteCode(Boolean((window as any).RUNTIME_CONFIG?.REQUIRE_INVITE_CODE));
     }
   }, []);
 
