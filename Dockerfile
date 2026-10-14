@@ -1,40 +1,40 @@
-# ---- 第 1 阶段：安装依赖 ----
-FROM node:20-alpine AS deps
+# ==========================================
+# 🛡️ 全局构建参数定义区
+# ==========================================
+ARG PNPM_VERSION=10.12.4
 
-# 启用 corepack 并激活 pnpm（Node20 默认提供 corepack）
-RUN corepack enable && corepack prepare pnpm@latest --activate
-
+# ---- 第 1 阶段：安装依赖并构建 ----
+FROM node:20-alpine AS builder
+ARG PNPM_VERSION
+# 国内服务器可在构建时指定镜像源：--build-arg NPM_REGISTRY=https://registry.npmmirror.com
+ARG NPM_REGISTRY=https://registry.npmjs.org
+ENV npm_config_registry=${NPM_REGISTRY}
+# 容器内没有 .git，跳过 husky 的 prepare 钩子
+ENV HUSKY=0
+RUN corepack enable && corepack prepare pnpm@${PNPM_VERSION} --activate
 WORKDIR /app
 
-# 仅复制依赖清单，提高构建缓存利用率
-COPY package.json pnpm-lock.yaml ./
-
-# 安装所有依赖（含 devDependencies，后续会裁剪）
+# 先只复制依赖清单，源码改动时可复用依赖安装层缓存
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml .npmrc ./
 RUN pnpm install --frozen-lockfile
 
-# ---- 第 2 阶段：构建项目 ----
-FROM node:20-alpine AS builder
-RUN corepack enable && corepack prepare pnpm@latest --activate
-WORKDIR /app
-
-# 复制依赖
-COPY --from=deps /app/node_modules ./node_modules
-# 复制全部源代码
+# 再复制全部源码
 COPY . .
 
-# 在构建阶段也显式设置 DOCKER_ENV，
-# 确保 Next.js 在编译时即选择 Node Runtime 而不是 Edge Runtime
+# 显式设置 DOCKER_ENV，确保 Next.js 在编译时即选择 Node Runtime
 RUN find ./src -type f -name "route.ts" -print0 \
   | xargs -0 sed -i "s/export const runtime = 'edge';/export const runtime = 'nodejs';/g"
-ENV DOCKER_ENV=true
 
-# For Docker builds, force dynamic rendering to read runtime environment variables.
+ENV DOCKER_ENV=true
+ENV NEXT_TELEMETRY_DISABLED=1
+
+# 强制动态渲染
 RUN sed -i "/const inter = Inter({ subsets: \['latin'] });/a export const dynamic = 'force-dynamic';" src/app/layout.tsx
 
 # 生成生产构建
 RUN pnpm run build
 
-# ---- 第 3 阶段：生成运行时镜像 ----
+# ---- 第 2 阶段：生成运行时镜像 ----
 FROM node:20-alpine AS runner
 
 # 创建非 root 用户
@@ -45,6 +45,7 @@ ENV NODE_ENV=production
 ENV HOSTNAME=0.0.0.0
 ENV PORT=3000
 ENV DOCKER_ENV=true
+ENV NEXT_TELEMETRY_DISABLED=1
 
 # 从构建器中复制 standalone 输出
 COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
@@ -63,4 +64,4 @@ USER nextjs
 EXPOSE 3000
 
 # 使用自定义启动脚本，先预加载配置再启动服务器
-CMD ["node", "start.js"] 
+CMD ["node", "start.js"]
