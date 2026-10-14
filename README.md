@@ -38,10 +38,7 @@
 - 🎬 **视频解析**：一键解析视频。
 - 🔔 **TMDB最近上映**：TMDB最新上映和热播。
 
-<details>
-  <summary>点击查看项目截图</summary>
-  <img src="public/screenshot.png" alt="项目截图" style="max-width:600px">
-</details>
+
 
 ## 🗺 目录
 
