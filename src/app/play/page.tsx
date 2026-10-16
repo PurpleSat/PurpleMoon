@@ -519,7 +519,14 @@ function PlayPageClient() {
                 if (r.removedSegments > 0) {
                   console.info(`[去广告] 已移除 ${r.removedSegments} 个分片（约 ${r.removedSeconds.toFixed(1)} 秒）`);
                 } else if (r.skippedReason && r.skippedReason !== 'not-media-playlist') {
-                  console.debug(`[去广告] 未过滤：${r.skippedReason}`);
+                  // 用 info 级别输出，方便在控制台（F12）直接看到为什么没过滤
+                  console.info(`[去广告] 未过滤：${r.skippedReason}`);
+                }
+                // 调试用：控制台输入 __adFilterLast 查看最近一次结果
+                try {
+                  (window as any).__adFilterLast = { url: context?.url, ...r, content: undefined };
+                } catch {
+                  // ignore
                 }
                 response.data = r.content;
               } catch {

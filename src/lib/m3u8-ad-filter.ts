@@ -81,8 +81,25 @@ export function segmentSignature(uri: string, baseUrl?: string): string {
   }
   const idx = path.lastIndexOf('/');
   const dir = idx >= 0 ? path.slice(0, idx + 1) : '';
-  const name = (idx >= 0 ? path.slice(idx + 1) : path).replace(/\d+/g, '#');
-  return `${host}${dir}${name}`;
+  const rawName = idx >= 0 ? path.slice(idx + 1) : path;
+  return `${host}${dir}${normalizeName(rawName)}`;
+}
+
+/**
+ * 文件名模板化：
+ * - 数字 → #（seg001.ts / seg002.ts 同模板）
+ * - 哈希/随机串文件名（如 a3f9c2d41b.ts）→ 只保留“长度档位 + 扩展名”，
+ *   否则每个分片模板都不同，找不到正片，整条列表都会被放弃过滤
+ */
+function normalizeName(name: string): string {
+  const dot = name.lastIndexOf('.');
+  const stem = dot > 0 ? name.slice(0, dot) : name;
+  const ext = dot > 0 ? name.slice(dot) : '';
+  if (/^[0-9a-zA-Z_-]{8,}$/.test(stem) && /[a-zA-Z]/.test(stem) && /\d/.test(stem)) {
+    // 字母数字混杂的长文件名：视为随机串，长度按 4 取整
+    return `~${Math.round(stem.length / 4) * 4}${ext}`;
+  }
+  return name.replace(/\d+/g, '#');
 }
 
 const isKeyOrMap = (l: string) => l.startsWith('#EXT-X-KEY') || l.startsWith('#EXT-X-MAP');
@@ -172,28 +189,38 @@ export function filterAdsFromM3U8(
     if (segs.length === 0) return passthrough('no-segments');
 
     // ---- 切成 run：遇到分隔标记或特征变化就开新段 ----
-    const runs: Run[] = [];
-    segs.forEach((s, i) => {
-      const last = runs[runs.length - 1];
-      if (last && !s.discontinuityBefore && last.sig === s.sig) {
-        last.segs.push(s);
-        last.duration += s.duration;
-      } else {
-        runs.push({
-          segs: [s],
-          sig: s.sig,
-          duration: s.duration,
-          discontinuityBefore: s.discontinuityBefore,
-          keyLine: segKey[i],
-          mapLine: segMap[i],
-        });
-      }
-    });
+    const makeRuns = (splitOnSig: boolean): Run[] => {
+      const rs: Run[] = [];
+      segs.forEach((s, i) => {
+        const last = rs[rs.length - 1];
+        if (last && !s.discontinuityBefore && (!splitOnSig || last.sig === s.sig)) {
+          last.segs.push(s);
+          last.duration += s.duration;
+        } else {
+          rs.push({
+            segs: [s],
+            sig: s.sig,
+            duration: s.duration,
+            discontinuityBefore: s.discontinuityBefore,
+            keyLine: segKey[i],
+            mapLine: segMap[i],
+          });
+        }
+      });
+      return rs;
+    };
 
+    const patterns = [...DEFAULT_AD_PATTERNS, ...(opt.extraPatterns || [])]
+      .map((p) => p.trim().toLowerCase())
+      .filter(Boolean);
+
+    // ---- 方案一：按分片特征（域名/目录/文件名模板）区分 ----
+    let runs = makeRuns(true);
+    let isAd: boolean[] = [];
+    let reason = '';
     const total = runs.reduce((a, r) => a + r.duration, 0);
     if (total <= 0) return passthrough('zero-duration');
 
-    // ---- 找正片特征 ----
     const bySig = new Map<string, number>();
     for (const r of runs) bySig.set(r.sig, (bySig.get(r.sig) || 0) + r.duration);
     let mainSig = '';
@@ -204,24 +231,59 @@ export function filterAdsFromM3U8(
         mainSig = sig;
       }
     });
-    if (mainDur / total < opt.minMainShare) return passthrough('no-clear-main');
+    if (mainDur / total < opt.minMainShare) {
+      reason = 'no-clear-main';
+    } else {
+      isAd = runs.map((r) => {
+        if (r.sig === mainSig) return false;
+        if (r.duration > opt.maxAdSeconds) return false;
+        if (r.duration / total > opt.maxAdShare) return false;
+        return true;
+      });
+      // 命中关键词的非正片段，即使略长也算（仍受总量上限约束）
+      runs.forEach((r, i) => {
+        if (isAd[i] || r.sig === mainSig) return;
+        const u = r.segs[0].uri.toLowerCase();
+        if (patterns.some((p) => u.includes(p)) && r.duration / total <= opt.maxAdShare) isAd[i] = true;
+      });
+      if (!isAd.some(Boolean)) reason = 'no-ads-found';
+    }
 
-    // ---- 判定广告 ----
-    const patterns = [...DEFAULT_AD_PATTERNS, ...(opt.extraPatterns || [])]
-      .map((p) => p.trim().toLowerCase())
-      .filter(Boolean);
-    const isAd = runs.map((r) => {
-      if (r.sig === mainSig) return false;
-      if (r.duration > opt.maxAdSeconds) return false;
-      if (r.duration / total > opt.maxAdShare) return false;
-      return true;
-    });
-    // 命中关键词的非正片段，即使略长也算（仍受总量上限约束）
-    runs.forEach((r, i) => {
-      if (isAd[i] || r.sig === mainSig) return;
-      const u = r.segs[0].uri.toLowerCase();
-      if (patterns.some((p) => u.includes(p)) && r.duration / total <= opt.maxAdShare) isAd[i] = true;
-    });
+    // ---- 方案二（兜底）：广告与正片同域名同目录同命名，只靠 DISCONTINUITY 分隔 ----
+    // 很多源（ikun / 如意 / 电影天堂等）的广告分片和正片放在同一目录，方案一分不出来。
+    // 这里只在方案一无结果时启用，并且条件更严：
+    //  - 整条列表被分隔标记切成 2~12 段，且最长一段占 ≥ 55% 时长（正片）
+    //  - 候选段 ≤ maxAdSeconds，且位于开头/结尾，或中间段的分片时长与正片明显不同
+    if (reason) {
+      const dRuns = makeRuns(false);
+      const dTotal = dRuns.reduce((a, r) => a + r.duration, 0);
+      if (dRuns.length >= 2 && dRuns.length <= 12 && dTotal > 0) {
+        let longest = 0;
+        dRuns.forEach((r, i) => {
+          if (r.duration > dRuns[longest].duration) longest = i;
+        });
+        if (dRuns[longest].duration / dTotal >= 0.55) {
+          const median = (r: Run) => {
+            const d = r.segs.map((x) => x.duration).sort((a, b) => a - b);
+            return d[Math.floor(d.length / 2)] || 0;
+          };
+          const mainMed = median(dRuns[longest]);
+          const cand = dRuns.map((r, i) => {
+            if (i === longest) return false;
+            if (r.duration > opt.maxAdSeconds || r.duration / dTotal > opt.maxAdShare) return false;
+            if (i === 0 || i === dRuns.length - 1) return true;
+            const m = median(r);
+            return mainMed > 0 && Math.abs(m - mainMed) / mainMed > 0.2;
+          });
+          if (cand.some(Boolean)) {
+            runs = dRuns;
+            isAd = cand;
+            reason = '';
+          }
+        }
+      }
+    }
+    if (reason) return passthrough(reason);
 
     const removedSeconds = runs.reduce((a, r, i) => a + (isAd[i] ? r.duration : 0), 0);
     const removedSegments = runs.reduce((a, r, i) => a + (isAd[i] ? r.segs.length : 0), 0);

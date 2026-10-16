@@ -116,4 +116,42 @@ describe('filterAdsFromM3U8', () => {
     expect(r.removedSegments).toBe(3);
     expect(r.content).toContain('\r\n');
   });
+
+  // ---- 方案二 / 哈希文件名（真实源常见：广告与正片同域名同目录） ----
+  const hashMain = (n: number) =>
+    Array.from({ length: n }, (_, i) => seg(10, `${(i * 7919 + 123457).toString(16)}a${i}f9c2d41b.ts`)).join('');
+  const sameDirAd = (n: number, dur = 4) =>
+    Array.from({ length: n }, (_, i) => seg(dur, `ad${i}.ts`)).join('');
+
+  it('T15 哈希文件名的正片不再导致“找不到正片”而放弃', () => {
+    const r = filterAdsFromM3U8(HEAD + ad(4) + D + hashMain(60) + END, { baseUrl: BASE });
+    expect(r.skippedReason).toBeUndefined();
+    expect(r.removedSegments).toBe(4);
+  });
+
+  it('T16 广告与正片同目录，仅靠标记分隔：开头广告被删', () => {
+    const r = filterAdsFromM3U8(HEAD + sameDirAd(5) + D + main(60) + END, { baseUrl: BASE });
+    expect(r.removedSegments).toBe(5);
+    expect(uris(r.content).every((u) => /^seg\d+\.ts$/.test(u))).toBe(true);
+  });
+
+  it('T17 同目录结尾广告被删', () => {
+    const r = filterAdsFromM3U8(HEAD + main(60) + D + sameDirAd(4) + END, { baseUrl: BASE });
+    expect(r.removedSegments).toBe(4);
+  });
+
+  it('T18 同目录中间广告：分片时长与正片明显不同才删', () => {
+    const r = filterAdsFromM3U8(HEAD + main(30) + D + sameDirAd(5, 4) + D + main(30, 30) + END, { baseUrl: BASE });
+    expect(r.removedSegments).toBe(5);
+    // 时长与正片相同的中间段无法判断，保持原样
+    const same = HEAD + main(30) + D + main(5, 100) + D + main(30, 30) + END;
+    expect(filterAdsFromM3U8(same, { baseUrl: BASE }).removedSegments).toBe(0);
+  });
+
+  it('T19 标记过多（每几片一个）不启用兜底', () => {
+    let body = '';
+    for (let i = 0; i < 20; i++) body += D + main(3, i * 3);
+    const input = HEAD + body + END;
+    expect(filterAdsFromM3U8(input, { baseUrl: BASE }).removedSegments).toBe(0);
+  });
 });
