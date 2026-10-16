@@ -15,7 +15,7 @@
 ![Docker Ready](https://img.shields.io/badge/Docker-ready-blue?logo=docker)
 ![HLS](https://img.shields.io/badge/HLS-1.7.3-8A2BE2)
 ![Artplayer](https://img.shields.io/badge/Artplayer-5.4.0-RED)
-![Version](https://img.shields.io/badge/Version-2.5.4-red)
+![Version](https://img.shields.io/badge/Version-2.5.6-red)
 ![Github](https://img.shields.io/badge/github-PurpleSat-8A2BE2?logo=github)
 
 </div>
@@ -51,7 +51,6 @@
 - [管理员配置](#管理员配置)
 - [AndroidTV 使用](#AndroidTV-使用)
 - [Roadmap](#roadmap)
-- [V2.5.4版本更新内容](#V2.5.4安全与稳定修复)
 - [License](#license)
 - [致谢](#致谢)
 
@@ -408,39 +407,19 @@ PurpleMoon 支持标准的苹果 CMS V10 API 格式。
 - [x] 深色模式
 - [x] 持久化存储
 - [x] 多账户
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         
+## License
 
+[MIT](LICENSE) © 2025 MoonTV & Contributors
 
-### V2.5.6 安全与稳定性修复
+## 致谢
 
-- 1.修复 source-browser 四个接口绕过 SSRF 防护（直连静态 config.json、无重定向校验），改为只读后台已启用资源源并统一走 safeFetch
-- 2.修复搜索/详情上游请求会自动跟随 3xx 重定向导致的 SSRF 绕过（全部改用 safeFetch 逐跳校验）
-- 3.修复登录/注册/登出无条件下发 Secure Cookie，导致 http 直连时“登录后立即被踢回登录页”（统一使用 cookies.ts）
-- 4.修复未配置 TRUST_* 时所有用户共用同一限流桶，任意人 1 分钟 10 次请求即可让全站无法登录
-- 5.修复 Docker 模式配置缓存常驻内存：新注册用户不出现在后台、封禁/删除不即时生效、多实例不一致（5 秒 TTL + 版本冲突时强制刷新）
-- 6.已被管理员删除的用户，其 Cookie 不再继续可用
-- 7.登录接口先校验密码再提示“用户被封禁”，避免用户名枚举
-- 8.cron 接口改为 await 执行并使用恒定时间比较密钥
-- 9.播放记录 / 收藏 / 跳过片头片尾写入增加字段白名单与长度上限，防止存储被灌满
-- 10.source-browser 错误信息不再向客户端泄露内部细节
-- 11.搜索提速：资源站由“6 个一批串行等待”改为 8 路并发池 + 8 秒整体截止时间，慢源/坏源不再拖累整体，并发数写死在 src/lib/search-engine.ts 里的 SEARCH_CONCURRENCY；可根据实际部署情况修改；
-- 11-1.部署平台	        建议并发数	 翻页上限	    原因
-- 11-2.Docker / 自建服务器	16 到 20	保持 3 页	总耗时接近全并发，首屏仍是流式；出站压力可控
-- 11-3.Vercel	8 到 16	保持 3 页	按套餐和上游承受能力调整，先用默认值观察
-- 11-4.Cloudflare Pages 免费版	8	降到 1 页	避免单次搜索子请求超过免费版上限
-- 11-5.Cloudflare Pages 付费版	16 到 20	保持 3 页	子请求上限更高；仍建议保留整体时限
-- 11-6.多实例部署	按单实例配置	同上	缓存、熔断、搜索限流都是每个实例自己的内存，需要时在代理层再加限流
-- 12.新增流式搜索接口 `/api/search/stream`（NDJSON），搜索页改为“搜到一个源就立刻显示一个源”，首批结果通常 1 秒内出现；流式不可用时自动退回 `/api/search`
-- 13.同一关键词 5 分钟内重复搜索几乎瞬时返回；超时/报错的资源站 45 秒内自动跳过（缓存和熔断都是每个实例各自的内存）
-- 14.修复跳过片尾无法保存到数据库：此前加入的入参校验把片尾时间限制为 ≥0，而片尾是以负数保存的（距结尾的秒数），导致一律被存成 0；现片头限制在 0~86400、片尾限制在 -86400~0，代码文件：src/app/api/skipconfig/route.ts
-- 15.若前置 Nginx，流式接口已带 `X-Accel-Buffering: no`；其他代理需关闭对该路径的响应缓冲，否则只是变回“全部返回后一次性显示”
-- 16.重写“去广告”：原 `filterAdsFromM3U8` 只删除 `#EXT-X-DISCONTINUITY` 标记、不删任何广告分片，还会破坏正片的时间戳重置标记。现改为按“分片特征（域名+目录+文件名模板）”识别并整段删除广告分片（新增 `src/lib/m3u8-ad-filter.ts` 与 15 条单元测试），带多重保险：直播流、找不到明确正片、删除量过大、解析异常时一律原样播放；可用 `NEXT_PUBLIC_AD_BLOCK_PATTERNS`（逗号分隔的域名/路径关键词，构建时注入）补充规则；浏览器控制台会输出 `[去广告]` 日志便于排查。限制：与正片同域名同目录且无标记的广告无法在播放列表层面识别（此项已废除，修改项：删除src/lib/m3u8-ad-filter.ts、src/lib/__tests__/m3u8-ad-filter.test.ts回退版本至2.5.1版本src/app/play/page.tsx
-- 17.修复 Dockerfile 构建必然失败：原 `pnpm install --offline` 依赖第一阶段 `pnpm fetch` 的缓存，但该缓存从未带入构建阶段，报 `ERR_PNPM_NO_OFFLINE_TARBALL`。现改为分层 `pnpm install --frozen-lockfile`（依赖层可缓存），并加入 `HUSKY=0` 与可选的 `NPM_REGISTRY` 构建参数
-- 18.修复 Docker 部署开启注册并配置 `VALID_INVITE_CODE` 后注册页不显示邀请码输入框：登录页原先在客户端读取 `process.env.NEXT_PUBLIC_ENABLE_REGISTER`，该变量在构建时已被内联，Docker 运行时才设置的值读不到（Vercel/Cloudflare 在构建时就带有变量，所以正常）。现改为由服务端在运行时判断（`src/lib/invite.ts`），经 `window.RUNTIME_CONFIG.REQUIRE_INVITE_CODE` 下发，注册接口与前端使用同一判断逻辑。
-- 18-1.修改项-新增 src/lib/invite.ts：由服务端在运行时判断是否强制邀请码。优先看 REQUIRE_INVITE_CODE，没设置就跟随 NEXT_PUBLIC_ENABLE_REGISTER。src/app/layout.tsx：把判断结果写进 window.RUNTIME_CONFIG.REQUIRE_INVITE_CODE。src/app/login/page.tsx：改为读这个运行时配置来决定是否显示邀请码输入框。src/app/api/register/route.ts：改用同一个判断函数，前后端不会再不一致。
-
-
-                                                                                                                                                                                                                               
-
+- [ts-nextjs-tailwind-starter](https://github.com/theodorusclarence/ts-nextjs-tailwind-starter) — 项目最初基于该脚手架。
+- [LibreTV](https://github.com/LibreSpark/LibreTV) — 由此启发，站在巨人的肩膀上。
+- [ArtPlayer](https://github.com/zhw2590582/ArtPlayer) — 提供强大的网页视频播放器。
+- [HLS.js](https://github.com/video-dev/hls.js) — 实现 HLS 流媒体在浏览器中的播放支持。
+- 感谢所有提供免费影视接口的站点。
+                                                                                                                                                                   
 > **注意**：本仓库不提供公开的预构建镜像（Docker 镜像名必须全小写，且 `ghcr.io` 上的包默认私有，直接 `docker pull` 会报 `denied`）。请在服务器上用源码自行构建，或推送到你自己的镜像仓库。
 
 ```bash
@@ -524,16 +503,4 @@ networks:
     driver: bridge
 ```
                                                              
-                                                               
-                                                                                                                                                                                                                               
-## License
-
-[MIT](LICENSE) © 2025 MoonTV & Contributors
-
-## 致谢
-
-- [ts-nextjs-tailwind-starter](https://github.com/theodorusclarence/ts-nextjs-tailwind-starter) — 项目最初基于该脚手架。
-- [LibreTV](https://github.com/LibreSpark/LibreTV) — 由此启发，站在巨人的肩膀上。
-- [ArtPlayer](https://github.com/zhw2590582/ArtPlayer) — 提供强大的网页视频播放器。
-- [HLS.js](https://github.com/video-dev/hls.js) — 实现 HLS 流媒体在浏览器中的播放支持。
-- 感谢所有提供免费影视接口的站点。
+                                                                                                                                                                  
