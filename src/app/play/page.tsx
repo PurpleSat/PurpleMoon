@@ -26,7 +26,7 @@ import { getVideoResolutionFromM3u8, processImageUrl } from '@/lib/utils';
 
 import EpisodeSelector from '@/components/EpisodeSelector';
 import PageLayout from '@/components/PageLayout';
-import { filterAdsFromM3U8 } from '@/lib/m3u8-ad-filter';
+import { filterAdsFromM3U8, stripDiscontinuityLegacy } from '@/lib/m3u8-ad-filter';
 
 // 扩展 HTMLVideoElement 类型以支持 hls 属性
 declare global {
@@ -528,9 +528,11 @@ function PlayPageClient() {
                 } catch {
                   // ignore
                 }
-                response.data = r.content;
+                // 先按特征识别并删除广告分片，再执行原有规则：删除全部 #EXT-X-DISCONTINUITY
+                response.data = stripDiscontinuityLegacy(r.content);
               } catch {
-                // 过滤出错时保持原始列表
+                // 新规则出错：退回只执行原有规则
+                response.data = stripDiscontinuityLegacy(response.data);
               }
             }
             return onSuccess(response, stats, context, null);
