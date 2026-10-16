@@ -975,20 +975,13 @@ const GroupPermissionConfig = ({
   return (
     <div className='space-y-5'>
       <div className='text-sm text-gray-600 dark:text-gray-400 space-y-1'>
-        <p>
-          可自由创建、重命名、删除分组，并为每个分组自由选择可访问的资源站（或勾选“全部”）。站长不受分组限制。
-        </p>
-        <p>
-          被「视频源配置」禁用的源对所有分组都不可用；新增的资源站只对勾选了“全部”的分组自动可用，其余分组需手动勾选。修改立即生效。
-        </p>
-        <p>每个用户所属分组可在「用户配置」列表中逐个调整；新注册 / 后台新增的用户进入「默认注册分组」。</p>
       </div>
 
       {!rg.configured ? (
         <div className='p-4 rounded-lg bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-700 space-y-3'>
           <p className='text-sm text-yellow-800 dark:text-yellow-300'>
             尚未启用分组：当前所有用户都可访问全部已启用的资源站。点击启用后会创建两个初始分组——
-            <b>A 组</b>（全部资源站）和 <b>B 组</b>（暂含当前全部资源站，默认注册分组），已有用户归入 A 组，权限保持不变；之后你可以自由增删改。
+            <b>A 组</b>（全部资源站）和 <b>B 组</b>（暂含当前全部资源站，默认注册分组），已有用户归入 A 组，权限保持不变。
           </p>
           <button
             onClick={enable}
