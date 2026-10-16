@@ -148,6 +148,7 @@ docker run -d --name purplemoon -p 3000:3000 \
 
 访问 `http://服务器 IP:3000` 即可。（需自行到服务器控制台放通 `3000` 端口）
 
+
 ## Docker Compose 最佳实践
 
 若你使用 docker compose 部署，以下是一些 compose 示例
@@ -457,6 +458,96 @@ PurpleMoon 支持标准的苹果 CMS V10 API 格式。
 - 15.其它BUG修复及功能体验优化。
 - 16.CSRF 校验统一到全部写接口
 - 17.移除0引用依赖和部份依赖的版本对齐。
+                                                                                                                                                                                                                               
+
+> **注意**：本仓库不提供公开的预构建镜像（Docker 镜像名必须全小写，且 `ghcr.io` 上的包默认私有，直接 `docker pull` 会报 `denied`）。请在服务器上用源码自行构建，或推送到你自己的镜像仓库。
+
+```bash
+# 在项目根目录（含 Dockerfile 的目录）构建镜像，约需几分钟
+docker build -t purplemoon:latest .
+
+# 国内服务器若 npm 下载很慢或失败，可指定镜像源：
+# docker build --build-arg NPM_REGISTRY=https://registry.npmmirror.com -t purplemoon:latest .
+
+# 可选：推送到你自己的 GHCR / Docker Hub，供多台服务器拉取
+# echo $GHCR_TOKEN | docker login ghcr.io -u <你的用户名> --password-stdin
+# docker tag purplemoon:latest ghcr.io/<你的用户名>/purplemoon:latest
+# docker push ghcr.io/<你的用户名>/purplemoon:latest
+# （推送后到 GitHub → Packages → 该包 → Package settings 将可见性改为 Public，或在服务器上先 docker login）
+
+# 运行容器
+# -d: 后台运行  -p: 映射端口 3000 -> 3000
+# AUTH_SECRET 为必填项（至少 16 字符，建议 32 字符以上），缺失时服务将拒绝启动
+docker run -d --name PurpleMoon -p 3000:3000 \
+  -e PASSWORD=your_password \
+  -e AUTH_SECRET=$(openssl rand -hex 32) \
+  purplemoon:latest
+```
+
+访问 `http://服务器 IP:3000` 即可。（需自行到服务器控制台放通 `3000` 端口）
+
+## Docker Compose 最佳实践
+
+若你使用 docker compose 部署，以下是一些 compose 示例
+
+### local storage 版本
+
+```yaml
+services:
+  PurpleMoon:
+    image: purplemoon:latest
+    container_name: PurpleMoon
+    restart: unless-stopped
+    ports:
+      - '3000:3000'
+    environment:
+      - PASSWORD=your_password
+      - AUTH_SECRET=CHANGE_ME   # 必填：必须替换为至少 32 位随机字符串（openssl rand -hex 32），保持 CHANGE_ME 将无法启动
+    # 如需自定义配置，可挂载文件
+    # volumes:
+    #   - ./config.json:/app/config.json:ro
+```
+
+### Redis 版本（推荐，多账户数据隔离，跨设备同步）
+
+```yaml
+services:
+  PurpleMoon-core:
+    image: purplemoon:latest
+    container_name: PurpleMoon
+    restart: unless-stopped
+    ports:
+      - '3000:3000'
+    environment:
+      - USERNAME=admin
+      - PASSWORD=admin_password
+      - AUTH_SECRET=CHANGE_ME   # 必填：必须替换为至少 32 位随机字符串（openssl rand -hex 32），保持 CHANGE_ME 将无法启动
+      - NEXT_PUBLIC_STORAGE_TYPE=redis
+      - REDIS_URL=redis://PurpleMoon-redis:6379
+      - NEXT_PUBLIC_ENABLE_REGISTER=true
+    networks:
+      - PurpleMoon-network
+    depends_on:
+      - PurpleMoon-redis
+    # 如需自定义配置，可挂载文件
+    # volumes:
+    #   - ./config.json:/app/config.json:ro
+  PurpleMoon-redis:
+    image: redis
+    container_name: PurpleMoon-redis
+    restart: unless-stopped
+    networks:
+      - PurpleMoon-network
+    # 如需持久化
+    # volumes:
+    #   - ./data:/data
+networks:
+  PurpleMoon-network:
+    driver: bridge
+```
+                                                             
+                                                               
+                                                                                                                                                                                                                               
 ## License
 
 [MIT](LICENSE) © 2025 MoonTV & Contributors
