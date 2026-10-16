@@ -410,7 +410,7 @@ PurpleMoon 支持标准的苹果 CMS V10 API 格式。
 - [x] 多账户
 
 
-### V2.5.4 安全与稳定性修复
+### V2.5.6 安全与稳定性修复
 
 - 1.修复 source-browser 四个接口绕过 SSRF 防护（直连静态 config.json、无重定向校验），改为只读后台已启用资源源并统一走 safeFetch
 - 2.修复搜索/详情上游请求会自动跟随 3xx 重定向导致的 SSRF 绕过（全部改用 safeFetch 逐跳校验）
@@ -439,25 +439,6 @@ PurpleMoon 支持标准的苹果 CMS V10 API 格式。
 - 18-1.修改项-新增 src/lib/invite.ts：由服务端在运行时判断是否强制邀请码。优先看 REQUIRE_INVITE_CODE，没设置就跟随 NEXT_PUBLIC_ENABLE_REGISTER。src/app/layout.tsx：把判断结果写进 window.RUNTIME_CONFIG.REQUIRE_INVITE_CODE。src/app/login/page.tsx：改为读这个运行时配置来决定是否显示邀请码输入框。src/app/api/register/route.ts：改用同一个判断函数，前后端不会再不一致。
 
 
-### V2.5.1版本更新内容
-
-- 1.增加视频解析
-- 2.增加MEMO功能
-- 3.增加TMDB热门和最近上映的数据调用
-- 4.增加源浏览功能
-- 5.增加邀请注册制
-- 6.增加环境变量隔离
-- 7.增加为 Cron 任务加上密钥校验
-- 8.增加自定义自动跳过片头片尾功能并支持同步D1和UPSTASH、REDIS
-- 9.修复单点内存限流在分布式多节点部署中的问题实现分布式限流
-- 10.优化广告切片过滤
-- 11.增加用户密码盐哈希
-- 12.修补密码明文时序攻击 (Timing Attack)
-- 13.增加COOKIS时间戳
-- 14.去除失效依赖更并更新至最新和锁定部份依赖版本
-- 15.其它BUG修复及功能体验优化。
-- 16.CSRF 校验统一到全部写接口
-- 17.移除0引用依赖和部份依赖的版本对齐。
                                                                                                                                                                                                                                
 
 > **注意**：本仓库不提供公开的预构建镜像（Docker 镜像名必须全小写，且 `ghcr.io` 上的包默认私有，直接 `docker pull` 会报 `denied`）。请在服务器上用源码自行构建，或推送到你自己的镜像仓库。
