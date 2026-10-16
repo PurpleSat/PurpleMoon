@@ -466,9 +466,6 @@ PurpleMoon 支持标准的苹果 CMS V10 API 格式。
 # 在项目根目录（含 Dockerfile 的目录）构建镜像，约需几分钟
 docker build -t purplemoon:latest .
 
-# 国内服务器若 npm 下载很慢或失败，可指定镜像源：
-# docker build --build-arg NPM_REGISTRY=https://registry.npmmirror.com -t purplemoon:latest .
-
 # 可选：推送到你自己的 GHCR / Docker Hub，供多台服务器拉取
 # echo $GHCR_TOKEN | docker login ghcr.io -u <你的用户名> --password-stdin
 # docker tag purplemoon:latest ghcr.io/<你的用户名>/purplemoon:latest
