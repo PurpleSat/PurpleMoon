@@ -58,6 +58,12 @@ export async function middleware(request: NextRequest) {
         if (pathname.startsWith('/api/')) {
           return NextResponse.json({ error: '越权拦截：权限不足，仅管理员或站长可操作' }, { status: 403 });
         }
+        // cookie 里的角色可能是被提权之前签发的旧会话。middleware 无法读取配置
+        // （Edge 限制），因此对 /admin 页面导航交给刷新接口：由它按最新配置
+        // 重新签发 cookie，真是管理员则放行，否则回首页。
+        if (pathname.startsWith('/admin') && storageType !== 'localstorage') {
+          return NextResponse.redirect(new URL('/api/auth/refresh', request.url));
+        }
         return NextResponse.redirect(new URL('/', request.url));
       }
     }

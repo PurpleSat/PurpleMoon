@@ -17,7 +17,7 @@ export async function GET(req: NextRequest) {
     // 页码必须是 1~1000 的正整数，否则回退到第 1 页
     const page = /^\d{1,4}$/.test(rawPage) && Number(rawPage) >= 1 ? rawPage : '1';
 
-    const resolved = await resolveBrowsableSite(searchParams.get('source'));
+    const resolved = await resolveBrowsableSite(req, searchParams.get('source'));
     if ('error' in resolved) {
       return NextResponse.json({ error: resolved.error }, { status: resolved.status });
     }

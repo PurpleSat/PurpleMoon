@@ -140,6 +140,94 @@
     "youzhi": {
       "api": "https://api.yzzy-api.com/inc/apijson.php",
       "name": "优质资源"
+    },
+    "ck": {
+      "api": "https://ckzy.me/api.php/provide/vod",
+      "name": "🔞CK-资源"
+    },
+    "dnz": {
+      "api": "https://apidanaizi.com/api.php/provide/vod",
+      "name": "🔞大奶子"
+    },
+    "msn": {
+      "api": "https://www.msnii.com/api/json.php",
+      "name": "🔞美少女"
+    },
+    "avzy": {
+      "api": "https://www.pgxdy.com/api/json.php",
+      "name": "🔞黄AVZY"
+    },
+    "115": {
+      "api": "https://155api.com/api.php/provide/vod",
+      "name": "🔞155-资源"
+    },
+    "jk": {
+      "api": "https://jkunzyapi.com/api.php/provide/vod",
+      "name": "🔞jkun资源"
+    },
+    "lb": {
+      "api": "https://lbapi9.com/api.php/provide/vod",
+      "name": "🔞乐播资源"
+    },
+    "nx": {
+      "api": "https://naixxzy.com/api.php/provide/vod",
+      "name": "🔞奶香资源"
+    },
+    "xj": {
+      "api": "https://api.xiaojizy.live/provide/vod",
+      "name": "🔞小鸡资源"
+    },
+    "xb": {
+      "api": "https://xingba222.com/api.php/provide/vod",
+      "name": "🔞杏吧资源"
+    },
+    "th": {
+      "api": "https://thzy1.me/api.php/provide/vod",
+      "name": "🔞桃花资源"
+    },
+    "sl": {
+      "api": "https://beiyong.slapibf.com/api.php/provide/vod",
+      "name": "🔞森林资源"
+    },
+    "dd": {
+      "api": "https://api.ddapi.cc/api.php/provide/vod",
+      "name": "🔞滴滴资源"
+    },
+    "bp": {
+      "api": "https://www.kxgav.com/api/json.php",
+      "name": "🔞白嫖资源"
+    },
+    "jp": {
+      "api": "https://www.jingpinx.com/api.php/provide/vod",
+      "name": "🔞精品资源"
+    },
+    "bp": {
+      "api": "https://www.kxgav.com/api/json.php",
+      "name": "🔞白嫖资源"
+    },
+    "dd": {
+      "api": "https://api.douapi.cc/api.php/provide/vod",
+      "name": "🔞豆豆资源"
+    },
+    "njzy": {
+      "api": "https://apilj.com/api.php/provide/vod",
+      "name": "🔞辣椒资源"
+    },
+    "mdsp": {
+      "api": "https://91md.me/api.php/provide/vod",
+      "name": "🔞麻豆视频"
+    },
+    "hlzy": {
+      "api": "https://www.heiliaozyapi.com/api.php/provide/vod",
+      "name": "🔞黑料资源"
+    },
+    "souav": {
+      "api": "https://api.souavzyw.net/api.php/provide/vod",
+      "name": "🔞souavZY"
+    },
+    "hzck": {
+      "api": "https://hsckzy.xyz/api.php/provide/vod",
+      "name": "🔞黄色仓库"
     }
   }
 }

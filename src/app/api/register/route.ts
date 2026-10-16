@@ -3,7 +3,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 
 import { getClientIp } from '@/lib/client-ip';
-import { getConfig } from '@/lib/config';
+import { getConfig, persistNewUserGroup } from '@/lib/config';
+import { isUsernameTaken } from '@/lib/username';
 import { buildAuthCookieValue, setAuthCookies } from '@/lib/cookies';
 import { db } from '@/lib/db';
 import { timingSafeEqual } from '@/lib/password';
@@ -118,7 +119,14 @@ export async function POST(req: NextRequest) {
     }
     // ================================================================
 
-    if (username === process.env.USERNAME) {
+    // 忽略大小写的唯一性：同时覆盖站长用户名与配置中同步的全部现有用户
+    if (
+      isUsernameTaken(
+        username,
+        config.UserConfig.Users.map((u) => u.username),
+        process.env.USERNAME
+      )
+    ) {
       return NextResponse.json({ error: '用户已存在' }, { status: 400 });
     }
 
@@ -129,6 +137,8 @@ export async function POST(req: NextRequest) {
       }
 
       await db.registerUser(username, password);
+      // 新注册用户落入站长配置的默认分组（默认 B 组）
+      await persistNewUserGroup(username);
 
       const response = NextResponse.json({ ok: true });
       const cookieValue = await buildAuthCookieValue(username, 'user');

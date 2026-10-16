@@ -503,6 +503,10 @@ export class UpstashRedisStorage implements IStorage {
 
     return Number(result) === 1;
   }
+
+  async resetRateLimit(key: string): Promise<void> {
+    await withRetry(() => this.client.del(key));
+  }
 }
 
 // 单例 Upstash Redis 客户端

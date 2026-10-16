@@ -8,6 +8,7 @@ import { checkCsrf } from '@/lib/csrf-guard';
 import { getStorage } from '@/lib/db';
 import { checkUpstreamUrlSafety } from '@/lib/ssrf-guard';
 import { IStorage } from '@/lib/types';
+import { removeSourceKeyFromGroups } from '@/lib/user-groups';
 
 export const runtime = 'edge';
 
@@ -138,6 +139,8 @@ export async function POST(request: NextRequest) {
           return NextResponse.json({ error: '该源不可删除' }, { status: 400 });
         }
         adminConfig.SourceConfig.splice(idx, 1);
+        // 同步清理各分组对该源的引用，避免同名 key 日后被重新添加时权限“复活”
+        removeSourceKeyFromGroups(adminConfig, key);
         break;
       }
       case 'sort': {

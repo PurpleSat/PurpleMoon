@@ -1,7 +1,8 @@
 import { NextResponse } from 'next/server';
 
-import { getAvailableApiSites, getCacheTime } from '@/lib/config';
+import { getCacheTime } from '@/lib/config';
 import { getDetailFromApi } from '@/lib/downstream';
+import { resolveAccessibleSite } from '@/lib/site-access';
 
 export const runtime = 'edge';
 
@@ -19,19 +20,17 @@ export async function GET(request: Request) {
   }
 
   try {
-    const apiSites = await getAvailableApiSites();
-    const apiSite = apiSites.find((site) => site.key === sourceCode);
-
-    if (!apiSite) {
-      return NextResponse.json({ error: '无效的API来源' }, { status: 400 });
-    }
+    const access = await resolveAccessibleSite(request, sourceCode);
+    if (!access.ok) return access.response;
+    const apiSite = access.site;
 
     const result = await getDetailFromApi(apiSite, id);
     const cacheTime = await getCacheTime();
 
     return NextResponse.json(result, {
       headers: {
-        'Cache-Control': `public, max-age=${cacheTime}`,
+        'Cache-Control': `private, max-age=${cacheTime}`,
+        Vary: 'Cookie',
       },
     });
   } catch (error) {

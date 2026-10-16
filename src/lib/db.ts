@@ -286,6 +286,12 @@ export class DbManager {
     // 如果没有配置外部存储（比如 localstorage 模式），默认返回 true (此时会退回到内存 Map 限流)
     return true; 
   }
+
+  async resetRateLimit(key: string): Promise<void> {
+    if (this.storage && typeof (this.storage as any).resetRateLimit === 'function') {
+      await (this.storage as any).resetRateLimit(key);
+    }
+  }
 }
 
 // 导出默认实例

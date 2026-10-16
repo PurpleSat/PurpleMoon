@@ -2,9 +2,10 @@
 
 import { getStorage } from '@/lib/db';
 
-import { AdminConfig } from './admin.types';
+import { AdminConfig, UserGroup } from './admin.types';
 import { ConfigConflictError } from './config-errors';
 import runtimeConfig from './runtime';
+import { getDefaultRegisterGroup, getDiscoveredUserGroup } from './user-groups';
 
 export { ConfigConflictError };
 
@@ -89,7 +90,11 @@ async function refreshCachedConfigFromStorage() {
     if (typeof storage.getAllUsers === 'function') {
       userNames = await storage.getAllUsers();
     }
-    fresh.UserConfig.Users = syncUsers(fresh.UserConfig.Users, userNames);
+    fresh.UserConfig.Users = syncUsers(
+      fresh.UserConfig.Users,
+      userNames,
+      getDiscoveredUserGroup(fresh)
+    );
     cachedConfig = fresh;
     lastStorageSync = Date.now();
   } catch (e) {
@@ -99,7 +104,11 @@ async function refreshCachedConfigFromStorage() {
 
 // ================== 核心同步逻辑抽离 ==================
 // 用于将真实的底层用户列表与 JSON 配置中的权限/封禁状态进行动态合并
-function syncUsers(jsonUsers: any[] = [], dbUserNames: string[] = []): any[] {
+function syncUsers(
+  jsonUsers: any[] = [],
+  dbUserNames: string[] = [],
+  discoveredGroup: UserGroup = 'A'
+): any[] {
   const userMap = new Map();
   jsonUsers.forEach((u) => userMap.set(u.username, u));
 
@@ -120,8 +129,8 @@ function syncUsers(jsonUsers: any[] = [], dbUserNames: string[] = []): any[] {
       syncedUsers.push(userMap.get(uname));
       userMap.delete(uname);
     } else {
-      // 发现新注册的用户，动态赋予默认的 user 角色
-      syncedUsers.push({ username: uname, role: 'user' });
+      // 发现新注册的用户，动态赋予默认的 user 角色与分组
+      syncedUsers.push({ username: uname, role: 'user', group: discoveredGroup });
     }
   });
 
@@ -202,7 +211,11 @@ async function initConfig() {
         });
 
         // 动态合并补全 Users (自我修复)
-        adminConfig.UserConfig.Users = syncUsers(adminConfig.UserConfig.Users, userNames);
+        adminConfig.UserConfig.Users = syncUsers(
+          adminConfig.UserConfig.Users,
+          userNames,
+          getDiscoveredUserGroup(adminConfig)
+        );
 
       } else {
         // 数据库中没有配置，创建新的管理员配置
@@ -317,7 +330,11 @@ export async function getConfig(): Promise<AdminConfig> {
       try {
         const userNames: string[] = await (storage as any).getAllUsers();
         // 自动合并底层真实数据与 JSON 状态
-        adminConfig.UserConfig.Users = syncUsers(adminConfig.UserConfig.Users, userNames);
+        adminConfig.UserConfig.Users = syncUsers(
+          adminConfig.UserConfig.Users,
+          userNames,
+          getDiscoveredUserGroup(adminConfig)
+        );
       } catch (e) {
         console.error('动态同步用户列表失败:', e);
       }
@@ -381,7 +398,27 @@ export async function resetConfig() {
   }
 
   const apiSiteEntries = Object.entries(fileConfig.api_site);
-  
+
+  // 重置不应让受限用户悄悄“升级”：保留原有的分组配置与每个用户的分组
+  let prevConfig: AdminConfig | null = null;
+  if (storage && typeof (storage as any).getAdminConfig === 'function') {
+    try {
+      prevConfig = await (storage as any).getAdminConfig();
+    } catch (e) {
+      console.error('重置前读取旧配置失败:', e);
+    }
+  }
+  const prevGroups = new Map<string, UserGroup | undefined>(
+    (prevConfig?.UserConfig?.Users || []).map((u) => [u.username, u.group])
+  );
+  const resetUsers = syncUsers(
+    [],
+    userNames,
+    getDiscoveredUserGroup({ GroupConfig: prevConfig?.GroupConfig })
+  ).map((u: any) =>
+    u.role === 'owner' ? u : { ...u, group: prevGroups.get(u.username) ?? u.group }
+  );
+
   const adminConfig = {
     SiteConfig: {
       SiteName: process.env.SITE_NAME || 'PurpleMoon',
@@ -395,8 +432,9 @@ export async function resetConfig() {
     },
     UserConfig: {
       AllowRegister: process.env.NEXT_PUBLIC_ENABLE_REGISTER === 'true',
-      Users: syncUsers([], userNames) as any, // 确保重置时也提取底层数据
+      Users: resetUsers as any, // 确保重置时也提取底层数据
     },
+    ...(prevConfig?.GroupConfig ? { GroupConfig: prevConfig.GroupConfig } : {}),
     SourceConfig: apiSiteEntries.map(([key, site]) => ({
       key,
       name: site.name,
@@ -407,6 +445,9 @@ export async function resetConfig() {
     })),
   } as AdminConfig;
 
+  // 乐观并发控制需要带上当前版本号，否则存储层会把这次写入判定为冲突（此前重置配置因此必然失败）
+  adminConfig.configVersion = prevConfig?.configVersion ?? 0;
+
   if (storage && typeof (storage as any).setAdminConfig === 'function') {
     await (storage as any).setAdminConfig(adminConfig);
   }
@@ -416,6 +457,8 @@ export async function resetConfig() {
   cachedConfig.SiteConfig = adminConfig.SiteConfig;
   cachedConfig.UserConfig = adminConfig.UserConfig;
   cachedConfig.SourceConfig = adminConfig.SourceConfig;
+  cachedConfig.GroupConfig = adminConfig.GroupConfig;
+  cachedConfig.configVersion = adminConfig.configVersion;
 }
 
 export async function getCacheTime(): Promise<number> {
@@ -431,4 +474,37 @@ export async function getAvailableApiSites(): Promise<ApiSite[]> {
     api: s.api,
     detail: s.detail,
   }));
+}
+
+/**
+ * 新用户（自助注册 / 后台新增）创建后，立刻把其分组固化写入配置。
+ * 否则该用户只存在于用户表里，分组要等某次后台保存才落盘，
+ * 期间站长修改“默认注册分组”会让这些用户的分组跟着变。
+ * 失败不影响注册本身：getConfig 的用户同步会兜底分配默认分组。
+ */
+export async function persistNewUserGroup(
+  username: string,
+  group?: UserGroup
+): Promise<void> {
+  const storage = getStorage() as any;
+  if (!storage || typeof storage.setAdminConfig !== 'function') return;
+  try {
+    await withConfigConflictRetry(async () => {
+      const config = await getConfig();
+      const g = group ?? getDefaultRegisterGroup(config);
+      const entry = config.UserConfig.Users.find((u) => u.username === username);
+      if (entry) {
+        if (entry.role === 'owner') return;
+        // 🛡️ 配置里可能残留“数据库中已不存在”的旧条目（如删除用户时配置写入失败）。
+        // 重新注册同名账号时必须按全新普通用户对待，不得继承旧条目的 admin 角色。
+        entry.role = 'user';
+        entry.group = g;
+      } else {
+        config.UserConfig.Users.push({ username, role: 'user', group: g });
+      }
+      await storage.setAdminConfig(config);
+    });
+  } catch (e) {
+    console.error('写入新用户分组失败（将由用户同步兜底）:', e);
+  }
 }

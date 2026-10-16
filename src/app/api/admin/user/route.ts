@@ -8,6 +8,12 @@ import { getConfig, withConfigConflictRetry } from '@/lib/config';
 import { checkCsrf } from '@/lib/csrf-guard';
 import { getStorage } from '@/lib/db';
 import { IStorage } from '@/lib/types';
+import {
+  adminMayCreateUserInDefaultGroup,
+  adminMayTakeOverAccount,
+  getDefaultRegisterGroup,
+} from '@/lib/user-groups';
+import { isUsernameTaken } from '@/lib/username';
 
 export const runtime = 'edge';
 
@@ -153,13 +159,31 @@ export async function POST(request: NextRequest) {
     } else {
       switch (action) {
         case 'add': {
-          if (targetEntry) {
+          if (
+            targetEntry ||
+            isUsernameTaken(
+              targetUsername!,
+              adminConfig.UserConfig.Users.map((u) => u.username),
+              process.env.USERNAME
+            )
+          ) {
             return NextResponse.json({ error: '用户已存在' }, { status: 400 });
           }
           if (!targetPassword) {
             return NextResponse.json(
               { error: '缺少目标用户密码' },
               { status: 400 }
+            );
+          }
+          // 管理员知道新用户的密码，新用户落入默认注册分组；该分组权限不能高于管理员自己，
+          // 否则管理员可借新建账号获得更高分组的访问权限
+          if (!adminMayCreateUserInDefaultGroup(adminConfig, username)) {
+            return NextResponse.json(
+              {
+                error:
+                  '默认注册分组的资源站权限高于你，仅站长可新增用户（或请站长调整默认注册分组）',
+              },
+              { status: 403 }
             );
           }
           if (!storage || typeof storage.registerUser !== 'function') {
@@ -173,6 +197,7 @@ export async function POST(request: NextRequest) {
           adminConfig.UserConfig.Users.push({
             username: targetUsername!,
             role: 'user',
+            group: getDefaultRegisterGroup(adminConfig),
           });
           targetEntry =
             adminConfig.UserConfig.Users[
@@ -288,6 +313,14 @@ export async function POST(request: NextRequest) {
             return NextResponse.json(
               { error: '仅站长可修改其他管理员密码' },
               { status: 401 }
+            );
+          }
+
+          // 管理员不能给“资源站权限高于自己”的用户改密码，否则可登录其账号越权
+          if (!adminMayTakeOverAccount(adminConfig, username, targetUsername!)) {
+            return NextResponse.json(
+              { error: '该用户的资源站权限高于你，仅站长可修改其密码' },
+              { status: 403 }
             );
           }
 

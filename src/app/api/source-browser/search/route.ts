@@ -17,7 +17,7 @@ export async function GET(req: NextRequest) {
     }
     const page = /^\d{1,4}$/.test(rawPage) && Number(rawPage) >= 1 ? rawPage : '1';
 
-    const resolved = await resolveBrowsableSite(searchParams.get('source'));
+    const resolved = await resolveBrowsableSite(req, searchParams.get('source'));
     if ('error' in resolved) {
       return NextResponse.json({ error: resolved.error }, { status: resolved.status });
     }

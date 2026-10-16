@@ -103,6 +103,9 @@ export interface IStorage {
 
   // 【新增】：全局分布式限流机制 (用于登录/注册防刷)
   checkRateLimit(key: string, limit: number, windowMs: number): Promise<boolean>;
+
+  // 【可选】清除某个限流计数（如账号登录成功后清零失败计数）
+  resetRateLimit?(key: string): Promise<void>;
 }
 
 // 搜索结果数据结构

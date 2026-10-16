@@ -8,7 +8,7 @@ export const runtime = 'edge';
 export async function GET(req: NextRequest) {
   try {
     const { searchParams } = new URL(req.url);
-    const resolved = await resolveBrowsableSite(searchParams.get('source'));
+    const resolved = await resolveBrowsableSite(req, searchParams.get('source'));
     if ('error' in resolved) {
       return NextResponse.json({ error: resolved.error }, { status: resolved.status });
     }

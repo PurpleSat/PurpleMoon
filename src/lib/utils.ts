@@ -231,15 +231,24 @@ export async function getVideoResolutionFromM3u8(m3u8Url: string): Promise<{
  */
 // 【核心修复】：移除了 fallback 的显式 : string 声明
 export function getSafeRedirectUrl(url: string | null | undefined, fallback = '/'): string {
-  if (!url) return fallback;
+  if (!url || typeof url !== 'string') return fallback;
 
-  // 1. 必须以 '/' 开头（保证是相对路径）
-  // 2. 绝对不能以 '//' 开头（防止无协议的外部跳转，如 //evil.com）
-  // 3. 绝对不能以 '/\\' 开头（防止某些浏览器的跨协议路径解析绕过）
-  if (url.startsWith('/') && !url.startsWith('//') && !url.startsWith('/\\')) {
-    return url;
+  // 1. 拒绝任何控制字符（含 TAB/CR/LF）和反斜杠：
+  //    浏览器的 URL 解析会剔除 TAB/CR/LF，'/\t/evil.com' 会被还原成 '//evil.com'；
+  //    反斜杠在部分浏览器中会被当作 '/'。
+  // eslint-disable-next-line no-control-regex
+  if (/[\u0000-\u001f\u007f\\]/.test(url)) return fallback;
+
+  // 2. 必须是以单个 '/' 开头的站内相对路径，禁止 '//'（协议相对 URL）
+  if (!url.startsWith('/') || url.startsWith('//')) return fallback;
+
+  // 3. 兜底：按浏览器规则解析一遍，必须仍然同源
+  try {
+    const base = 'http://local.invalid';
+    const u = new URL(url, base);
+    if (u.origin !== base) return fallback;
+    return u.pathname + u.search + u.hash;
+  } catch {
+    return fallback;
   }
-
-  // 如果不符合同源相对路径要求，强制返回安全的默认地址
-  return fallback;
 }

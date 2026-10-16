@@ -426,6 +426,10 @@ export class RedisStorage implements IStorage {
 
     return Number(result) === 1;
   }
+
+  async resetRateLimit(key: string): Promise<void> {
+    await this.client.del(key);
+  }
 }
 
 // 单例标准 Redis 客户端

@@ -789,4 +789,13 @@ export class D1Storage implements IStorage {
       return true; // 发生数据库异常时兜底放行，防止阻塞正常的合法请求
     }
   }
+
+  async resetRateLimit(key: string): Promise<void> {
+    try {
+      const db = await this.getDatabase();
+      await db.prepare('DELETE FROM rate_limits WHERE key = ?').bind(key).run();
+    } catch (err) {
+      // 表不存在或数据库异常时忽略：最坏情况只是计数自然过期
+    }
+  }
 }

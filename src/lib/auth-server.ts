@@ -3,6 +3,7 @@
 import { NextRequest } from 'next/server';
 
 import { getAuthInfoFromCookie, verifyAuthSignature } from '@/lib/auth';
+import type { AdminConfig } from '@/lib/admin.types';
 import { getConfig, invalidateConfigCache } from '@/lib/config';
 
 /**
@@ -15,7 +16,7 @@ import { getConfig, invalidateConfigCache } from '@/lib/config';
 export async function getVerifiedAuthUser(
   request: NextRequest,
   options: { requiredRole?: 'admin' | 'owner' | 'user'; checkBan?: boolean } = {}
-): Promise<{ username: string; role: string } | null> {
+): Promise<{ username: string; role: string; config?: AdminConfig } | null> {
   const authInfo = getAuthInfoFromCookie(request);
   if (!authInfo || !authInfo.username || !authInfo.signature || !authInfo.timestamp || !authInfo.role) {
     return null;
@@ -41,10 +42,18 @@ export async function getVerifiedAuthUser(
 
   // 角色权限校验
   if (options.requiredRole === 'owner') {
-    if (authInfo.role !== 'owner') return null;
+    // 站长登录时下发的 Cookie 角色是 'admin'（站长身份由用户名与环境变量 USERNAME 判定），
+    // 此前这里要求 role === 'owner'，导致站长永远无法通过“仅站长”接口（如重置配置）。
+    // 签名已覆盖 username 与 role，因此用户名等于站长用户名且签名有效即可确认是站长。
+    const ownerName = process.env.USERNAME;
+    if (!ownerName || authInfo.username !== ownerName) return null;
+    if (authInfo.role !== 'owner' && authInfo.role !== 'admin') return null;
   } else if (options.requiredRole === 'admin') {
     if (authInfo.role !== 'admin' && authInfo.role !== 'owner') return null;
   }
+
+  // 封禁校验时顺带取到的配置，供调用方复用（避免 Vercel/Cloudflare 上重复读库）
+  let loadedConfig: AdminConfig | undefined;
 
   // 封禁状态即时校验 (SEC-04)
   if (options.checkBan !== false && authInfo.username !== process.env.USERNAME) {
@@ -52,6 +61,7 @@ export async function getVerifiedAuthUser(
       const storageType = process.env.NEXT_PUBLIC_STORAGE_TYPE || 'localstorage';
       let config = await getConfig();
       let userEntry = config.UserConfig?.Users?.find((u) => u.username === authInfo.username);
+      loadedConfig = config;
 
       // 进程内配置缓存可能滞后（刚注册的用户、其它实例上的变更）。
       // 查不到该用户时先强制从存储刷新一次再下结论，避免误杀新注册用户。
@@ -59,6 +69,7 @@ export async function getVerifiedAuthUser(
         invalidateConfigCache();
         config = await getConfig();
         userEntry = config.UserConfig?.Users?.find((u) => u.username === authInfo.username);
+        loadedConfig = config;
       }
 
       if (userEntry && userEntry.banned) {
@@ -75,5 +86,5 @@ export async function getVerifiedAuthUser(
     }
   }
 
-  return { username: authInfo.username, role: authInfo.role };
+  return { username: authInfo.username, role: authInfo.role, config: loadedConfig };
 }

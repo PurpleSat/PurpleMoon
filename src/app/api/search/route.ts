@@ -1,8 +1,9 @@
 import { NextResponse } from 'next/server';
 
 import { getClientIp } from '@/lib/client-ip';
-import { getAvailableApiSites, getCacheTime } from '@/lib/config';
+import { getCacheTime } from '@/lib/config';
 import { checkSearchRateLimit, runSearch } from '@/lib/search-engine';
+import { resolveAccessibleSites } from '@/lib/site-access';
 
 export const runtime = 'edge';
 
@@ -25,15 +26,17 @@ export async function GET(request: Request) {
       { results: [] },
       {
         headers: {
-          'Cache-Control': `public, max-age=${cacheTime}`,
+          'Cache-Control': `private, max-age=${cacheTime}`,
+          Vary: 'Cookie',
         },
       }
     );
   }
 
   try {
-    const apiSites = await getAvailableApiSites();
-    const results = await runSearch(apiSites, query, {
+    const access = await resolveAccessibleSites(request);
+    if (!access.ok) return access.response;
+    const results = await runSearch(access.sites, query, {
       signal: request.signal,
     });
     const cacheTime = await getCacheTime();
@@ -42,7 +45,8 @@ export async function GET(request: Request) {
       { results },
       {
         headers: {
-          'Cache-Control': `public, max-age=${cacheTime}`,
+          'Cache-Control': `private, max-age=${cacheTime}`,
+          Vary: 'Cookie',
         },
       }
     );

@@ -1,7 +1,8 @@
 import { NextResponse } from 'next/server';
 
-import { getAvailableApiSites, getCacheTime } from '@/lib/config';
+import { getCacheTime } from '@/lib/config';
 import { searchFromApi } from '@/lib/downstream';
+import { resolveAccessibleSites } from '@/lib/site-access';
 
 export const runtime = 'edge';
 
@@ -17,13 +18,16 @@ export async function GET(request: Request) {
       { result: null, error: '缺少必要参数: q 或 resourceId' },
       {
         headers: {
-          'Cache-Control': `public, max-age=${cacheTime}`,
+          'Cache-Control': `private, max-age=${cacheTime}`,
+          Vary: 'Cookie',
         },
       }
     );
   }
 
-  const apiSites = await getAvailableApiSites();
+  const access = await resolveAccessibleSites(request);
+  if (!access.ok) return access.response;
+  const apiSites = access.sites;
 
   try {
     // 根据 resourceId 查找对应的 API 站点
@@ -55,7 +59,8 @@ export async function GET(request: Request) {
         { results: result },
         {
           headers: {
-            'Cache-Control': `public, max-age=${cacheTime}`,
+            'Cache-Control': `private, max-age=${cacheTime}`,
+          Vary: 'Cookie',
           },
         }
       );

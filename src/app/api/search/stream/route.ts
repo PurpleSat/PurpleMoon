@@ -1,8 +1,9 @@
 import { NextResponse } from 'next/server';
 
 import { getClientIp } from '@/lib/client-ip';
-import { ApiSite, getAvailableApiSites } from '@/lib/config';
+import { ApiSite } from '@/lib/config';
 import { checkSearchRateLimit, runSearch } from '@/lib/search-engine';
+import { resolveAccessibleSites } from '@/lib/site-access';
 
 export const runtime = 'edge';
 
@@ -31,7 +32,9 @@ export async function GET(request: Request) {
 
   let apiSites: ApiSite[];
   try {
-    apiSites = await getAvailableApiSites();
+    const access = await resolveAccessibleSites(request);
+    if (!access.ok) return access.response;
+    apiSites = access.sites;
   } catch {
     return NextResponse.json({ error: '搜索失败' }, { status: 500 });
   }
