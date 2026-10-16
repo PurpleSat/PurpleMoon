@@ -333,3 +333,22 @@ export function filterAdsFromM3U8(
     return passthrough('parse-error');
   }
 }
+
+/**
+ * 原有规则（与最初版本 play 页中的 filterAdsFromM3U8 完全一致，保持不变）：
+ * 删除播放列表里所有包含 #EXT-X-DISCONTINUITY 的行。
+ * 实测在多数源上能让播放器越过广告；配合 filterAdsFromM3U8 使用时必须放在它之后
+ * （后者要靠这些标记来识别广告段）。
+ */
+export function stripDiscontinuityLegacy(m3u8Content: string): string {
+  if (!m3u8Content) return '';
+  const lines = m3u8Content.split('\n');
+  const filteredLines: string[] = [];
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    if (!line.includes('#EXT-X-DISCONTINUITY')) {
+      filteredLines.push(line);
+    }
+  }
+  return filteredLines.join('\n');
+}
