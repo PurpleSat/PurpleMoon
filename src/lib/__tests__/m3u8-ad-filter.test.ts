@@ -1,5 +1,5 @@
 /** @jest-environment node */
-import { filterAdsFromM3U8 } from '../m3u8-ad-filter';
+import { filterAdsFromM3U8, stripDiscontinuityLegacy } from '../m3u8-ad-filter';
 
 const HEAD = '#EXTM3U\n#EXT-X-VERSION:3\n#EXT-X-TARGETDURATION:10\n#EXT-X-MEDIA-SEQUENCE:0\n';
 const BASE = 'https://v.cdn-b.example/20240101/hls/index.m3u8';
@@ -153,5 +153,21 @@ describe('filterAdsFromM3U8', () => {
     for (let i = 0; i < 20; i++) body += D + main(3, i * 3);
     const input = HEAD + body + END;
     expect(filterAdsFromM3U8(input, { baseUrl: BASE }).removedSegments).toBe(0);
+  });
+
+  it('T20 原有规则：删除全部 DISCONTINUITY 行，其余原样', () => {
+    const input = HEAD + main(3) + D + ad(2) + D + main(3, 3) + '#EXT-X-DISCONTINUITY-SEQUENCE:1\n' + END;
+    const out = stripDiscontinuityLegacy(input);
+    expect(out).not.toContain('#EXT-X-DISCONTINUITY');
+    expect(uris(out)).toHaveLength(8);
+    expect(stripDiscontinuityLegacy('')).toBe('');
+  });
+
+  it('T21 组合：先识别删除广告分片，再执行原有规则', () => {
+    const r = filterAdsFromM3U8(HEAD + ad(4) + D + main(30) + D + sameDirAd(3) + D + main(30, 30) + END, { baseUrl: BASE });
+    const out = stripDiscontinuityLegacy(r.content);
+    expect(r.removedSegments).toBe(7);
+    expect(out).not.toContain('#EXT-X-DISCONTINUITY');
+    expect(uris(out)).toHaveLength(60);
   });
 });
