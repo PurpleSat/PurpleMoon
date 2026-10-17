@@ -356,7 +356,7 @@ export class D1Storage implements IStorage {
         db
           .prepare('DELETE FROM skip_configs WHERE username = ?')
           .bind(userName),
-        // 同步级联删除用户的便利贴记录
+        // 同步级联删除用户的留言记录
         db
           .prepare('DELETE FROM user_memos WHERE username = ?')
           .bind(userName),
@@ -649,7 +649,7 @@ export class D1Storage implements IStorage {
   }
 
   // =========================================================================
-  // 便利贴 (Memos) 数据层实现（调整为全员共享模式）
+  // 留言 (Memos) 数据层实现（调整为全员共享模式）
   // =========================================================================
 
   async getMemos(currentUserName?: string): Promise<Memo[]> {
@@ -679,7 +679,7 @@ export class D1Storage implements IStorage {
   }
 
   async addMemo(userName: string, content: string): Promise<void> {
-    // 1. 【防刷限流校验】：单用户 60 秒 (60000 毫秒) 内最多发布 3 条便利贴
+    // 1. 【防刷限流校验】：单用户 60 秒 (60000 毫秒) 内最多发布 2 条留言
     const isAllowed = await this.checkRateLimit(`memo:${userName}`, 2, 600000);
     if (!isAllowed) {
       throw new Error('发布过于频繁，10 分钟内最多只能发布 2 条留言。');
@@ -688,7 +688,7 @@ export class D1Storage implements IStorage {
     try {
       const db = await this.getDatabase();
 
-      // 2. 插入新的便利贴，保存发布者 username
+      // 2. 插入新的留言，保存发布者 username
       await db
         .prepare('INSERT INTO user_memos (username, content, created_at) VALUES (?, ?, ?)')
         .bind(userName, content, Date.now())
@@ -722,7 +722,7 @@ export class D1Storage implements IStorage {
   async deleteMemo(userName: string, memoId: number): Promise<boolean> {
     try {
       const db = await this.getDatabase();
-      // 鉴权校验：仅允许作者删除自己的便利贴
+      // 鉴权校验：仅允许作者删除自己的留言
       const result = await db
         .prepare('DELETE FROM user_memos WHERE id = ? AND username = ?')
         .bind(memoId, userName)
