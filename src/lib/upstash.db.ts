@@ -421,7 +421,7 @@ export class UpstashRedisStorage implements IStorage {
     // 2. 限流校验：基于 ZSET 滑动窗口检查单用户 60 秒内最多 3 条
     const isAllowed = await this.checkRateLimit(`memo:rate:${userName}`, 2, 600000);
     if (!isAllowed) {
-      throw new Error('发布过于频繁，10分钟内最多只能发布 2 条便利贴。');
+      throw new Error('发布过于频繁，10分钟内最多只能发布 2 条留言。');
     }
 
     // 3. 构造唯一 ID 的便签对象
