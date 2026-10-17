@@ -170,7 +170,7 @@ export class RedisStorage implements IStorage {
       await this.client.del(skipKeys);
     }
 
-    // 清理全员共享便利贴中该用户发布的所有记录
+    // 清理全员共享留言中该用户发布的所有记录
     const rawList = await this.client.lRange(this.memosKey(), 0, -1);
     if (rawList && rawList.length > 0) {
       for (const itemStr of rawList) {
@@ -315,7 +315,7 @@ export class RedisStorage implements IStorage {
   }
 
   // =========================================================================
-  // 全员共享便利贴 (Memos)
+  // 全员共享留言 (Memos)
   // =========================================================================
 
   private memosKey() {
@@ -342,16 +342,16 @@ export class RedisStorage implements IStorage {
   async addMemo(userName: string, content: string): Promise<void> {
     const trimmed = content?.trim();
     if (!trimmed || trimmed.length === 0) {
-      throw new Error('便利贴内容不能为空');
+      throw new Error('留言内容不能为空');
     }
     if (trimmed.length > 500) {
-      throw new Error('便利贴内容不能超过 500 个字符');
+      throw new Error('留言内容不能超过 500 个字符');
     }
 
     // 限流校验：基于 ZSET 滑动窗口（60 秒内最多 3 条）
     const isAllowed = await this.checkRateLimit(`memo:rate:${userName}`, 2, 600000);
     if (!isAllowed) {
-      throw new Error('发布过于频繁，10分钟内最多只能发布 2 条便利贴。');
+      throw new Error('发布过于频繁，10分钟内最多只能发布 2 条留言。');
     }
 
     const memoData = {
