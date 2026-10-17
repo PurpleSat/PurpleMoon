@@ -26,6 +26,7 @@ import { getVideoResolutionFromM3u8, processImageUrl } from '@/lib/utils';
 
 import EpisodeSelector from '@/components/EpisodeSelector';
 import PageLayout from '@/components/PageLayout';
+import { filterAdsFromM3U8, stripDiscontinuityLegacy } from '@/lib/m3u8-ad-filter';
 
 // 扩展 HTMLVideoElement 类型以支持 hls 属性
 declare global {
@@ -444,19 +445,6 @@ function PlayPageClient() {
     }
   };
 
-  function filterAdsFromM3U8(m3u8Content: string): string {
-    if (!m3u8Content) return '';
-    const lines = m3u8Content.split('\n');
-    const filteredLines = [];
-    for (let i = 0; i < lines.length; i++) {
-      const line = lines[i];
-      if (!line.includes('#EXT-X-DISCONTINUITY')) {
-        filteredLines.push(line);
-      }
-    }
-    return filteredLines.join('\n');
-  }
-
   const formatTime = (seconds: number): string => {
     if (seconds === 0) return '00:00';
     const hours = Math.floor(seconds / 3600);
@@ -519,7 +507,35 @@ function PlayPageClient() {
           const onSuccess = callbacks.onSuccess;
           callbacks.onSuccess = function (response: any, stats: any, context: any) {
             if (response.data && typeof response.data === 'string') {
-              response.data = filterAdsFromM3U8(response.data);
+              try {
+                const extra = (process.env.NEXT_PUBLIC_AD_BLOCK_PATTERNS || '')
+                  .split(',')
+                  .map((x) => x.trim())
+                  .filter(Boolean);
+                const r = filterAdsFromM3U8(response.data, {
+                  baseUrl: context?.url,
+                  extraPatterns: extra,
+                });
+                if (r.removedSegments > 0) {
+                  console.info(`[去广告] 已移除 ${r.removedSegments} 个分片（约 ${r.removedSeconds.toFixed(1)} 秒）`);
+                } else if (r.skippedReason && r.skippedReason !== 'not-media-playlist') {
+                  // 用 info 级别输出，方便在控制台（F12）直接看到为什么没过滤
+                  console.info(`[去广告] 未过滤：${r.skippedReason}`);
+                }
+                // 调试用：控制台输入 __adFilterLast 查看最近一次结果
+                try {
+                  (window as any).__adFilterLast = { url: context?.url, ...r, content: undefined };
+                } catch {
+                  // ignore
+                }
+                // 已按特征精确删除广告分片：保留其余 #EXT-X-DISCONTINUITY（它们是正片自身的时间戳重置点，
+                // 删掉会导致个别源“没播完就跳到结尾”）。
+                // 没能识别出广告：退回原有规则——删除全部 #EXT-X-DISCONTINUITY，让播放器越过广告。
+                response.data = r.removedSegments > 0 ? r.content : stripDiscontinuityLegacy(r.content);
+              } catch {
+                // 新规则出错：退回只执行原有规则
+                response.data = stripDiscontinuityLegacy(response.data);
+              }
             }
             return onSuccess(response, stats, context, null);
           };
