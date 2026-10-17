@@ -197,7 +197,7 @@ export class UpstashRedisStorage implements IStorage {
     // 删除搜索历史
     await withRetry(() => this.client.del(this.shKey(userName)));
 
-    // 删除便利贴限流 Key
+    // 删除留言限流 Key
     await withRetry(() => this.client.del(`memo:rate:${userName}`));
 
     // 删除播放记录
@@ -225,7 +225,7 @@ export class UpstashRedisStorage implements IStorage {
       await withRetry(() => this.client.del(...skipKeys));
     }
 
-    // 【修复版】：通过 LREM 原理清理全员共享便利贴中该用户发布的所有记录
+    // 【修复版】：通过 LREM 原理清理全员共享留言中该用户发布的所有记录
     const list = await withRetry(() =>
       this.client.lrange<string | object>(this.memosKey(), 0, -1)
     );
@@ -385,7 +385,7 @@ export class UpstashRedisStorage implements IStorage {
   }
 
   // =========================================================================
-  // 【修复版】：全员共享便利贴 (Memos) - Redis 原生 List + 防刷/限流
+  // 【修复版】：全员共享留言 (Memos) - Redis 原生 List + 防刷/限流
   // =========================================================================
 
   private memosKey() {
@@ -398,7 +398,7 @@ export class UpstashRedisStorage implements IStorage {
     );
     const rawMemos = list || [];
 
-    // 映射全站便利贴，并根据当前用户名计算 is_owner 状态
+    // 映射全站留言，并根据当前用户名计算 is_owner 状态
     return rawMemos.map((item) => {
       const memo = typeof item === 'string' ? JSON.parse(item) : item;
       return {
@@ -412,10 +412,10 @@ export class UpstashRedisStorage implements IStorage {
     // 1. 内容校验
     const trimmed = content?.trim();
     if (!trimmed || trimmed.length === 0) {
-      throw new Error('便利贴内容不能为空');
+      throw new Error('留言内容不能为空');
     }
     if (trimmed.length > 500) {
-      throw new Error('便利贴内容不能超过 500 个字符');
+      throw new Error('留言内容不能超过 500 个字符');
     }
 
     // 2. 限流校验：基于 ZSET 滑动窗口检查单用户 60 秒内最多 3 条
