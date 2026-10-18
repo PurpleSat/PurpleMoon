@@ -6,11 +6,6 @@
       "name": "电影天堂资源",
       "detail": "http://caiji.dyttzyapi.com"
     },
-    "heimuer": {
-      "api": "https://json.heimuer.xyz/api.php/provide/vod",
-      "name": "黑木耳",
-      "detail": "https://heimuer.tv"
-    },
     "ruyi": {
       "api": "https://cj.rycjapi.com/api.php/provide/vod",
       "name": "如意资源"
@@ -36,10 +31,6 @@
       "api": "https://caiji.maotaizy.cc/api.php/provide/vod",
       "name": "茅台资源"
     },
-    "wolong": {
-      "api": "https://wolongzyw.com/api.php/provide/vod",
-      "name": "卧龙资源"
-    },
     "jisu": {
       "api": "https://jszyapi.com/api.php/provide/vod",
       "name": "极速资源",
@@ -48,10 +39,6 @@
     "dbzy": {
       "api": "https://dbzy.tv/api.php/provide/vod",
       "name": "豆瓣资源"
-    },
-    "mozhua": {
-      "api": "https://mozhuazy.com/api.php/provide/vod",
-      "name": "魔爪资源"
     },
     "mdzy": {
       "api": "https://www.mdzyapi.com/api.php/provide/vod",
@@ -88,10 +75,6 @@
     "huya": {
       "api": "https://www.huyaapi.com/api.php/provide/vod/at/json",
       "name": "虎牙资源"
-    },
-    "shanhai": {
-      "api": "https://zy.sh0o.cn/api.php/provide/vod",
-      "name": "山海资源"
     },
     "tianya": {
       "api": "https://tyyszy.com/api.php/provide/vod",
