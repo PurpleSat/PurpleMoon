@@ -9,6 +9,7 @@ import { createPortal } from 'react-dom';
 export const SettingsButton: React.FC = () => {
   const [isOpen, setIsOpen] = useState(false);
   const [defaultAggregateSearch, setDefaultAggregateSearch] = useState(true);
+  const [enableStreamSearch, setEnableStreamSearch] = useState(true);
   const [doubanProxyUrl, setDoubanProxyUrl] = useState('');
   const [imageProxyUrl, setImageProxyUrl] = useState('');
   const [enableOptimization, setEnableOptimization] = useState(true);
@@ -28,6 +29,16 @@ export const SettingsButton: React.FC = () => {
       );
       if (savedAggregateSearch !== null) {
         setDefaultAggregateSearch(JSON.parse(savedAggregateSearch));
+      }
+
+      const savedStreamSearch = localStorage.getItem('enableStreamSearch');
+      if (savedStreamSearch !== null) {
+        try {
+          const parsed = JSON.parse(savedStreamSearch);
+          if (typeof parsed === 'boolean') setEnableStreamSearch(parsed);
+        } catch {
+          // 值损坏时保持默认（开启）
+        }
       }
 
       const savedDoubanProxyUrl = localStorage.getItem('doubanProxyUrl');
@@ -65,6 +76,13 @@ export const SettingsButton: React.FC = () => {
     setDefaultAggregateSearch(value);
     if (typeof window !== 'undefined') {
       localStorage.setItem('defaultAggregateSearch', JSON.stringify(value));
+    }
+  };
+
+  const handleStreamSearchToggle = (value: boolean) => {
+    setEnableStreamSearch(value);
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('enableStreamSearch', JSON.stringify(value));
     }
   };
 
@@ -110,6 +128,7 @@ export const SettingsButton: React.FC = () => {
 
     // 重置所有状态
     setDefaultAggregateSearch(true);
+    setEnableStreamSearch(true);
     setEnableOptimization(true);
     setDoubanProxyUrl('');
     setEnableImageProxy(!!defaultImageProxy);
@@ -118,6 +137,7 @@ export const SettingsButton: React.FC = () => {
     // 保存到 localStorage
     if (typeof window !== 'undefined') {
       localStorage.setItem('defaultAggregateSearch', JSON.stringify(true));
+      localStorage.setItem('enableStreamSearch', JSON.stringify(true));
       localStorage.setItem('enableOptimization', JSON.stringify(true));
       localStorage.setItem('doubanProxyUrl', '');
       localStorage.setItem(
@@ -181,6 +201,30 @@ export const SettingsButton: React.FC = () => {
                   className='sr-only peer'
                   checked={defaultAggregateSearch}
                   onChange={(e) => handleAggregateToggle(e.target.checked)}
+                />
+                <div className='w-11 h-6 bg-gray-300 rounded-full peer-checked:bg-green-500 transition-colors dark:bg-gray-600'></div>
+                <div className='absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full transition-transform peer-checked:translate-x-5'></div>
+              </div>
+            </label>
+          </div>
+
+          {/* 流式搜索 */}
+          <div className='flex items-center justify-between'>
+            <div>
+              <h4 className='text-sm font-medium text-gray-700 dark:text-gray-300'>
+                流式搜索
+              </h4>
+              <p className='text-xs text-gray-500 dark:text-gray-400 mt-1'>
+                开启：边搜边显示，流式不可用时自动改用普通搜索；关闭：直接使用普通搜索，等全部搜完再显示
+              </p>
+            </div>
+            <label className='flex items-center cursor-pointer'>
+              <div className='relative'>
+                <input
+                  type='checkbox'
+                  className='sr-only peer'
+                  checked={enableStreamSearch}
+                  onChange={(e) => handleStreamSearchToggle(e.target.checked)}
                 />
                 <div className='w-11 h-6 bg-gray-300 rounded-full peer-checked:bg-green-500 transition-colors dark:bg-gray-600'></div>
                 <div className='absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full transition-transform peer-checked:translate-x-5'></div>
