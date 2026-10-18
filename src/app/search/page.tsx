@@ -43,6 +43,22 @@ function SearchPageClient() {
     return true; // 默认启用聚合
   };
 
+  // 是否启用流式搜索：读取用户本地设置，默认开启；值缺失或损坏时按开启处理
+  const getEnableStreamSearch = (): boolean => {
+    if (typeof window !== 'undefined') {
+      try {
+        const saved = localStorage.getItem('enableStreamSearch');
+        if (saved !== null) {
+          const parsed = JSON.parse(saved);
+          if (typeof parsed === 'boolean') return parsed;
+        }
+      } catch {
+        // 忽略，走默认值
+      }
+    }
+    return true;
+  };
+
   const [viewMode, setViewMode] = useState<'agg' | 'all'>(() => {
     return getDefaultAggregate() ? 'agg' : 'all';
   });
@@ -155,6 +171,8 @@ function SearchPageClient() {
     const isStale = () => abortRef.current !== controller;
 
     const trimmed = query.trim();
+    // 每次搜索时读取一次，设置面板里切换后下一次搜索即生效
+    const useStream = getEnableStreamSearch();
     setIsLoading(true);
     setIsStreaming(false);
     setSearchResults([]);
@@ -188,6 +206,13 @@ function SearchPageClient() {
     };
 
     try {
+      // 关闭流式搜索：直接使用普通搜索，整页转圈直到全部搜完
+      if (!useStream) {
+        await fallbackToPlainSearch();
+        if (!isStale()) setShowResults(true);
+        return;
+      }
+
       const response = await fetch(
         `/api/search/stream?q=${encodeURIComponent(trimmed)}`,
         { signal: controller.signal }
@@ -242,6 +267,11 @@ function SearchPageClient() {
       if (!isStale()) setShowResults(true);
     } catch (error: any) {
       if (error?.name === 'AbortError' || isStale()) return;
+      // 普通搜索模式下失败：不再重复请求同一个接口
+      if (!useStream) {
+        setSearchResults([]);
+        return;
+      }
       // 流式接口不可用（例如被代理拦截）时退回普通接口
       try {
         await fallbackToPlainSearch();
