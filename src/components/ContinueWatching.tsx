@@ -68,9 +68,15 @@ export default function ContinueWatching({ className }: ContinueWatchingProps) {
     return unsubscribe;
   }, []);
 
-  // 如果没有播放记录，则不渲染组件
+  // 如果没有播放记录，则在页面中央显示欢迎语
   if (!loading && playRecords.length === 0) {
-    return null;
+    return (
+      <div className='flex min-h-[55vh] items-center justify-center px-4'>
+        <p className='text-center text-lg font-medium tracking-wide text-gray-500 sm:text-2xl dark:text-gray-400'>
+          欢迎登录紫月，从底部导航栏开始探索吧。
+        </p>
+      </div>
+    );
   }
 
   // 计算播放进度百分比
