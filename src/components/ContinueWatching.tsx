@@ -73,7 +73,7 @@ export default function ContinueWatching({ className }: ContinueWatchingProps) {
     return (
       <div className='flex min-h-[55vh] items-center justify-center px-4'>
         <p className='text-center text-lg font-medium tracking-wide text-gray-500 sm:text-2xl dark:text-gray-400'>
-          🎁
+          🌟从底部导航栏开始探索紫月🌟
         </p>
       </div>
     );
