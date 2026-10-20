@@ -1,4 +1,4 @@
-// 🛡️ 安全加固 (SEC-05 / S-03)：客户端 IP 解析 —— 仅信任“显式声明为可信”的来源
+// 🛡️ 安全加固 (SEC-05 / S-03 / SEC-NEW-02)：客户端 IP 解析 —— 仅信任“显式声明为可信”的来源
 //
 // 威胁模型：X-Real-IP / X-Client-IP / CF-Connecting-IP / X-Forwarded-For 都是普通请求头，
 // 在没有可信反向代理覆盖它们时，任何客户端都能随意伪造，从而绕过按 IP 的限流。
@@ -9,7 +9,7 @@
 //   TRUST_X_FORWARDED_FOR=true    前置代理会向 X-Forwarded-For 追加真实来源地址
 //   TRUSTED_PROXY_HOPS=1          X-Forwarded-For 中可信代理的层数（默认 1），取倒数第 N 个
 //
-// 无法确定 IP 时返回固定的 'unknown_ip'（所有此类请求共享一个限流桶，宁可误伤也不放行）。
+// 无法确定 IP 时返回固定的 'unknown_ip'（调用方可针对 unknown_ip 结合账号级限流做差异化防刷）。
 
 export const UNKNOWN_IP = 'unknown_ip';
 
@@ -58,7 +58,8 @@ export function getClientIp(request: HeaderSource): string {
     if (real) return real;
   }
 
-  // 4. X-Forwarded-For：取“倒数第 N 个”，最左侧的值由客户端控制，不可信
+  // 4. X-Forwarded-For：仅在显式声明 TRUST_X_FORWARDED_FOR=true（或非生产调试环境）时读取，
+  //    严禁在生产环境无条件信任未声明的 X-Forwarded-For，防止直连部署被伪造 IP 绕过限流。
   const xff = request.headers.get('x-forwarded-for');
   if (xff && (envFlag('TRUST_X_FORWARDED_FOR') || !isProd)) {
     const chain = xff.split(',').map((s) => s.trim()).filter(Boolean);
@@ -72,21 +73,7 @@ export function getClientIp(request: HeaderSource): string {
     }
   }
 
-  // 5. 未显式声明可信代理时的生产环境兜底：
-  //    Next.js 15 已移除 request.ip，Docker / 自建部署无法拿到 TCP 对端地址。
-  //    若所有请求都落入同一个 'unknown_ip' 限流桶，任意一个攻击者发 10 次登录请求就能把
-  //    全站用户锁在登录页外（拒绝服务）。因此当前置反向代理（Nginx / Caddy / Traefik /
-  //    Cloudflare Tunnel 等）已附加 X-Forwarded-For 时，取其“最右侧”一项——这是最近一层
-  //    代理看到的连接来源，客户端无法覆盖。
-  //    注意：若服务直接暴露公网且没有任何反向代理，客户端可伪造该头来规避限流；
-  //    生产环境请务必置于反向代理之后，并按需设置上面的 TRUST_* 变量。
-  if (isProd && xff) {
-    const chain = xff.split(',').map((s) => s.trim()).filter(Boolean);
-    const ip = sanitizeIp(chain[chain.length - 1]);
-    if (ip) return ip;
-  }
-
-  // 6. 开发环境允许回环地址，便于本地调试
+  // 5. 开发环境允许回环地址，便于本地调试
   if (!isProd) return '127.0.0.1';
 
   return UNKNOWN_IP;

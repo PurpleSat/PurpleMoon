@@ -306,7 +306,7 @@ export async function getConfig(): Promise<AdminConfig> {
     }
     return cachedConfig;
   }
-  
+
   // 非 docker 环境且 DB 存储，直接读 db 配置
   const storage = getStorage();
   let adminConfig: AdminConfig | null = null;
@@ -315,15 +315,22 @@ export async function getConfig(): Promise<AdminConfig> {
   }
 
   if (adminConfig) {
-    // 合并一些环境变量配置
-    adminConfig.SiteConfig.SiteName = process.env.SITE_NAME || 'PurpleMoon';
+    // 🛡️ 逻辑修复 (LOG-02)：仅在数据库字段缺省时才回退至环境变量，
+    // 避免非 Docker 模式下每次读取配置都将后台已保存的设置覆盖回环境变量默认值。
+    adminConfig.SiteConfig = adminConfig.SiteConfig || ({} as any);
+    adminConfig.SiteConfig.SiteName =
+      adminConfig.SiteConfig.SiteName || process.env.SITE_NAME || 'PurpleMoon';
     adminConfig.SiteConfig.Announcement =
-      process.env.ANNOUNCEMENT ||
-      'Welcome to PurpleMoon. Please note that all content available on this site is sourced from the Internet.';
-    adminConfig.UserConfig.AllowRegister =
-      process.env.NEXT_PUBLIC_ENABLE_REGISTER === 'true';
+      adminConfig.SiteConfig.Announcement ??
+      (process.env.ANNOUNCEMENT ||
+        'Welcome to PurpleMoon. Please note that all content available on this site is sourced from the Internet.');
     adminConfig.SiteConfig.ImageProxy =
-      process.env.NEXT_PUBLIC_IMAGE_PROXY || '';
+      adminConfig.SiteConfig.ImageProxy ?? (process.env.NEXT_PUBLIC_IMAGE_PROXY || '');
+    adminConfig.UserConfig = adminConfig.UserConfig || ({ Users: [] } as any);
+    if (typeof adminConfig.UserConfig.AllowRegister !== 'boolean') {
+      adminConfig.UserConfig.AllowRegister =
+        process.env.NEXT_PUBLIC_ENABLE_REGISTER === 'true';
+    }
 
     // ================= 修复后台用户列表缺失问题 =================
     if (typeof (storage as any).getAllUsers === 'function') {
@@ -399,7 +406,8 @@ export async function resetConfig() {
 
   const apiSiteEntries = Object.entries(fileConfig.api_site);
 
-  // 重置不应让受限用户悄悄“升级”：保留原有的分组配置与每个用户的分组
+  // 重置不应让受限用户悄悄“升级”或使已封禁/已吊销会话复活：
+  // 保留原有的分组配置、每个用户的分组、封禁状态以及 sessionsValidAfter 会话吊销水位线
   let prevConfig: AdminConfig | null = null;
   if (storage && typeof (storage as any).getAdminConfig === 'function') {
     try {
@@ -408,16 +416,34 @@ export async function resetConfig() {
       console.error('重置前读取旧配置失败:', e);
     }
   }
-  const prevGroups = new Map<string, UserGroup | undefined>(
-    (prevConfig?.UserConfig?.Users || []).map((u) => [u.username, u.group])
+  const prevUserMeta = new Map<
+    string,
+    { group?: UserGroup; banned?: boolean; sessionsValidAfter?: number }
+  >(
+    (prevConfig?.UserConfig?.Users || []).map((u) => [
+      u.username,
+      {
+        group: u.group,
+        banned: u.banned,
+        sessionsValidAfter: u.sessionsValidAfter,
+      },
+    ])
   );
   const resetUsers = syncUsers(
     [],
     userNames,
     getDiscoveredUserGroup({ GroupConfig: prevConfig?.GroupConfig })
-  ).map((u: any) =>
-    u.role === 'owner' ? u : { ...u, group: prevGroups.get(u.username) ?? u.group }
-  );
+  ).map((u: any) => {
+    if (u.role === 'owner') return u;
+    const prev = prevUserMeta.get(u.username);
+    if (!prev) return u;
+    return {
+      ...u,
+      group: prev.group ?? u.group,
+      ...(prev.banned ? { banned: true } : {}),
+      ...(prev.sessionsValidAfter ? { sessionsValidAfter: prev.sessionsValidAfter } : {}),
+    };
+  });
 
   const adminConfig = {
     SiteConfig: {
@@ -471,9 +497,13 @@ export async function getAvailableApiSites(): Promise<ApiSite[]> {
   return config.SourceConfig.filter((s) => !s.disabled).map((s) => ({
     key: s.key,
     name: s.name,
-    api: s.api,
+    api: siteApi(s.api),
     detail: s.detail,
   }));
+}
+
+function siteApi(api: string): string {
+  return api;
 }
 
 /**
@@ -496,13 +526,17 @@ export async function persistNewUserGroup(
       if (entry) {
         if (entry.role === 'owner') return;
         // 🛡️ 配置里可能残留“数据库中已不存在”的旧条目（如删除用户时配置写入失败）。
-        // 重新注册同名账号时必须按全新普通用户对待，不得继承旧条目的 admin 角色。
+        // 重新注册同名账号时必须按全新普通用户对待，不得继承旧条目的 admin 角色或旧封禁/会话吊销状态。
         entry.role = 'user';
         entry.group = g;
+        entry.banned = false;
+        delete entry.sessionsValidAfter;
       } else {
         config.UserConfig.Users.push({ username, role: 'user', group: g });
       }
       await storage.setAdminConfig(config);
+      cachedConfig = config;
+      lastStorageSync = Date.now();
     });
   } catch (e) {
     console.error('写入新用户分组失败（将由用户同步兜底）:', e);

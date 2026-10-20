@@ -4,19 +4,18 @@ import { Redis } from '@upstash/redis';
 
 import { AdminConfig } from './admin.types';
 import { ConfigConflictError } from './config-errors';
-import { hashPassword, verifyPassword, verifyPasswordDummy } from './password'; // 【安全升级】：引入加盐哈希与防时序攻击验证
-import { Favorite, IStorage, Memo,PlayRecord, SkipConfig } from './types'; // 引入 SkipConfig 和 Memo
+import { hashPassword, verifyPassword, verifyPasswordDummy } from './password';
+import { Favorite, IStorage, Memo, PlayRecord, SkipConfig } from './types';
 
-// 搜索历史最大条数
-const SEARCH_HISTORY_LIMIT = 40;
+// 🛡️ 逻辑修复 (LOG-07)：前后端统一搜索历史最大条数为 20 条
+const SEARCH_HISTORY_LIMIT = 20;
 
-// 🛡️ 安全加固 (SEC-07)：转义 Redis Glob 通配符，防止跨租户键名遍历注入
+// 🛡️ 安全加固 (SEC-07 / SEC-NEW-06)：转义 Redis Glob 通配符，防止跨租户键名遍历注入
 function escapeRedisPattern(str: string): string {
   return str.replace(/([*?[\]\\])/g, '\\$1');
 }
 
-
-// 【新增安全机制】：Memo留言板全站最大条数限制
+// Memo留言板全站最大条数限制
 const MEMO_LIMIT = 60;
 
 // 添加Upstash Redis操作重试包装器
@@ -43,7 +42,6 @@ async function withRetry<T>(
         );
         console.error('Error:', err.message);
 
-        // 等待一段时间后重试
         await new Promise((resolve) => setTimeout(resolve, 1000 * (i + 1)));
         continue;
       }
@@ -60,6 +58,28 @@ export class UpstashRedisStorage implements IStorage {
 
   constructor() {
     this.client = getUpstashRedisClient();
+  }
+
+  /**
+   * 🛡️ 逻辑修复 (L-08)：优先使用 SCAN 游标分批迭代代替阻塞式 KEYS 命令；
+   * 若底层客户端不支持 scan，则回退至 keys。
+   */
+  private async scanKeys(pattern: string): Promise<string[]> {
+    if (typeof (this.client as any).scan === 'function') {
+      const found = new Set<string>();
+      let cursor: string | number = 0;
+      do {
+        const res: [string | number, string[]] = await withRetry(() =>
+          (this.client as any).scan(cursor, { match: pattern, count: 200 })
+        );
+        cursor = res[0];
+        for (const k of res[1] || []) {
+          found.add(k);
+        }
+      } while (String(cursor) !== '0');
+      return Array.from(found);
+    }
+    return await withRetry(() => this.client.keys(pattern));
   }
 
   // ---------- 播放记录 ----------
@@ -89,16 +109,16 @@ export class UpstashRedisStorage implements IStorage {
     userName: string
   ): Promise<Record<string, PlayRecord>> {
     const safeUser = escapeRedisPattern(userName);
+    const prefix = `u:${userName}:pr:`;
     const pattern = `u:${safeUser}:pr:*`;
-    const keys: string[] = await withRetry(() => this.client.keys(pattern));
+    const keys: string[] = await this.scanKeys(pattern);
     if (keys.length === 0) return {};
 
     const result: Record<string, PlayRecord> = {};
     for (const fullKey of keys) {
       const value = await withRetry(() => this.client.get(fullKey));
-      if (value) {
-        // 截取 source+id 部分
-        const keyPart = fullKey.replace(`u:${userName}:pr:`, '');
+      if (value && fullKey.startsWith(prefix)) {
+        const keyPart = fullKey.slice(prefix.length);
         result[keyPart] = value as PlayRecord;
       }
     }
@@ -133,15 +153,16 @@ export class UpstashRedisStorage implements IStorage {
 
   async getAllFavorites(userName: string): Promise<Record<string, Favorite>> {
     const safeUser = escapeRedisPattern(userName);
+    const prefix = `u:${userName}:fav:`;
     const pattern = `u:${safeUser}:fav:*`;
-    const keys: string[] = await withRetry(() => this.client.keys(pattern));
+    const keys: string[] = await this.scanKeys(pattern);
     if (keys.length === 0) return {};
 
     const result: Record<string, Favorite> = {};
     for (const fullKey of keys) {
       const value = await withRetry(() => this.client.get(fullKey));
-      if (value) {
-        const keyPart = fullKey.replace(`u:${userName}:fav:`, '');
+      if (value && fullKey.startsWith(prefix)) {
+        const keyPart = fullKey.slice(prefix.length);
         result[keyPart] = value as Favorite;
       }
     }
@@ -157,13 +178,11 @@ export class UpstashRedisStorage implements IStorage {
     return `u:${user}:pwd`;
   }
 
-  // 【安全升级】：密码哈希化存储
   async registerUser(userName: string, password: string): Promise<void> {
     const hashedPassword = await hashPassword(password);
     await withRetry(() => this.client.set(this.userPwdKey(userName), hashedPassword));
   }
 
-  // 【安全升级】：防时序攻击验证（兼容旧版明文密码）
   async verifyUser(userName: string, password: string): Promise<boolean> {
     const stored = await withRetry(() =>
       this.client.get(this.userPwdKey(userName))
@@ -172,16 +191,13 @@ export class UpstashRedisStorage implements IStorage {
     return await verifyPassword(password, stored as string);
   }
 
-  // 检查用户是否存在
   async checkUserExist(userName: string): Promise<boolean> {
-    // 使用 EXISTS 判断 key 是否存在
     const exists = await withRetry(() =>
       this.client.exists(this.userPwdKey(userName))
     );
     return exists === 1;
   }
 
-  // 【安全升级】：新密码哈希化存储
   async changePassword(userName: string, newPassword: string): Promise<void> {
     const hashedPassword = await hashPassword(newPassword);
     await withRetry(() =>
@@ -191,48 +207,35 @@ export class UpstashRedisStorage implements IStorage {
 
   // 删除用户及其所有数据
   async deleteUser(userName: string): Promise<void> {
-    // 删除用户密码
     await withRetry(() => this.client.del(this.userPwdKey(userName)));
-
-    // 删除搜索历史
     await withRetry(() => this.client.del(this.shKey(userName)));
-
-    // 删除留言限流 Key
     await withRetry(() => this.client.del(`memo:rate:${userName}`));
 
-    // 删除播放记录
-    const playRecordPattern = `u:${userName}:pr:*`;
-    const playRecordKeys = await withRetry(() =>
-      this.client.keys(playRecordPattern)
-    );
+    // 🛡️ 安全修复 (SEC-NEW-06)：转义 userName 中的 Glob 通配符，防止删除含特殊字符的历史账号时误删全库
+    const safeUser = escapeRedisPattern(userName);
+
+    const playRecordKeys = await this.scanKeys(`u:${safeUser}:pr:*`);
     if (playRecordKeys.length > 0) {
       await withRetry(() => this.client.del(...playRecordKeys));
     }
 
-    // 删除收藏夹
-    const favoritePattern = `u:${userName}:fav:*`;
-    const favoriteKeys = await withRetry(() =>
-      this.client.keys(favoritePattern)
-    );
+    const favoriteKeys = await this.scanKeys(`u:${safeUser}:fav:*`);
     if (favoriteKeys.length > 0) {
       await withRetry(() => this.client.del(...favoriteKeys));
     }
 
-    // 删除跳过配置
-    const skipPattern = `u:${userName}:skip:*`;
-    const skipKeys = await withRetry(() => this.client.keys(skipPattern));
+    const skipKeys = await this.scanKeys(`u:${safeUser}:skip:*`);
     if (skipKeys.length > 0) {
       await withRetry(() => this.client.del(...skipKeys));
     }
 
-    // 【修复版】：通过 LREM 原理清理全员共享留言中该用户发布的所有记录
     const list = await withRetry(() =>
       this.client.lrange<string | object>(this.memosKey(), 0, -1)
     );
     if (Array.isArray(list)) {
       for (const item of list) {
         const memo = typeof item === 'string' ? JSON.parse(item) : item;
-        if (memo.username === userName) {
+        if (memo && (memo as any).username === userName) {
           const targetStr = typeof item === 'string' ? item : JSON.stringify(item);
           await withRetry(() => this.client.lrem(this.memosKey(), 0, targetStr));
         }
@@ -242,23 +245,20 @@ export class UpstashRedisStorage implements IStorage {
 
   // ---------- 搜索历史 ----------
   private shKey(user: string) {
-    return `u:${user}:sh`; // u:username:sh
+    return `u:${user}:sh`;
   }
 
   async getSearchHistory(userName: string): Promise<string[]> {
     const result = await withRetry(() =>
-      this.client.lrange(this.shKey(userName), 0, -1)
+      this.client.lrange(this.shKey(userName), 0, SEARCH_HISTORY_LIMIT - 1)
     );
     return result as string[];
   }
 
   async addSearchHistory(userName: string, keyword: string): Promise<void> {
     const key = this.shKey(userName);
-    // 先去重
     await withRetry(() => this.client.lrem(key, 0, keyword));
-    // 插入到最前
     await withRetry(() => this.client.lpush(key, keyword));
-    // 限制最大长度
     await withRetry(() => this.client.ltrim(key, 0, SEARCH_HISTORY_LIMIT - 1));
   }
 
@@ -273,7 +273,7 @@ export class UpstashRedisStorage implements IStorage {
 
   // ---------- 获取全部用户 ----------
   async getAllUsers(): Promise<string[]> {
-    const keys = await withRetry(() => this.client.keys('u:*:pwd'));
+    const keys = await this.scanKeys('u:*:pwd');
     return keys
       .map((k) => {
         const match = k.match(/^u:(.+?):pwd$/);
@@ -293,11 +293,6 @@ export class UpstashRedisStorage implements IStorage {
   }
 
   async setAdminConfig(config: AdminConfig): Promise<void> {
-    // 🛡️ 逻辑修复 (P2 · L-02)：乐观并发控制。
-    // Upstash 是无状态的 HTTP REST 客户端，不支持 node-redis 那种
-    // WATCH/MULTI/EXEC 事务，改用 Lua 脚本（EVAL 在 Redis 中保证原子执行）
-    // 实现"读版本号 → 比对 → 写入"的单步原子操作，与本文件里限流逻辑
-    // 已经在用的 Lua 脚本模式保持一致。
     const expectedVersion = config.configVersion ?? 0;
     const newVersion = expectedVersion + 1;
     const newConfig = { ...config, configVersion: newVersion };
@@ -365,15 +360,16 @@ export class UpstashRedisStorage implements IStorage {
 
   async getAllSkipConfigs(userName: string): Promise<Record<string, SkipConfig>> {
     const safeUser = escapeRedisPattern(userName);
+    const prefix = `u:${userName}:skip:`;
     const pattern = `u:${safeUser}:skip:*`;
-    const keys: string[] = await withRetry(() => this.client.keys(pattern));
+    const keys: string[] = await this.scanKeys(pattern);
     if (keys.length === 0) return {};
 
     const result: Record<string, SkipConfig> = {};
     for (const fullKey of keys) {
       const value = await withRetry(() => this.client.get(fullKey));
-      if (value) {
-        const keyPart = fullKey.replace(`u:${userName}:skip:`, '');
+      if (value && fullKey.startsWith(prefix)) {
+        const keyPart = fullKey.slice(prefix.length);
         result[keyPart] = value as SkipConfig;
       }
     }
@@ -385,31 +381,29 @@ export class UpstashRedisStorage implements IStorage {
   }
 
   // =========================================================================
-  // 【修复版】：全员共享留言 (Memos) - Redis 原生 List + 防刷/限流
+  // 全员共享留言 (Memos) - Redis 原生 List + 防刷/限流
   // =========================================================================
 
   private memosKey() {
-    return 'global:memos'; // 统一存储于全站共享 Key
+    return 'global:memos';
   }
 
-  async getMemos(userName?: string): Promise<Memo[]> {
+  async getMemos(userName?: string, isAdmin = false): Promise<Memo[]> {
     const list = await withRetry(() =>
       this.client.lrange<string | object>(this.memosKey(), 0, -1)
     );
     const rawMemos = list || [];
 
-    // 映射全站留言，并根据当前用户名计算 is_owner 状态
     return rawMemos.map((item) => {
-      const memo = typeof item === 'string' ? JSON.parse(item) : item;
+      const memo = (typeof item === 'string' ? JSON.parse(item) : item) as Memo;
       return {
         ...memo,
-        is_owner: Boolean(userName && memo.username === userName),
+        is_owner: Boolean(userName && (memo.username === userName || isAdmin)),
       };
     });
   }
 
   async addMemo(userName: string, content: string): Promise<void> {
-    // 1. 内容校验
     const trimmed = content?.trim();
     if (!trimmed || trimmed.length === 0) {
       throw new Error('留言内容不能为空');
@@ -418,13 +412,12 @@ export class UpstashRedisStorage implements IStorage {
       throw new Error('留言内容不能超过 500 个字符');
     }
 
-    // 2. 限流校验：基于 ZSET 滑动窗口检查单用户 60 秒内最多 3 条
+    // 限流校验：基于 ZSET 滑动窗口检查单用户 10 分钟（600000ms）内最多 2 条
     const isAllowed = await this.checkRateLimit(`memo:rate:${userName}`, 2, 600000);
     if (!isAllowed) {
       throw new Error('发布过于频繁，10分钟内最多只能发布 2 条留言。');
     }
 
-    // 3. 构造唯一 ID 的便签对象
     const memoData = {
       id: Date.now() * 1000 + Math.floor(Math.random() * 1000),
       username: userName,
@@ -433,22 +426,20 @@ export class UpstashRedisStorage implements IStorage {
     };
     const jsonStr = JSON.stringify(memoData);
 
-    // 4. 原子入栈并截断
     await withRetry(() => this.client.lpush(this.memosKey(), jsonStr));
     await withRetry(() => this.client.ltrim(this.memosKey(), 0, MEMO_LIMIT - 1));
   }
 
-  async deleteMemo(userName: string, memoId: number): Promise<boolean> {
+  async deleteMemo(userName: string, memoId: number, isAdmin = false): Promise<boolean> {
     const list = await withRetry(() =>
       this.client.lrange<string | object>(this.memosKey(), 0, -1)
     );
     if (!list || list.length === 0) return false;
 
     for (const item of list) {
-      const memo = typeof item === 'string' ? JSON.parse(item) : item;
-      if (memo.id === memoId && memo.username === userName) {
+      const memo = (typeof item === 'string' ? JSON.parse(item) : item) as Memo;
+      if (memo.id === memoId && (memo.username === userName || isAdmin)) {
         const targetStr = typeof item === 'string' ? item : JSON.stringify(item);
-        // 原子删除指定元素
         await withRetry(() => this.client.lrem(this.memosKey(), 1, targetStr));
         return true;
       }
@@ -461,10 +452,8 @@ export class UpstashRedisStorage implements IStorage {
   // =========================================================================
   async checkRateLimit(key: string, limit: number, windowMs: number): Promise<boolean> {
     const now = Date.now();
-    // 结合时间戳与随机字符串生成唯一成员，防止并发写入导致 Score 覆盖
     const memberId = `${now}:${Math.random().toString(36).substring(2, 7)}`;
 
-    // ZSET 滑动窗口 Lua 脚本（确保原子化清除旧记录、计算当前窗口数量及写入）
     const slidingWindowLua = `
       local key = KEYS[1]
       local now = tonumber(ARGV[1])
@@ -474,21 +463,15 @@ export class UpstashRedisStorage implements IStorage {
       
       local clearBefore = now - window
 
-      -- 1. 移除时间窗口（windowMs）之前的过期记录
       redis.call('ZREMRANGEBYSCORE', key, '-inf', clearBefore)
 
-      -- 2. 获取当前时间窗口内的有效记录条数
       local currentCount = redis.call('ZCARD', key)
 
-      -- 3. 判断是否满足频次限制
       if currentCount < limit then
-          -- 未超过限制：写入本次记录
           redis.call('ZADD', key, now, memberId)
-          -- 刷新 Key 过期时间，防止冷数据长期占用 Key 资源
           redis.call('PEXPIRE', key, window)
           return 1
       else
-          -- 已超过限制：返回 0 拒绝
           return 0
       end
     `;
@@ -524,11 +507,9 @@ function getUpstashRedisClient(): Redis {
       );
     }
 
-    // 创建 Upstash Redis 客户端
     client = new Redis({
       url: upstashUrl,
       token: upstashToken,
-      // 可选配置
       retry: {
         retries: 3,
         backoff: (retryCount: number) =>

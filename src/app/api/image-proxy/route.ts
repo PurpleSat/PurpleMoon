@@ -60,6 +60,7 @@ export async function GET(request: Request) {
 
   try {
     const imageResponse = await fetch(sanitizedUrl.toString(), {
+      redirect: 'manual',
       headers: {
         Referer: 'https://www.themoviedb.org/',
         'User-Agent':
@@ -69,12 +70,21 @@ export async function GET(request: Request) {
 
     if (!imageResponse.ok) {
       return NextResponse.json(
-        { error: imageResponse.statusText },
+        { error: imageResponse.statusText || 'Upstream error' },
         { status: imageResponse.status }
       );
     }
 
-    const contentType = imageResponse.headers.get('content-type');
+    // 🛡️ 安全修复 (SEC-NEW-08)：严格校验上游响应的 Content-Type 必须为光栅图片类型，
+    // 拒绝透传 text/html 或含脚本的 SVG，并附加 sandbox CSP 与 nosniff 响应头防范同源 XSS。
+    const rawContentType = (imageResponse.headers.get('content-type') || '').toLowerCase();
+    const mimeType = rawContentType.split(';')[0].trim();
+    if (!mimeType.startsWith('image/') || mimeType === 'image/svg+xml') {
+      return NextResponse.json(
+        { error: 'Unsupported image content type' },
+        { status: 415 }
+      );
+    }
 
     if (!imageResponse.body) {
       return NextResponse.json(
@@ -83,23 +93,19 @@ export async function GET(request: Request) {
       );
     }
 
-    // 创建响应头
     const headers = new Headers();
-    if (contentType) {
-      headers.set('Content-Type', contentType);
-    }
-
-    // 设置缓存头（可选）
-    headers.set('Cache-Control', 'public, max-age=15720000, s-maxage=15720000'); // 缓存半年
+    headers.set('Content-Type', mimeType);
+    headers.set('X-Content-Type-Options', 'nosniff');
+    headers.set('Content-Security-Policy', "default-src 'none'; sandbox");
+    headers.set('Cache-Control', 'public, max-age=15720000, s-maxage=15720000');
     headers.set('CDN-Cache-Control', 'public, s-maxage=15720000');
     headers.set('Vercel-CDN-Cache-Control', 'public, s-maxage=15720000');
 
-    // 直接返回图片流
     return new Response(imageResponse.body, {
       status: 200,
       headers,
     });
-  } catch (error) {
+  } catch {
     return NextResponse.json(
       { error: 'Error fetching image' },
       { status: 500 }

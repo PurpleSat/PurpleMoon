@@ -2,9 +2,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 
-import { getClientIp } from '@/lib/client-ip';
+import { getClientIp, UNKNOWN_IP } from '@/lib/client-ip';
 import { getConfig, persistNewUserGroup } from '@/lib/config';
-import { buildAuthCookieValue, setAuthCookies } from '@/lib/cookies';
+import { buildAuthCookieValue, readLimitedJson, setAuthCookies } from '@/lib/cookies';
+import { checkCsrf } from '@/lib/csrf-guard';
 import { db } from '@/lib/db';
 import { isInviteCodeRequired } from '@/lib/invite';
 import { timingSafeEqual } from '@/lib/password';
@@ -12,12 +13,12 @@ import { isUsernameTaken } from '@/lib/username';
 
 export const runtime = 'edge';
 
-// 读取存储类型环境变量，默认 localstorage
 const STORAGE_TYPE =
   (process.env.NEXT_PUBLIC_STORAGE_TYPE as
     | 'localstorage'
     | 'redis'
     | 'd1'
+    | 'upstash'
     | undefined) || 'localstorage';
 
 // 🛡️ 结构防线 (SEC-07)：严格校验注册入参格式
@@ -38,7 +39,7 @@ const registerSchema = z.object({
 // =========== 防刷机制 (Rate Limiter) ===========
 const localRateLimitMap = new Map<string, { count: number; timestamp: number }>();
 
-function checkLocalRateLimit(key: string): boolean {
+function checkLocalRateLimit(key: string, maxPerMin = 5): boolean {
   const now = Date.now();
   const limitData = localRateLimitMap.get(key);
 
@@ -47,7 +48,7 @@ function checkLocalRateLimit(key: string): boolean {
   });
 
   if (limitData && now - limitData.timestamp < 60000) {
-    if (limitData.count >= 5) return false;
+    if (limitData.count >= maxPerMin) return false;
     limitData.count++;
   } else {
     localRateLimitMap.set(key, { count: 1, timestamp: now });
@@ -56,20 +57,25 @@ function checkLocalRateLimit(key: string): boolean {
 }
 
 async function checkRateLimit(ip: string): Promise<boolean> {
+  const maxPerMin = ip === UNKNOWN_IP ? 20 : 5;
   if (STORAGE_TYPE === 'localstorage') {
-    return checkLocalRateLimit(ip);
+    return checkLocalRateLimit(ip, maxPerMin);
   }
 
   try {
     const key = `rate_limit:register:${ip}`;
-    return await db.checkRateLimit(key, 5, 60000);
+    return await db.checkRateLimit(key, maxPerMin, 60000);
   } catch (err) {
     console.error('全局限流检查异常，安全降级至内存限流:', err);
-    return checkLocalRateLimit(ip);
+    return checkLocalRateLimit(ip, maxPerMin);
   }
 }
 
 export async function POST(req: NextRequest) {
+  // 🛡️ 安全修复 (SEC-NEW-04)：拦截跨站注册请求（Register CSRF）
+  const csrf = checkCsrf(req);
+  if (!csrf.ok) return csrf.response!;
+
   try {
     const ip = getClientIp(req);
     if (!(await checkRateLimit(ip))) {
@@ -88,8 +94,11 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: '当前未开放注册' }, { status: 400 });
     }
 
-    const rawBody = await req.json().catch(() => ({}));
-    const parseResult = registerSchema.safeParse(rawBody);
+    const parsedBody = await readLimitedJson(req, 16 * 1024);
+    if (!parsedBody.ok) {
+      return NextResponse.json({ error: parsedBody.error }, { status: parsedBody.status });
+    }
+    const parseResult = registerSchema.safeParse(parsedBody.data);
     if (!parseResult.success) {
       return NextResponse.json(
         { error: parseResult.error.issues[0].message },
@@ -119,7 +128,6 @@ export async function POST(req: NextRequest) {
     }
     // ================================================================
 
-    // 忽略大小写的唯一性：同时覆盖站长用户名与配置中同步的全部现有用户
     if (
       isUsernameTaken(
         username,
@@ -137,7 +145,6 @@ export async function POST(req: NextRequest) {
       }
 
       await db.registerUser(username, password);
-      // 新注册用户落入站长配置的默认分组（默认 B 组）
       await persistNewUserGroup(username);
 
       const response = NextResponse.json({ ok: true });

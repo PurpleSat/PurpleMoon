@@ -1,22 +1,20 @@
 /* eslint-disable */
 
 // ============================================================================
-// 本文件原本是一个完全不鉴权、无目标地址限制的通用反向代理
-// （"Proxy Everything"），任何人都可以让本 Worker 代表自己向任意公网/内网地址
-// 发起请求（开放 SSRF 代理）。现改为默认拒绝（fail-closed），仅允许：
+// 🛡️ 安全加固版 Cloudflare Worker 反向代理 (SEC-NEW-03)
+// 默认拒绝（fail-closed），仅允许：
 //   1) 携带正确共享密钥（PROXY_SECRET，通过 Worker 环境变量配置）的请求；
 //   2) 目标域名命中显式配置的白名单（ALLOWED_PROXY_HOSTS，逗号分隔）；
-//   3) 目标不是回环 / 内网 / 链路本地等私有地址。
-// 若未配置 PROXY_SECRET 或 ALLOWED_PROXY_HOSTS，则拒绝所有代理请求，
-// 仅展示说明页面，避免"配置缺失 = 完全开放"的不安全默认行为。
+//   3) 目标不是回环 / 内网 / 链路本地 / 隧道 / IPv4映射等非公网地址（与 ssrf-guard.ts 完全对齐）；
+//   4) 重定向目标同样经过基准 URL 补全、域名白名单与 SSRF 安全校验。
 // ============================================================================
 
-addEventListener('fetch', (event) => {
-  event.respondWith(handleRequest(event.request));
-});
+if (typeof addEventListener === 'function') {
+  addEventListener('fetch', (event) => {
+    event.respondWith(handleRequest(event.request));
+  });
+}
 
-// 私有/内网/回环/链路本地地址判断，防止通过白名单域名解析到内网地址(DNS Rebinding)
-// 或直接以字面 IP 形式访问内网资源
 // 恒定时间比较防范时序侧信道
 function timingSafeEqual(a, b) {
   if (typeof a !== 'string' || typeof b !== 'string') return false;
@@ -28,95 +26,194 @@ function timingSafeEqual(a, b) {
   return result === 0;
 }
 
-function parseIpv4ToNumber(hostname) {
-  let h = hostname.toLowerCase().trim();
-  if (h.startsWith('[') && h.endsWith(']')) {
-    h = h.slice(1, -1);
-  }
-  if (h.startsWith('::ffff:')) {
-    h = h.substring(7);
-  }
-  if (/^0x[0-9a-f]+$/i.test(h)) {
-    const num = parseInt(h, 16);
-    if (!isNaN(num) && num >= 0 && num <= 0xffffffff) return num >>> 0;
-  }
-  if (/^\d+$/.test(h)) {
-    const num = parseInt(h, 10);
-    if (!isNaN(num) && num >= 0 && num <= 0xffffffff) return num >>> 0;
-  }
-  const parts = h.split('.');
-  if (parts.length >= 1 && parts.length <= 4) {
-    const byteVals = [];
-    for (const p of parts) {
-      let val;
-      if (/^0x[0-9a-f]+$/i.test(p)) {
-        val = parseInt(p, 16);
-      } else if (/^0\d+$/.test(p)) {
-        val = parseInt(p, 8);
-      } else if (/^\d+$/.test(p)) {
-        val = parseInt(p, 10);
-      } else {
-        return null;
-      }
-      if (isNaN(val) || val < 0) return null;
-      byteVals.push(val);
-    }
-    if (byteVals.length === 4) {
-      if (byteVals.some((b) => b > 255)) return null;
-      return (
-        (((byteVals[0] << 24) >>> 0) +
-          (byteVals[1] << 16) +
-          (byteVals[2] << 8) +
-          byteVals[3]) >>>
-        0
-      );
-    } else if (byteVals.length === 1) {
-      return byteVals[0] >>> 0;
-    }
-  }
-  return null;
+/** 去掉 IPv6 方括号、结尾的点、zone id，并转小写 */
+function normalizeHost(hostname) {
+  let h = String(hostname || '').toLowerCase().trim();
+  if (h.startsWith('[') && h.endsWith(']')) h = h.slice(1, -1);
+  const zone = h.indexOf('%');
+  if (zone !== -1) h = h.slice(0, zone);
+  while (h.endsWith('.') && !h.includes(':')) h = h.slice(0, -1);
+  return h;
 }
 
-function isPrivateIpNumber(num) {
+/**
+ * 按 inet_aton 语义解析 IPv4 字面量（1~4 段，每段可为十进制 / 0x 十六进制 / 0 开头八进制）。
+ */
+function parseIpv4ToNumber(host) {
+  const parts = host.split('.');
+  if (parts.length < 1 || parts.length > 4) return null;
+
+  const vals = [];
+  for (const p of parts) {
+    let v;
+    if (/^0x[0-9a-f]+$/i.test(p)) v = parseInt(p, 16);
+    else if (/^0[0-7]+$/.test(p)) v = parseInt(p, 8);
+    else if (/^\d+$/.test(p)) v = parseInt(p, 10);
+    else return null;
+    if (!Number.isFinite(v) || v < 0) return null;
+    vals.push(v);
+  }
+
+  const last = vals[vals.length - 1];
+  const lastBytes = 5 - vals.length;
+  if (last >= Math.pow(256, lastBytes)) return null;
+  for (let i = 0; i < vals.length - 1; i++) {
+    if (vals[i] > 255) return null;
+  }
+
+  let num = 0;
+  for (let i = 0; i < vals.length - 1; i++) {
+    num += vals[i] * Math.pow(256, 3 - i);
+  }
+  num += last;
+  return num >>> 0;
+}
+
+function isNonPublicIpv4(num) {
   const a = (num >>> 24) & 0xff;
   const b = (num >>> 16) & 0xff;
+  const c = (num >>> 8) & 0xff;
+
   if (a === 0) return true;
-  if (a === 127) return true;
   if (a === 10) return true;
-  if (a === 172 && b >= 16 && b <= 31) return true;
-  if (a === 192 && b === 168) return true;
-  if (a === 169 && b === 254) return true;
+  if (a === 127) return true;
   if (a === 100 && b >= 64 && b <= 127) return true;
+  if (a === 169 && b === 254) return true;
+  if (a === 172 && b >= 16 && b <= 31) return true;
+  if (a === 192 && b === 0 && c === 0) return true;
+  if (a === 192 && b === 0 && c === 2) return true;
+  if (a === 192 && b === 168) return true;
   if (a === 198 && (b === 18 || b === 19)) return true;
+  if (a === 198 && b === 51 && c === 100) return true;
+  if (a === 203 && b === 0 && c === 113) return true;
   if (a >= 224) return true;
   return false;
 }
 
-// 私有/内网/回环/链路本地地址判断，防止通过白名单域名解析到内网地址(DNS Rebinding)
-// 或直接以字面 IP 形式访问内网资源
+function parseIpv6(host) {
+  if (!host.includes(':')) return null;
+  let h = host;
+
+  const lastColon = h.lastIndexOf(':');
+  const tail = h.slice(lastColon + 1);
+  if (tail.includes('.')) {
+    const v4 = parseIpv4ToNumber(tail);
+    if (v4 === null || tail.split('.').length !== 4) return null;
+    const hi = ((v4 >>> 16) & 0xffff).toString(16);
+    const lo = (v4 & 0xffff).toString(16);
+    h = h.slice(0, lastColon + 1) + hi + ':' + lo;
+  }
+
+  const dbl = h.split('::');
+  if (dbl.length > 2) return null;
+
+  const toGroups = (s) => {
+    if (s === '') return [];
+    const out = [];
+    for (const g of s.split(':')) {
+      if (!/^[0-9a-f]{1,4}$/.test(g)) return null;
+      out.push(parseInt(g, 16));
+    }
+    return out;
+  };
+
+  const head = toGroups(dbl[0]);
+  if (!head) return null;
+
+  if (dbl.length === 1) {
+    return head.length === 8 ? head : null;
+  }
+
+  const rest = toGroups(dbl[1]);
+  if (!rest) return null;
+  const missing = 8 - head.length - rest.length;
+  if (missing < 1) return null;
+  return [...head, ...new Array(missing).fill(0), ...rest];
+}
+
+function groupsToIpv4(hi, lo) {
+  return (((hi & 0xffff) << 16) | (lo & 0xffff)) >>> 0;
+}
+
+function isNonPublicIpv6(g) {
+  const allZero = (from, to) => g.slice(from, to).every((x) => x === 0);
+
+  if (allZero(0, 7) && (g[7] === 0 || g[7] === 1)) return true;
+  if (allZero(0, 5) && g[5] === 0xffff) return isNonPublicIpv4(groupsToIpv4(g[6], g[7]));
+  if (allZero(0, 6)) return isNonPublicIpv4(groupsToIpv4(g[6], g[7]));
+  if (allZero(0, 4) && g[4] === 0xffff && g[5] === 0) return isNonPublicIpv4(groupsToIpv4(g[6], g[7]));
+  if (g[0] === 0x64 && g[1] === 0xff9b && allZero(2, 6)) return isNonPublicIpv4(groupsToIpv4(g[6], g[7]));
+  if (g[0] === 0x64 && g[1] === 0xff9b && g[2] === 1) return true;
+  if (g[0] === 0x2002) return isNonPublicIpv4(groupsToIpv4(g[1], g[2]));
+  if (g[0] === 0x2001 && g[1] === 0) return true;
+  if (g[0] === 0x2001 && g[1] === 0x0db8) return true;
+  if (g[0] === 0x0100 && allZero(1, 4)) return true;
+  if ((g[0] & 0xfe00) === 0xfc00) return true;
+  if ((g[0] & 0xffc0) === 0xfe80) return true;
+  if ((g[0] & 0xffc0) === 0xfec0) return true;
+  if ((g[0] & 0xff00) === 0xff00) return true;
+  return false;
+}
+
+const INTERNAL_HOST_EXACT = new Set([
+  'localhost',
+  'metadata',
+  'metadata.google.internal',
+  'instance-data',
+  'instance-data.ec2.internal',
+  'kubernetes',
+  'kubernetes.default',
+  'kubernetes.default.svc',
+]);
+
+const INTERNAL_HOST_SUFFIXES = [
+  '.localhost',
+  '.local',
+  '.localdomain',
+  '.internal',
+  '.intranet',
+  '.lan',
+  '.home',
+  '.corp',
+  '.home.arpa',
+  '.svc',
+  '.cluster.local',
+];
+
+const REBINDING_SUFFIXES = [
+  'nip.io',
+  'sslip.io',
+  'xip.io',
+  'localtest.me',
+  'lvh.me',
+  'vcap.me',
+  'traefik.me',
+  '127-0-0-1.org.uk',
+  'burpcollaborator.net',
+  'oastify.com',
+  'dnslog.cn',
+  'ceye.io',
+];
+
 function isPrivateOrLoopbackHost(hostname) {
-  const h = hostname.toLowerCase().trim();
-  if (h === 'localhost' || h.endsWith('.localhost')) return true;
+  const host = normalizeHost(hostname);
+  if (!host) return true;
 
-  const rebindingSuffixes = [
-    'nip.io', 'sslip.io', 'localtest.me', 'lvh.me', 'vcap.me',
-    '127-0-0-1.org.uk', 'burpcollaborator.net', 'oastify.com', 'dnslog.cn'
-  ];
-  if (rebindingSuffixes.some((s) => h === s || h.endsWith('.' + s))) return true;
+  if (host.includes(':')) {
+    const groups = parseIpv6(host);
+    if (!groups) return true;
+    return isNonPublicIpv6(groups);
+  }
 
-  const ipv4Num = parseIpv4ToNumber(h);
+  const ipv4Num = parseIpv4ToNumber(host);
   if (ipv4Num !== null) {
-    return isPrivateIpNumber(ipv4Num);
+    return isNonPublicIpv4(ipv4Num);
   }
 
-  let rawH = h;
-  if (rawH.startsWith('[') && rawH.endsWith(']')) rawH = rawH.slice(1, -1);
-  if (rawH === '::1' || rawH === '::') return true;
-  if (rawH.startsWith('fe80:') || rawH.startsWith('fc') || rawH.startsWith('fd')) return true;
-  if (rawH.startsWith('::ffff:')) {
-    const num = parseIpv4ToNumber(rawH.substring(7));
-    if (num !== null && isPrivateIpNumber(num)) return true;
-  }
+  if (INTERNAL_HOST_EXACT.has(host)) return true;
+  if (INTERNAL_HOST_SUFFIXES.some((s) => host.endsWith(s))) return true;
+  if (REBINDING_SUFFIXES.some((s) => host === s || host.endsWith('.' + s))) return true;
+  if (!host.includes('.')) return true;
 
   return false;
 }
@@ -127,14 +224,10 @@ function isAllowedHost(hostname, allowedHostsCsv) {
     .split(',')
     .map((h) => h.trim().toLowerCase())
     .filter(Boolean);
-  const h = hostname.toLowerCase();
+  const h = normalizeHost(hostname);
   return allowed.some((pattern) => h === pattern || h.endsWith(`.${pattern}`));
 }
 
-// 读取通过 wrangler.toml [vars] / secret 配置的绑定值。
-// 本文件使用的是 Service Worker 语法（而非 ES Module `export default { fetch(req, env) }`），
-// 因此环境变量以全局绑定形式注入；未配置时直接引用会抛出 ReferenceError，
-// 这里用 typeof 安全地判断绑定是否存在，避免使用 eval。
 function getProxySecret() {
   // eslint-disable-next-line no-undef
   return typeof PROXY_SECRET !== 'undefined' ? PROXY_SECRET : undefined;
@@ -149,7 +242,6 @@ async function handleRequest(request) {
   try {
     const url = new URL(request.url);
 
-    // 如果访问根目录，返回说明 HTML（不执行任何代理逻辑）
     if (url.pathname === '/') {
       return new Response(getRootHtml(), {
         headers: {
@@ -158,7 +250,6 @@ async function handleRequest(request) {
       });
     }
 
-    // 🛡️ 第一道防线：共享密钥鉴权。未配置密钥则一律拒绝（fail-closed）。
     const configuredSecret = getProxySecret();
     const allowedHostsCsv = getAllowedProxyHosts();
 
@@ -175,16 +266,11 @@ async function handleRequest(request) {
       return jsonResponse({ error: 'Unauthorized' }, 401);
     }
 
-    // 从查询参数中移除 token，避免被转发给目标站点或残留在转发 URL 中
     url.searchParams.delete('token');
 
-    // 从请求路径中提取目标 URL
     let actualUrlStr = decodeURIComponent(url.pathname.replace('/', ''));
-
-    // 判断用户输入的 URL 是否带有协议
     actualUrlStr = ensureProtocol(actualUrlStr, url.protocol);
 
-    // 拼接剩余查询参数（已去除 token）
     const remainingSearch = url.search;
     if (remainingSearch) {
       actualUrlStr += actualUrlStr.includes('?')
@@ -194,120 +280,131 @@ async function handleRequest(request) {
 
     const targetUrl = new URL(actualUrlStr);
 
-    // 🛡️ 第二道防线：协议白名单，仅允许 http/https
     if (targetUrl.protocol !== 'http:' && targetUrl.protocol !== 'https:') {
       return jsonResponse({ error: 'Only http/https targets are allowed' }, 400);
     }
 
-    // 🛡️ 第三道防线：目标域名必须命中管理员显式配置的白名单
+    if (targetUrl.username || targetUrl.password) {
+      return jsonResponse({ error: 'Credentials in URL are not allowed' }, 400);
+    }
+
     if (!isAllowedHost(targetUrl.hostname, allowedHostsCsv)) {
       return jsonResponse({ error: 'Target host is not allowed' }, 403);
     }
 
-    // 🛡️ 第四道防线：禁止访问回环 / 内网 / 链路本地地址，防止 SSRF 探测内网
     if (isPrivateOrLoopbackHost(targetUrl.hostname)) {
       return jsonResponse({ error: 'Target host is not allowed' }, 403);
     }
 
-    // 创建新 Headers 对象，排除 'cf-' 开头及本代理专用的鉴权请求头
     const newHeaders = filterHeaders(
       request.headers,
       (name) => !name.startsWith('cf-') && name.toLowerCase() !== 'x-proxy-token'
     );
 
-    // 创建一个新的请求以访问目标 URL
-    const modifiedRequest = new Request(actualUrlStr, {
+    const modifiedRequest = new Request(targetUrl.toString(), {
       headers: newHeaders,
       method: request.method,
       body: request.body,
       redirect: 'manual',
     });
 
-    // 发起对目标 URL 的请求
     const response = await fetch(modifiedRequest);
     let body = response.body;
 
-    // 处理重定向
     if ([301, 302, 303, 307, 308].includes(response.status)) {
-      body = response.body;
-      // 创建新的 Response 对象以修改 Location 头部
-      return handleRedirect(response, body);
+      return handleRedirect(response, body, targetUrl.toString(), allowedHostsCsv);
     } else if (response.headers.get('Content-Type')?.includes('text/html')) {
       body = await handleHtmlContent(
         response,
         url.protocol,
         url.host,
-        actualUrlStr
+        targetUrl.toString()
       );
     }
 
-    // 创建修改后的响应对象
     const modifiedResponse = new Response(body, {
       status: response.status,
       statusText: response.statusText,
-      headers: response.headers,
+      headers: new Headers(response.headers),
     });
 
-    // 添加禁用缓存的头部
     setNoCacheHeaders(modifiedResponse.headers);
-
-    // 添加 CORS 头部，允许跨域访问
     setCorsHeaders(modifiedResponse.headers);
 
     return modifiedResponse;
   } catch (error) {
-    // 如果请求目标地址时出现错误，返回带有错误消息的响应和状态码 500（服务器错误）
     return jsonResponse(
       {
-        error: error.message,
+        error: 'Proxy request failed',
       },
       500
     );
   }
 }
 
-// 确保 URL 带有协议
 function ensureProtocol(url, defaultProtocol) {
   return url.startsWith('http://') || url.startsWith('https://')
     ? url
     : defaultProtocol + '//' + url;
 }
 
-// 处理重定向
-function handleRedirect(response, body) {
-  const location = new URL(response.headers.get('location'));
-  const modifiedLocation = `/${encodeURIComponent(location.toString())}`;
+// 🛡️ 安全修复 (SEC-NEW-03)：支持相对路径重定向解析，并对重定向目标同样执行白名单与 SSRF 拦截
+function handleRedirect(response, body, baseUrlStr, allowedHostsCsv) {
+  const rawLocation = response.headers.get('location');
+  if (!rawLocation) {
+    return new Response(body, {
+      status: response.status,
+      statusText: response.statusText,
+      headers: new Headers(response.headers),
+    });
+  }
+
+  let locationUrl;
+  try {
+    locationUrl = new URL(rawLocation, baseUrlStr);
+  } catch {
+    return jsonResponse({ error: 'Invalid redirect location' }, 502);
+  }
+
+  if (locationUrl.protocol !== 'http:' && locationUrl.protocol !== 'https:') {
+    return jsonResponse({ error: 'Redirect target protocol is not allowed' }, 403);
+  }
+
+  if (
+    !isAllowedHost(locationUrl.hostname, allowedHostsCsv) ||
+    isPrivateOrLoopbackHost(locationUrl.hostname)
+  ) {
+    return jsonResponse({ error: 'Redirect target host is not allowed' }, 403);
+  }
+
+  const modifiedLocation = `/${encodeURIComponent(locationUrl.toString())}`;
+  const responseHeaders = new Headers(response.headers);
+  responseHeaders.set('Location', modifiedLocation);
+  setNoCacheHeaders(responseHeaders);
+  setCorsHeaders(responseHeaders);
+
   return new Response(body, {
     status: response.status,
     statusText: response.statusText,
-    headers: {
-      ...response.headers,
-      Location: modifiedLocation,
-    },
+    headers: responseHeaders,
   });
 }
 
-// 处理 HTML 内容中的相对路径
 async function handleHtmlContent(response, protocol, host, actualUrlStr) {
   const originalText = await response.text();
-  const regex = new RegExp('((href|src|action)=["\'])/(?!/)', 'g');
-  let modifiedText = replaceRelativePaths(
+  return replaceRelativePaths(
     originalText,
     protocol,
     host,
     new URL(actualUrlStr).origin
   );
-
-  return modifiedText;
 }
 
-// 替换 HTML 内容中的相对路径
 function replaceRelativePaths(text, protocol, host, origin) {
   const regex = new RegExp('((href|src|action)=["\'])/(?!/)', 'g');
   return text.replace(regex, `$1${protocol}//${host}/${origin}/`);
 }
 
-// 返回 JSON 格式的响应
 function jsonResponse(data, status) {
   return new Response(JSON.stringify(data), {
     status: status,
@@ -317,24 +414,20 @@ function jsonResponse(data, status) {
   });
 }
 
-// 过滤请求头
 function filterHeaders(headers, filterFunc) {
   return new Headers([...headers].filter(([name]) => filterFunc(name)));
 }
 
-// 设置禁用缓存的头部
 function setNoCacheHeaders(headers) {
   headers.set('Cache-Control', 'no-store');
 }
 
-// 设置 CORS 头部
 function setCorsHeaders(headers) {
   headers.set('Access-Control-Allow-Origin', '*');
   headers.set('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE');
   headers.set('Access-Control-Allow-Headers', '*');
 }
 
-// 返回根目录的 HTML
 function getRootHtml() {
   return `<!DOCTYPE html>
 <html lang="zh-CN">
@@ -420,4 +513,15 @@ function getRootHtml() {
   </script>
 </body>
 </html>`;
+}
+
+if (typeof module !== 'undefined' && module.exports) {
+  module.exports = {
+    isPrivateOrLoopbackHost,
+    isAllowedHost,
+    handleRedirect,
+    parseIpv4ToNumber,
+    parseIpv6,
+    isNonPublicIpv6,
+  };
 }

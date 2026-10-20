@@ -27,6 +27,8 @@ export interface AdminConfig {
       banned?: boolean;
       /** 所属分组 id。缺省 / 分组未启用时不受限制（兼容升级前的老用户）；站长不受分组限制 */
       group?: UserGroup;
+      /** 管理员改密码或封禁时写入时间戳；签发时间早于该值的旧会话立即作废 */
+      sessionsValidAfter?: number;
     }[];
   };
   /**

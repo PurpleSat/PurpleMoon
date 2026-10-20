@@ -1,15 +1,27 @@
 import { NextResponse } from 'next/server';
 
+import { getClientIp } from '@/lib/client-ip';
 import { getCacheTime } from '@/lib/config';
 import { searchFromApi } from '@/lib/downstream';
+import { checkSearchRateLimit } from '@/lib/search-engine';
 import { resolveAccessibleSites } from '@/lib/site-access';
 
 export const runtime = 'edge';
 
 // OrionTV 兼容接口
 export async function GET(request: Request) {
+  // 🛡️ 安全加固 (SEC-NEW-09)：接入统一的搜索限流，防止绕过 /api/search 的频控刷单源接口
+  const ip = getClientIp(request as { headers: Headers });
+  if (!checkSearchRateLimit(ip)) {
+    return NextResponse.json(
+      { result: null, error: '搜索请求过于频繁，请稍后再试' },
+      { status: 429 }
+    );
+  }
+
   const { searchParams } = new URL(request.url);
-  const query = searchParams.get('q');
+  const rawQuery = searchParams.get('q');
+  const query = rawQuery ? rawQuery.trim().slice(0, 100) : '';
   const resourceId = searchParams.get('resourceId');
 
   if (!query || !resourceId) {
@@ -31,7 +43,6 @@ export async function GET(request: Request) {
   const apiSites = access.sites;
 
   try {
-    // 根据 resourceId 查找对应的 API 站点
     const targetSite = apiSites.find((site) => site.key === resourceId);
     if (!targetSite) {
       return NextResponse.json(
@@ -43,7 +54,9 @@ export async function GET(request: Request) {
       );
     }
 
-    const results = await searchFromApi(targetSite, query);
+    const results = await searchFromApi(targetSite, query, {
+      signal: request.signal,
+    });
     const result = results.filter((r) => r.title === query);
     const cacheTime = await getCacheTime();
 
@@ -61,12 +74,12 @@ export async function GET(request: Request) {
         {
           headers: {
             'Cache-Control': `private, max-age=${cacheTime}`,
-          Vary: 'Cookie',
+            Vary: 'Cookie',
           },
         }
       );
     }
-  } catch (error) {
+  } catch {
     return NextResponse.json(
       {
         error: '搜索失败',

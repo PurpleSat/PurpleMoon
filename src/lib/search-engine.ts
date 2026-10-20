@@ -4,14 +4,6 @@ import { SearchResult } from '@/lib/types';
 
 // ============================================================================
 // 多源并发搜索引擎
-//
-// 旧实现把资源站按 6 个一批分批 await：每批都要等最慢的那个源（首页最多 3.5s，
-// 翻页再 8s），几十个源叠加后可达数十秒。现在：
-//   1. 固定大小的并发池（有界出站并发，不会一瞬间打出几十个请求）
-//   2. 整体截止时间：到点后不再发起新请求，进行中的请求也被限制在剩余时间内
-//   3. 逐源回调：流式接口可以“搜到一个源就推一个源”
-//   4. 短时结果缓存：同一关键词重复搜索 / 换源页面几乎瞬时返回
-//   5. 坏源短时熔断：超时/报错的资源站 45 秒内直接跳过，不再拖慢后续搜索
 // ============================================================================
 
 export const SEARCH_CONCURRENCY = 8;
@@ -22,8 +14,6 @@ const CACHE_MAX_ENTRIES = 300;
 
 const cache = new Map<string, { at: number; data: SearchResult[] }>();
 
-// 短时熔断：某个资源站刚刚超时 / 报错，接下来一小段时间直接跳过它，
-// 否则每次搜索都要为同一个坏源白等 3.5 秒，还会占用并发名额拖慢其他源。
 const FAILURE_COOLDOWN_MS = 45 * 1000;
 const failedUntil = new Map<string, number>();
 
@@ -48,7 +38,6 @@ function cacheGet(key: string): SearchResult[] | null {
 }
 
 function cacheSet(key: string, data: SearchResult[]) {
-  // 空结果可能是超时/失败造成的，不缓存，避免把故障“固化”5 分钟
   if (data.length === 0) return;
   if (cache.size >= CACHE_MAX_ENTRIES) {
     const oldest = cache.keys().next().value;
@@ -58,9 +47,8 @@ function cacheSet(key: string, data: SearchResult[]) {
 }
 
 // ---------------------------------------------------------------------------
-// 限流（/api/search 与 /api/search/stream 共用同一份计数）
-// 🛡️ 安全加固 (SEC-08)：轻量级内存限流，防止搜索接口被滥用做反射 DDoS
-// 注意：这是“每个实例各自计数”的内存限流，多实例部署请在代理层再加一层限流。
+// 限流（/api/search、/api/search/stream、/api/search/one、/api/detail 等共用）
+// 🛡️ 安全加固 (SEC-08 / SEC-NEW-09)：轻量级内存限流，防止上游检索接口被滥用做反射 DDoS
 // ---------------------------------------------------------------------------
 const rateMap = new Map<string, { count: number; timestamp: number }>();
 
@@ -84,8 +72,6 @@ export function checkSearchRateLimit(
   }
   return true;
 }
-
-// ---------------------------------------------------------------------------
 
 export interface SourceChunk {
   source: string;
@@ -139,6 +125,7 @@ export async function runSearch(
       let firstCount = 0;
       const all = await searchFromApi(site, query, {
         deadline,
+        signal: opts.signal,
         onFailure: () => failedUntil.set(site.key, Date.now() + FAILURE_COOLDOWN_MS),
         onFirstPage: (first) => {
           firstCount = first.length;
@@ -149,7 +136,9 @@ export async function runSearch(
       if (all.length > firstCount) {
         opts.onChunk?.({ source: site.key, results: all.slice(firstCount) });
       }
-      cacheSet(key, all);
+      if (!opts.signal?.aborted) {
+        cacheSet(key, all);
+      }
     }
   };
 

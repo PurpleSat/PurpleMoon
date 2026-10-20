@@ -5,16 +5,15 @@ import { createClient, RedisClientType } from 'redis';
 import { AdminConfig } from './admin.types';
 import { ConfigConflictError } from './config-errors';
 import { hashPassword, verifyPassword, verifyPasswordDummy } from './password';
-import { Favorite, IStorage, Memo,PlayRecord, SkipConfig } from './types';
+import { Favorite, IStorage, Memo, PlayRecord, SkipConfig } from './types';
 
-// 搜索历史最大条数
-const SEARCH_HISTORY_LIMIT = 40;
+// 🛡️ 逻辑修复 (LOG-07)：前后端统一搜索历史最大条数为 20 条
+const SEARCH_HISTORY_LIMIT = 20;
 
-// 🛡️ 安全加固 (SEC-07)：转义 Redis Glob 通配符，防止跨租户键名遍历注入
+// 🛡️ 安全加固 (SEC-07 / SEC-NEW-06)：转义 Redis Glob 通配符，防止跨租户键名遍历注入
 function escapeRedisPattern(str: string): string {
   return str.replace(/([*?[\]\\])/g, '\\$1');
 }
-
 
 // Memo留言板全站最大条数限制
 const MEMO_LIMIT = 60;
@@ -76,6 +75,7 @@ export class RedisStorage implements IStorage {
     userName: string
   ): Promise<Record<string, PlayRecord>> {
     const safeUser = escapeRedisPattern(userName);
+    const prefix = `u:${userName}:pr:`;
     const pattern = `u:${safeUser}:pr:*`;
     const keys: string[] = await this.scanKeys(pattern);
     if (keys.length === 0) return {};
@@ -84,8 +84,8 @@ export class RedisStorage implements IStorage {
     for (const fullKey of keys) {
       const value = await this.client.get(fullKey);
       const parsed = safeJsonParse<PlayRecord>(value);
-      if (parsed) {
-        const keyPart = fullKey.replace(`u:${userName}:pr:`, '');
+      if (parsed && fullKey.startsWith(prefix)) {
+        const keyPart = fullKey.slice(prefix.length);
         result[keyPart] = parsed;
       }
     }
@@ -116,6 +116,7 @@ export class RedisStorage implements IStorage {
 
   async getAllFavorites(userName: string): Promise<Record<string, Favorite>> {
     const safeUser = escapeRedisPattern(userName);
+    const prefix = `u:${userName}:fav:`;
     const pattern = `u:${safeUser}:fav:*`;
     const keys: string[] = await this.scanKeys(pattern);
     if (keys.length === 0) return {};
@@ -124,8 +125,8 @@ export class RedisStorage implements IStorage {
     for (const fullKey of keys) {
       const value = await this.client.get(fullKey);
       const parsed = safeJsonParse<Favorite>(value);
-      if (parsed) {
-        const keyPart = fullKey.replace(`u:${userName}:fav:`, '');
+      if (parsed && fullKey.startsWith(prefix)) {
+        const keyPart = fullKey.slice(prefix.length);
         result[keyPart] = parsed;
       }
     }
@@ -167,17 +168,20 @@ export class RedisStorage implements IStorage {
     await this.client.del(this.shKey(userName));
     await this.client.del(`memo:rate:${userName}`);
 
-    const playRecordKeys = await this.scanKeys(`u:${userName}:pr:*`);
+    // 🛡️ 安全修复 (SEC-NEW-06)：转义 userName 中的 Glob 通配符，防止删除含特殊字符的历史账号时误删全库
+    const safeUser = escapeRedisPattern(userName);
+
+    const playRecordKeys = await this.scanKeys(`u:${safeUser}:pr:*`);
     if (playRecordKeys.length > 0) {
       await this.client.del(playRecordKeys);
     }
 
-    const favoriteKeys = await this.scanKeys(`u:${userName}:fav:*`);
+    const favoriteKeys = await this.scanKeys(`u:${safeUser}:fav:*`);
     if (favoriteKeys.length > 0) {
       await this.client.del(favoriteKeys);
     }
 
-    const skipKeys = await this.scanKeys(`u:${userName}:skip:*`);
+    const skipKeys = await this.scanKeys(`u:${safeUser}:skip:*`);
     if (skipKeys.length > 0) {
       await this.client.del(skipKeys);
     }
@@ -200,7 +204,7 @@ export class RedisStorage implements IStorage {
   }
 
   async getSearchHistory(userName: string): Promise<string[]> {
-    return await this.client.lRange(this.shKey(userName), 0, -1);
+    return await this.client.lRange(this.shKey(userName), 0, SEARCH_HISTORY_LIMIT - 1);
   }
 
   async addSearchHistory(userName: string, keyword: string): Promise<void> {
@@ -241,10 +245,6 @@ export class RedisStorage implements IStorage {
   }
 
   async setAdminConfig(config: AdminConfig): Promise<void> {
-    // 🛡️ 逻辑修复 (P2 · L-02)：乐观并发控制。
-    // 用 WATCH/MULTI/EXEC 实现"比对版本号 + 写入"的原子事务：
-    // WATCH 期间若该 key 被其他连接修改过，EXEC 会返回 null，
-    // 借此判断是否发生了并发写冲突。
     const key = this.adminConfigKey();
     const expectedVersion = config.configVersion ?? 0;
     const newVersion = expectedVersion + 1;
@@ -267,17 +267,15 @@ export class RedisStorage implements IStorage {
         .exec();
 
       if (execResult === null) {
-        // WATCH 探测到 key 在此期间被其他请求修改，事务被打断
         throw new ConfigConflictError();
       }
 
       config.configVersion = newVersion;
     } catch (err) {
-      // 确保异常路径下也不遗留 WATCH 状态
       try {
         await this.client.unwatch();
       } catch {
-        // 忽略 unwatch 本身的错误，不掩盖原始异常
+        // ignore
       }
       throw err;
     }
@@ -306,6 +304,7 @@ export class RedisStorage implements IStorage {
 
   async getAllSkipConfigs(userName: string): Promise<Record<string, SkipConfig>> {
     const safeUser = escapeRedisPattern(userName);
+    const prefix = `u:${userName}:skip:`;
     const pattern = `u:${safeUser}:skip:*`;
     const keys: string[] = await this.scanKeys(pattern);
     if (keys.length === 0) return {};
@@ -314,8 +313,8 @@ export class RedisStorage implements IStorage {
     for (const fullKey of keys) {
       const value = await this.client.get(fullKey);
       const parsed = safeJsonParse<SkipConfig>(value);
-      if (parsed) {
-        const keyPart = fullKey.replace(`u:${userName}:skip:`, '');
+      if (parsed && fullKey.startsWith(prefix)) {
+        const keyPart = fullKey.slice(prefix.length);
         result[keyPart] = parsed;
       }
     }
@@ -334,18 +333,17 @@ export class RedisStorage implements IStorage {
     return 'global:memos';
   }
 
-  async getMemos(userName?: string): Promise<Memo[]> {
+  async getMemos(userName?: string, isAdmin = false): Promise<Memo[]> {
     const rawList = await this.client.lRange(this.memosKey(), 0, -1);
     if (!rawList || rawList.length === 0) return [];
 
-    // 使用 flatMap 替代 map+filter，彻底避免 TypeScript 推导出的 (Memo | null)[] 类型报错
     return rawList.flatMap((itemStr) => {
       const memo = safeJsonParse<Memo>(itemStr);
       if (!memo) return [];
       return [
         {
           ...memo,
-          is_owner: Boolean(userName && memo.username === userName),
+          is_owner: Boolean(userName && (memo.username === userName || isAdmin)),
         },
       ];
     });
@@ -360,7 +358,6 @@ export class RedisStorage implements IStorage {
       throw new Error('留言内容不能超过 500 个字符');
     }
 
-    // 限流校验：基于 ZSET 滑动窗口（10 分钟内最多 2 条）
     const isAllowed = await this.checkRateLimit(`memo:rate:${userName}`, 2, 600000);
     if (!isAllowed) {
       throw new Error('发布过于频繁，10分钟内最多只能发布 2 条留言。');
@@ -378,13 +375,13 @@ export class RedisStorage implements IStorage {
     await this.client.lTrim(this.memosKey(), 0, MEMO_LIMIT - 1);
   }
 
-  async deleteMemo(userName: string, memoId: number): Promise<boolean> {
+  async deleteMemo(userName: string, memoId: number, isAdmin = false): Promise<boolean> {
     const rawList = await this.client.lRange(this.memosKey(), 0, -1);
     if (!rawList || rawList.length === 0) return false;
 
     for (const itemStr of rawList) {
       const memo = safeJsonParse<Memo>(itemStr);
-      if (memo && memo.id === memoId && memo.username === userName) {
+      if (memo && memo.id === memoId && (memo.username === userName || isAdmin)) {
         await this.client.lRem(this.memosKey(), 1, itemStr);
         return true;
       }
@@ -400,7 +397,6 @@ export class RedisStorage implements IStorage {
     const clearBefore = now - windowMs;
     const memberId = `${now}:${Math.random().toString(36).substring(2, 7)}`;
 
-    // 使用 Lua 脚本确保清理过期元素、计算当前数量、新增记录及刷新 PEXPIRE 的原子性
     const luaScript = `
       local key = KEYS[1]
       local clearBefore = tonumber(ARGV[1])
@@ -458,7 +454,6 @@ function getRedisClient(): RedisClientType {
 
     client.on('error', (err) => console.error('Redis Client Error', err));
 
-    // 尝试异步建立连接，并在失败时进行错误捕捉
     client.connect().then(() => {
       console.log('Local Redis client connected successfully');
     }).catch(err => {

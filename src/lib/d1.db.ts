@@ -2,13 +2,13 @@
 
 import { AdminConfig } from './admin.types';
 import { ConfigConflictError } from './config-errors';
-import { hashPassword, verifyPassword, verifyPasswordDummy } from './password'; // 修补密码明文时序攻击 (Timing Attack)
-import { Favorite, IStorage, Memo,PlayRecord, SkipConfig } from './types'; // 引入 Memo 类型
+import { hashPassword, verifyPassword, verifyPasswordDummy } from './password';
+import { Favorite, IStorage, Memo, PlayRecord, SkipConfig } from './types';
 
-// 搜索历史最大条数
-const SEARCH_HISTORY_LIMIT = 40;
+// 🛡️ 逻辑修复 (LOG-07)：前后端统一搜索历史最大条数为 20 条，避免缓存比对不一致引发重复重绘
+const SEARCH_HISTORY_LIMIT = 20;
 
-// 【新增安全机制】：Memo留言板最大条数限制，防止恶意刷库占用空间
+// Memo留言板最大条数限制，防止恶意刷库占用空间
 const MEMO_LIMIT = 60;
 
 // D1 数据库接口
@@ -81,7 +81,7 @@ export class D1Storage implements IStorage {
         play_time: result.play_time,
         total_time: result.total_time,
         save_time: result.save_time,
-        search_title: result.search_title || undefined,
+        search_title: result.search_title || '',
       };
     } catch (err) {
       console.error('Failed to get play record:', err);
@@ -150,7 +150,7 @@ export class D1Storage implements IStorage {
           play_time: row.play_time,
           total_time: row.total_time,
           save_time: row.save_time,
-          search_title: row.search_title || undefined,
+          search_title: row.search_title || '',
         };
       });
 
@@ -192,7 +192,7 @@ export class D1Storage implements IStorage {
         year: result.year,
         total_episodes: result.total_episodes,
         save_time: result.save_time,
-        search_title: result.search_title,
+        search_title: result.search_title || '',
       };
     } catch (err) {
       console.error('Failed to get favorite:', err);
@@ -205,14 +205,15 @@ export class D1Storage implements IStorage {
     key: string,
     favorite: Favorite
   ): Promise<void> {
+    const db = await this.getDatabase();
     try {
-      const db = await this.getDatabase();
+      // 🛡️ 逻辑修复 (LOG-03)：持久化保存 search_title 字段，兼容未包含该列的旧表结构自动升级
       await db
         .prepare(
           `
           INSERT OR REPLACE INTO favorites 
-          (username, key, title, source_name, cover, year, total_episodes, save_time)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+          (username, key, title, source_name, cover, year, total_episodes, save_time, search_title)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
         `
         )
         .bind(
@@ -223,10 +224,85 @@ export class D1Storage implements IStorage {
           favorite.cover,
           favorite.year,
           favorite.total_episodes,
-          favorite.save_time
+          favorite.save_time,
+          favorite.search_title || null
         )
         .run();
-    } catch (err) {
+    } catch (err: any) {
+      if (err?.message?.includes('search_title')) {
+        try {
+          await db.prepare('ALTER TABLE favorites ADD COLUMN search_title TEXT').run();
+          await db
+            .prepare(
+              `
+              INSERT OR REPLACE INTO favorites 
+              (username, key, title, source_name, cover, year, total_episodes, save_time, search_title)
+              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            `
+            )
+            .bind(
+              userName,
+              key,
+              favorite.title,
+              favorite.source_name,
+              favorite.cover,
+              favorite.year,
+              favorite.total_episodes,
+              favorite.save_time,
+              favorite.search_title || null
+            )
+            .run();
+          return;
+        } catch {
+          // ALTER 失败：可能是并发请求已加好该列（duplicate column），先用完整列重试一次；
+          // 仍失败（如无 ALTER 权限）再降级写入基础列
+          try {
+            await db
+              .prepare(
+                `
+                INSERT OR REPLACE INTO favorites 
+                (username, key, title, source_name, cover, year, total_episodes, save_time, search_title)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+              `
+              )
+              .bind(
+                userName,
+                key,
+                favorite.title,
+                favorite.source_name,
+                favorite.cover,
+                favorite.year,
+                favorite.total_episodes,
+                favorite.save_time,
+                favorite.search_title || null
+              )
+              .run();
+            return;
+          } catch {
+            // 降级
+          }
+        }
+        await db
+          .prepare(
+            `
+            INSERT OR REPLACE INTO favorites 
+            (username, key, title, source_name, cover, year, total_episodes, save_time)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+          `
+          )
+          .bind(
+            userName,
+            key,
+            favorite.title,
+            favorite.source_name,
+            favorite.cover,
+            favorite.year,
+            favorite.total_episodes,
+            favorite.save_time
+          )
+          .run();
+        return;
+      }
       console.error('Failed to set favorite:', err);
       throw err;
     }
@@ -252,7 +328,7 @@ export class D1Storage implements IStorage {
           year: row.year,
           total_episodes: row.total_episodes,
           save_time: row.save_time,
-          search_title: row.search_title,
+          search_title: row.search_title || '',
         };
       });
 
@@ -277,13 +353,13 @@ export class D1Storage implements IStorage {
   }
 
   // =========================================================================
-  // 【安全升级】：用户密码哈希化存储与防时序攻击验证
+  // 用户密码哈希化存储与防时序攻击验证
   // =========================================================================
 
   async registerUser(userName: string, password: string): Promise<void> {
     try {
       const db = await this.getDatabase();
-      const hashedPassword = await hashPassword(password); // 加盐哈希处理
+      const hashedPassword = await hashPassword(password);
       await db
         .prepare('INSERT INTO users (username, password) VALUES (?, ?)')
         .bind(userName, hashedPassword)
@@ -303,7 +379,6 @@ export class D1Storage implements IStorage {
         .first<{ password: string }>();
 
       if (!result) return await verifyPasswordDummy(password);
-      // 启用防时序攻击比对（自动向下兼容旧版明文密码）
       return await verifyPassword(password, result.password);
     } catch (err) {
       console.error('Failed to verify user:', err);
@@ -329,7 +404,7 @@ export class D1Storage implements IStorage {
   async changePassword(userName: string, newPassword: string): Promise<void> {
     try {
       const db = await this.getDatabase();
-      const hashedPassword = await hashPassword(newPassword); // 加盐哈希处理
+      const hashedPassword = await hashPassword(newPassword);
       await db
         .prepare('UPDATE users SET password = ? WHERE username = ?')
         .bind(hashedPassword, userName)
@@ -352,11 +427,9 @@ export class D1Storage implements IStorage {
         db
           .prepare('DELETE FROM search_history WHERE username = ?')
           .bind(userName),
-        // 同步级联删除跳过配置
         db
           .prepare('DELETE FROM skip_configs WHERE username = ?')
           .bind(userName),
-        // 同步级联删除用户的留言记录
         db
           .prepare('DELETE FROM user_memos WHERE username = ?')
           .bind(userName),
@@ -365,9 +438,14 @@ export class D1Storage implements IStorage {
       await db.batch(statements);
     } catch (err: any) {
       console.error('Failed to delete user:', err);
-      // 如果 skip_configs 或 user_memos 尚不存在，忽略该异常避免删号失败
       if (err.message && err.message.includes('no such table')) {
-        console.warn('忽略缺少附加表引起的删号警告。');
+        const db = await this.getDatabase();
+        await db.batch([
+          db.prepare('DELETE FROM users WHERE username = ?').bind(userName),
+          db.prepare('DELETE FROM play_records WHERE username = ?').bind(userName),
+          db.prepare('DELETE FROM favorites WHERE username = ?').bind(userName),
+          db.prepare('DELETE FROM search_history WHERE username = ?').bind(userName),
+        ]);
         return;
       }
       throw err;
@@ -380,7 +458,7 @@ export class D1Storage implements IStorage {
       const db = await this.getDatabase();
       const result = await db
         .prepare(
-          'SELECT keyword FROM search_history WHERE username = ? ORDER BY created_at DESC LIMIT ?'
+          'SELECT keyword FROM search_history WHERE username = ? ORDER BY created_at DESC, id DESC LIMIT ?'
         )
         .bind(userName, SEARCH_HISTORY_LIMIT)
         .all<{ keyword: string }>();
@@ -395,7 +473,6 @@ export class D1Storage implements IStorage {
   async addSearchHistory(userName: string, keyword: string): Promise<void> {
     try {
       const db = await this.getDatabase();
-      // 先删除可能存在的重复记录
       await db
         .prepare(
           'DELETE FROM search_history WHERE username = ? AND keyword = ?'
@@ -403,13 +480,11 @@ export class D1Storage implements IStorage {
         .bind(userName, keyword)
         .run();
 
-      // 添加新记录
       await db
         .prepare('INSERT INTO search_history (username, keyword) VALUES (?, ?)')
         .bind(userName, keyword)
         .run();
 
-      // 保持历史记录条数限制
       await db
         .prepare(
           `
@@ -417,7 +492,7 @@ export class D1Storage implements IStorage {
           WHERE username = ? AND id NOT IN (
             SELECT id FROM search_history 
             WHERE username = ? 
-            ORDER BY created_at DESC 
+            ORDER BY created_at DESC, id DESC 
             LIMIT ?
           )
         `
@@ -487,12 +562,6 @@ export class D1Storage implements IStorage {
   async setAdminConfig(config: AdminConfig): Promise<void> {
     try {
       const db = await this.getDatabase();
-      // 🛡️ 逻辑修复 (P2 · L-02)：乐观并发控制。
-      // expectedVersion 是调用方读取配置时看到的版本号；仅当数据库中
-      // 当前版本与之一致时才允许写入，并将版本号原子自增。
-      // 用 SQLite 的 json_extract 在 WHERE 子句里做版本比对，
-      // 整个"比对 + 写入"是单条 UPDATE 语句，天然具备原子性，
-      // 不需要额外加锁或事务。
       const expectedVersion = config.configVersion ?? 0;
       const newVersion = expectedVersion + 1;
       const newConfig = { ...config, configVersion: newVersion };
@@ -513,7 +582,6 @@ export class D1Storage implements IStorage {
         return;
       }
 
-      // UPDATE 影响 0 行：要么记录尚不存在（首次写入），要么版本不匹配（并发冲突）
       const existing = await db
         .prepare('SELECT 1 FROM admin_config WHERE id = 1')
         .first();
@@ -538,8 +606,23 @@ export class D1Storage implements IStorage {
   }
 
   // =========================================================================
-  // 【核心补全】：跳过片头片尾配置持久化支持
+  // 跳过片头片尾配置持久化支持
   // =========================================================================
+
+  private async ensureSkipConfigsTable(db: D1Database): Promise<void> {
+    await db
+      .prepare(
+        `CREATE TABLE IF NOT EXISTS skip_configs (
+          username TEXT NOT NULL,
+          key TEXT NOT NULL,
+          enable INTEGER NOT NULL DEFAULT 0,
+          intro_time INTEGER NOT NULL DEFAULT 0,
+          outro_time INTEGER NOT NULL DEFAULT 0,
+          PRIMARY KEY (username, key)
+        )`
+      )
+      .run();
+  }
 
   async getSkipConfig(
     userName: string,
@@ -561,7 +644,6 @@ export class D1Storage implements IStorage {
       };
     } catch (err: any) {
       if (err.message && err.message.includes('no such table')) {
-        console.warn('D1 数据库缺少 skip_configs 表，请先在云端执行建表 SQL。当前已自动降级。');
         return null;
       }
       console.error('Failed to get skip config:', err);
@@ -574,8 +656,9 @@ export class D1Storage implements IStorage {
     key: string,
     config: SkipConfig
   ): Promise<void> {
+    const db = await this.getDatabase();
     try {
-      const db = await this.getDatabase();
+      await this.ensureSkipConfigsTable(db);
       await db
         .prepare(
           `
@@ -593,10 +676,6 @@ export class D1Storage implements IStorage {
         )
         .run();
     } catch (err: any) {
-      if (err.message && err.message.includes('no such table')) {
-        console.warn('D1 数据库缺少 skip_configs 表，保存失败。');
-        return;
-      }
       console.error('Failed to set skip config:', err);
       throw err;
     }
@@ -649,10 +728,23 @@ export class D1Storage implements IStorage {
   }
 
   // =========================================================================
-  // 留言 (Memos) 数据层实现（调整为全员共享模式）
+  // 留言 (Memos) 数据层实现（全员共享模式 + 管理员治理支持）
   // =========================================================================
 
-  async getMemos(currentUserName?: string): Promise<Memo[]> {
+  private async ensureMemosTable(db: D1Database): Promise<void> {
+    await db
+      .prepare(
+        `CREATE TABLE IF NOT EXISTS user_memos (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          username TEXT NOT NULL,
+          content TEXT NOT NULL,
+          created_at INTEGER NOT NULL
+        )`
+      )
+      .run();
+  }
+
+  async getMemos(currentUserName?: string, isAdmin = false): Promise<Memo[]> {
     try {
       const db = await this.getDatabase();
       const result = await db
@@ -666,11 +758,10 @@ export class D1Storage implements IStorage {
         username: row.username,
         content: row.content,
         created_at: row.created_at,
-        is_owner: Boolean(currentUserName && row.username === currentUserName),
+        is_owner: Boolean(currentUserName && (row.username === currentUserName || isAdmin)),
       }));
     } catch (err: any) {
       if (err.message && err.message.includes('no such table')) {
-        console.warn('D1 数据库缺少 user_memos 表，自动降级返回空列表。');
         return [];
       }
       console.error('Failed to get memos:', err);
@@ -679,22 +770,30 @@ export class D1Storage implements IStorage {
   }
 
   async addMemo(userName: string, content: string): Promise<void> {
-    // 1. 【防刷限流校验】：单用户 10 分钟 (600000 毫秒) 内最多发布 2 条留言
+    const trimmed = content?.trim();
+    if (!trimmed || trimmed.length === 0) {
+      throw new Error('留言内容不能为空');
+    }
+    if (trimmed.length > 500) {
+      throw new Error('留言内容不能超过 500 个字符');
+    }
+
+    const db = await this.getDatabase();
+    // 🛡️ 逻辑修复 (LOG-03)：先确保 user_memos 表存在，再扣减限流配额并写入，杜绝“静默丢弃却消耗配额”
+    await this.ensureMemosTable(db);
+
     const isAllowed = await this.checkRateLimit(`memo:${userName}`, 2, 600000);
     if (!isAllowed) {
       throw new Error('发布过于频繁，10 分钟内最多只能发布 2 条留言。');
     }
 
     try {
-      const db = await this.getDatabase();
-
-      // 2. 插入新的留言，保存发布者 username
       await db
         .prepare('INSERT INTO user_memos (username, content, created_at) VALUES (?, ?, ?)')
-        .bind(userName, content, Date.now())
+        .bind(userName, trimmed, Date.now())
         .run();
 
-      // 3. 【全站容量限制】：超出 30 条时清理最老的数据
+      // 全站容量限制：超出 MEMO_LIMIT (60) 条时清理最老的数据
       await db
         .prepare(
           `
@@ -708,27 +807,21 @@ export class D1Storage implements IStorage {
         )
         .bind(MEMO_LIMIT)
         .run();
-
     } catch (err: any) {
-      if (err.message && err.message.includes('no such table')) {
-        console.warn('D1 数据库缺少 user_memos 表，添加失败。');
-        return;
-      }
       console.error('Failed to add memo:', err);
       throw err;
     }
   }
 
-  async deleteMemo(userName: string, memoId: number): Promise<boolean> {
+  async deleteMemo(userName: string, memoId: number, isAdmin = false): Promise<boolean> {
     try {
       const db = await this.getDatabase();
-      // 鉴权校验：仅允许作者删除自己的留言
-      const result = await db
-        .prepare('DELETE FROM user_memos WHERE id = ? AND username = ?')
-        .bind(memoId, userName)
-        .run();
-      // 🛡️ 逻辑修复 (P3 · L-03)：D1 的 run() 结果包含 meta.changes，
-      // 即实际被删除的行数；据此判断本次调用是否真的命中了一条记录。
+      const result = isAdmin
+        ? await db.prepare('DELETE FROM user_memos WHERE id = ?').bind(memoId).run()
+        : await db
+            .prepare('DELETE FROM user_memos WHERE id = ? AND username = ?')
+            .bind(memoId, userName)
+            .run();
       return (result?.meta?.changes ?? 0) > 0;
     } catch (err: any) {
       if (err.message && err.message.includes('no such table')) {
@@ -740,31 +833,27 @@ export class D1Storage implements IStorage {
   }
 
   // =========================================================================
-  // 【全局分布式限流 (Rate Limiter)】
+  // 全局分布式限流 (Rate Limiter)
   // =========================================================================
   async checkRateLimit(key: string, limit: number, windowMs: number): Promise<boolean> {
     try {
       const db = await this.getDatabase();
       const now = Date.now();
 
-      // 确保表存在
       try {
         await db.prepare('CREATE TABLE IF NOT EXISTS rate_limits (key TEXT PRIMARY KEY, count INTEGER, reset_at INTEGER)').run();
-      } catch (e: any) {
+      } catch {
         // ignore
       }
 
-      // 🛡️ 安全修复 (S-08)：过期行此前永不清理，而登录限流键包含未认证者可任意构造的用户名，
-      // 表会无限增长。这里按约 2% 的概率顺带清掉已过期的行（单条带索引主键范围之外的 DELETE，开销很小）。
       if (Math.random() < 0.02) {
         try {
           await db.prepare('DELETE FROM rate_limits WHERE reset_at < ?').bind(now).run();
-        } catch (e) {
+        } catch {
           // 清理失败不影响限流本身
         }
       }
 
-      // 🛡️ 安全修复 (SEC-11)：利用 SQLite 原生原子 UPSERT + RETURNING 避免并发竞态击穿
       try {
         const atomicSql = `
           INSERT INTO rate_limits (key, count, reset_at)
@@ -781,7 +870,7 @@ export class D1Storage implements IStorage {
         if (row && typeof row.count === 'number') {
           return row.count <= limit;
         }
-      } catch (upsertErr) {
+      } catch {
         // 如果底层 D1 版本不支持 RETURNING，安全降级至两阶段处理
       }
 
@@ -796,7 +885,7 @@ export class D1Storage implements IStorage {
       }
     } catch (err: any) {
       console.error('Failed to check rate limit in D1:', err);
-      return true; // 发生数据库异常时兜底放行，防止阻塞正常的合法请求
+      return true;
     }
   }
 
@@ -804,8 +893,8 @@ export class D1Storage implements IStorage {
     try {
       const db = await this.getDatabase();
       await db.prepare('DELETE FROM rate_limits WHERE key = ?').bind(key).run();
-    } catch (err) {
-      // 表不存在或数据库异常时忽略：最坏情况只是计数自然过期
+    } catch {
+      // 表不存在或数据库异常时忽略
     }
   }
 }

@@ -14,7 +14,7 @@ export interface Memo {
   username?: string;    // 发布者显示名称（可与 user_id 相同或作为昵称）
   content: string;      // Memo 内容
   created_at: number;   // 创建时间戳
-  is_owner?: boolean;   // 当前浏览用户是否为作者（前端鉴权显示删除按钮）
+  is_owner?: boolean;   // 当前浏览用户是否为作者或具备管理权限（前端鉴权显示删除按钮）
 }
 
 // 播放记录数据结构
@@ -92,14 +92,10 @@ export interface IStorage {
   getAllSkipConfigs(userName: string): Promise<Record<string, SkipConfig>>;
   deleteSkipConfig(userName: string, key: string): Promise<void>;
 
-  // 便利贴相关（已改为全员共享，查询时不强制锁定用户）
-  getMemos(currentUserName?: string): Promise<Memo[]>;
+  // 便利贴相关（已改为全员共享，支持站长/管理员治理违规留言）
+  getMemos(currentUserName?: string, isAdmin?: boolean): Promise<Memo[]>;
   addMemo(userName: string, content: string): Promise<void>;
-  // 🛡️ 逻辑修复 (P3 · L-03)：返回值由 void 改为 boolean，
-  // true 表示确实命中并删除了一条属于该用户的记录，false 表示未找到
-  // （不存在该 ID，或该 ID 不属于当前用户）。调用方据此区分
-  // "真删除成功" 与 "无操作但仍返回成功" 两种情况。
-  deleteMemo(userName: string, memoId: number): Promise<boolean>;
+  deleteMemo(userName: string, memoId: number, isAdmin?: boolean): Promise<boolean>;
 
   // 【新增】：全局分布式限流机制 (用于登录/注册防刷)
   checkRateLimit(key: string, limit: number, windowMs: number): Promise<boolean>;

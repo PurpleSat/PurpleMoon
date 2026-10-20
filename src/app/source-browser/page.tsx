@@ -4,7 +4,7 @@
 
 import { ChevronLeft, ChevronRight, Play, Server, Tv } from 'lucide-react';
 import { useRouter } from 'next/navigation';
-import { Suspense,useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import type { SearchResult as GlobalSearchResult } from '@/lib/types';
 
@@ -45,6 +45,8 @@ function SourceBrowserClient() {
   const [page, setPage] = useState(1);
   const [pageCount, setPageCount] = useState(1);
   const hasMore = page < pageCount;
+  const pageRef = useRef(1);
+  const pageCountRef = useRef(1);
   const loadMoreRef = useRef<HTMLDivElement | null>(null);
   const lastFetchAtRef = useRef(0);
   const autoFillInProgressRef = useRef(false);
@@ -100,7 +102,6 @@ function SourceBrowserClient() {
     }
   };
 
-  // 新增：处理分类切换，保存偏好到本地
   const handleCategoryChange = (categoryId: string | number, categoryName: string) => {
     setActiveCategory(categoryId);
     if (typeof window !== 'undefined') {
@@ -119,10 +120,10 @@ function SourceBrowserClient() {
       const data = await res.json();
       const list: Source[] = data.sources || [];
       setSources(list);
-      
+
       if (list.length > 0) {
         const savedSource = typeof window !== 'undefined' ? localStorage.getItem('last_active_source') : null;
-        const defaultPreferredKey = 'aiqiyi'; 
+        const defaultPreferredKey = 'aiqiyi';
 
         if (savedSource && list.some((s) => s.key === savedSource)) {
           setActiveSourceKey(savedSource);
@@ -149,20 +150,17 @@ function SourceBrowserClient() {
       const data = await res.json();
       const list: Category[] = data.categories || [];
       setCategories(list);
-      
-      if (list.length > 0) {
-        // 修改：增加分类的默认选择与记忆功能 (按名字匹配最稳妥，因为不同源的同一分类 ID 不同)
-        const savedCategoryName = typeof window !== 'undefined' ? localStorage.getItem('last_active_category_name') : null;
-        const defaultPreferredCategoryName = '国产动漫'; // 你可以在这里修改你最想要的默认分类名
 
-        // 优先级：上次选中的名字 > 默认名字 > 列表第一个
-        const targetCategory = list.find((c) => c.type_name === savedCategoryName) 
+      if (list.length > 0) {
+        const savedCategoryName = typeof window !== 'undefined' ? localStorage.getItem('last_active_category_name') : null;
+        const defaultPreferredCategoryName = '国产动漫';
+
+        const targetCategory = list.find((c) => c.type_name === savedCategoryName)
                             || list.find((c) => c.type_name === defaultPreferredCategoryName)
                             || list[0];
 
         setActiveCategory(targetCategory.type_id);
-        
-        // 顺便更新一下缓存，确保不同源之间切换时逻辑一致
+
         if (typeof window !== 'undefined') {
           localStorage.setItem('last_active_category_name', targetCategory.type_name);
         }
@@ -194,12 +192,18 @@ function SourceBrowserClient() {
           meta?: { page?: number; pagecount?: number };
         };
         const list: Item[] = data.items || [];
+        const nextP = Number(data.meta?.page || p);
+        const nextPc = Number(data.meta?.pagecount || 1);
+        pageRef.current = nextP;
+        pageCountRef.current = nextPc;
         setItems((prev) => (append ? [...prev, ...list] : list));
-        setPage(Number(data.meta?.page || p));
-        setPageCount(Number(data.meta?.pagecount || 1));
+        setPage(nextP);
+        setPageCount(nextPc);
       } catch (e: unknown) {
         setItemsError(e instanceof Error ? e.message : '获取列表失败');
         if (!append) setItems([]);
+        pageRef.current = 1;
+        pageCountRef.current = 1;
         setPage(1);
         setPageCount(1);
       } finally {
@@ -221,6 +225,8 @@ function SourceBrowserClient() {
   useEffect(() => {
     if (activeSourceKey && activeCategory) {
       setItems([]);
+      pageRef.current = 1;
+      pageCountRef.current = 1;
       setPage(1);
       setPageCount(1);
       fetchItems(activeSourceKey, activeCategory, 1, false);
@@ -238,9 +244,9 @@ function SourceBrowserClient() {
         if (entry.isIntersecting) {
           const now = Date.now();
           const intervalOk = now - lastFetchAtRef.current > 700;
-          if (!loadingItems && !loadingMore && hasMore && activeSourceKey && intervalOk) {
+          if (!loadingItems && !loadingMore && pageRef.current < pageCountRef.current && activeSourceKey && intervalOk) {
             lastFetchAtRef.current = now;
-            const next = page + 1;
+            const next = pageRef.current + 1;
             if (activeCategory) {
               fetchItems(activeSourceKey, activeCategory, next, true);
             }
@@ -257,7 +263,7 @@ function SourceBrowserClient() {
     const tryAutoFill = async () => {
       if (autoFillInProgressRef.current) return;
       if (!loadMoreRef.current) return;
-      if (loadingItems || loadingMore || !hasMore) return;
+      if (loadingItems || loadingMore || pageRef.current >= pageCountRef.current) return;
       const sentinel = loadMoreRef.current.getBoundingClientRect();
       const inViewport = sentinel.top <= window.innerHeight + 100;
       if (!inViewport) return;
@@ -266,12 +272,12 @@ function SourceBrowserClient() {
       try {
         let iterations = 0;
         while (iterations < 5) {
-          if (!hasMore) break;
+          if (pageRef.current >= pageCountRef.current) break;
           const now = Date.now();
           if (now - lastFetchAtRef.current <= 400) break;
           lastFetchAtRef.current = now;
-          const next = page + iterations + 1;
-          
+          const next = pageRef.current + 1;
+
           if (activeCategory) {
             await fetchItems(activeSourceKey, activeCategory, next, true);
           } else {
@@ -328,17 +334,17 @@ function SourceBrowserClient() {
   return (
     <PageLayout activePath='/source-browser'>
       <div className='flex flex-col min-h-screen pb-10 bg-gray-50 dark:bg-[#0a0a0a] transition-colors'>
-        
+
         {/* 吸顶导航栏：源站与分类选择 */}
         <div className='sticky top-0 z-40 bg-white/80 dark:bg-gray-900/80 backdrop-blur-xl border-b border-gray-200 dark:border-gray-800 transition-colors'>
           <div className='max-w-7xl mx-auto px-4 py-3 space-y-3'>
-            
+
             {/* 1. 源站选择 */}
             <div className='flex items-center gap-2'>
               <div className='shrink-0 p-1.5 bg-emerald-50 dark:bg-emerald-900/30 rounded-lg mr-1'>
                 <Server className='w-4 h-4 text-emerald-500' />
               </div>
-              
+
               <div className='relative flex-1 min-w-0'>
                 {canScrollSource.left && (
                   <div className='absolute left-0 top-0 bottom-0 w-12 bg-gradient-to-r from-white dark:from-gray-900 to-transparent z-10 flex items-center justify-start pointer-events-none'>
@@ -351,7 +357,7 @@ function SourceBrowserClient() {
                   </div>
                 )}
 
-                <div 
+                <div
                   ref={sourceScrollRef}
                   onScroll={() => checkScroll(sourceScrollRef, setCanScrollSource)}
                   className='flex items-center gap-2.5 overflow-x-auto scrollbar-hide scroll-smooth px-1 py-1'
@@ -396,7 +402,7 @@ function SourceBrowserClient() {
                 <div className='shrink-0 p-1.5 bg-blue-50 dark:bg-blue-900/30 rounded-lg mr-1'>
                   <Tv className='w-4 h-4 text-blue-500' />
                 </div>
-                
+
                 <div className='relative flex-1 min-w-0'>
                   {canScrollCategory.left && (
                     <div className='absolute left-0 top-0 bottom-0 w-12 bg-gradient-to-r from-white dark:from-gray-900 to-transparent z-10 flex items-center justify-start pointer-events-none'>
@@ -409,7 +415,7 @@ function SourceBrowserClient() {
                     </div>
                   )}
 
-                  <div 
+                  <div
                     ref={categoryScrollRef}
                     onScroll={() => checkScroll(categoryScrollRef, setCanScrollCategory)}
                     className='flex items-center gap-2.5 overflow-x-auto scrollbar-hide scroll-smooth px-1 py-1'
@@ -422,7 +428,6 @@ function SourceBrowserClient() {
                       categories.map((c) => (
                         <button
                           key={String(c.type_id)}
-                          // 修改：点击时调用新的 handleCategoryChange
                           onClick={() => handleCategoryChange(c.type_id, c.type_name)}
                           className={`shrink-0 px-3 py-1.5 rounded-full text-xs font-medium transition-all ${
                             activeCategory === c.type_id
@@ -470,7 +475,6 @@ function SourceBrowserClient() {
                   onClick={() => openPreview(item)}
                   className='group flex flex-col cursor-pointer'
                 >
-                  {/* 海报卡片 */}
                   <div className='relative aspect-[3/4] w-full rounded-lg overflow-hidden bg-gray-200 dark:bg-gray-800 shadow-sm transition-all duration-300 group-hover:shadow-xl group-hover:scale-[1.03] group-hover:ring-2 group-hover:ring-blue-500/50'>
                     {item.poster ? (
                       <img
@@ -484,13 +488,11 @@ function SourceBrowserClient() {
                         <Tv className='w-8 h-8 opacity-20' />
                       </div>
                     )}
-                    
-                    {/* 悬浮黑色蒙层与播放按钮 */}
+
                     <div className='absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity duration-300 flex items-center justify-center'>
                       <Play className='text-white w-10 h-10 drop-shadow-lg transform scale-90 group-hover:scale-100 transition-transform' />
                     </div>
 
-                    {/* 右下角信息标签 (年份或更新备注) */}
                     {(item.remarks || item.year) && (
                       <div className='absolute bottom-1.5 right-1.5 px-1.5 py-0.5 rounded bg-black/70 backdrop-blur-md text-[10px] text-white font-medium'>
                         {item.remarks || item.year}
@@ -498,7 +500,6 @@ function SourceBrowserClient() {
                     )}
                   </div>
 
-                  {/* 标题 */}
                   <div className='mt-2 text-xs sm:text-sm font-medium text-gray-800 dark:text-gray-200 truncate group-hover:text-blue-500 transition-colors'>
                     {item.title}
                   </div>
@@ -530,7 +531,6 @@ function SourceBrowserClient() {
               className='w-full max-w-4xl bg-white dark:bg-gray-900 rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[85vh] border border-gray-200 dark:border-gray-800 animate-in zoom-in-95 duration-200'
               onClick={(e) => e.stopPropagation()}
             >
-              {/* 弹窗头部 */}
               <div className='flex items-center justify-between px-5 py-4 border-b border-gray-100 dark:border-gray-800'>
                 <div className='font-bold text-lg text-gray-900 dark:text-white truncate pr-4'>
                   {previewItem?.title || '详情'}
@@ -544,8 +544,7 @@ function SourceBrowserClient() {
                   </svg>
                 </button>
               </div>
-              
-              {/* 弹窗内容 */}
+
               <div className='p-5 overflow-y-auto flex-1'>
                 {previewLoading ? (
                   <div className='flex flex-col items-center justify-center py-12'>
@@ -557,7 +556,6 @@ function SourceBrowserClient() {
                   <div className='text-sm text-gray-500 py-4 text-center'>暂无详情</div>
                 ) : (
                   <div className='flex flex-col md:flex-row gap-5'>
-                    {/* 封面 */}
                     <div className='shrink-0 w-32 md:w-48 mx-auto md:mx-0'>
                       <div className='aspect-[3/4] rounded-lg bg-gray-100 dark:bg-gray-800 overflow-hidden shadow-md border border-gray-200 dark:border-gray-700'>
                         {previewItem?.poster ? (
@@ -567,24 +565,20 @@ function SourceBrowserClient() {
                         )}
                       </div>
                     </div>
-                    
-                    {/* 信息区 */}
+
                     <div className='flex-1 space-y-3 min-w-0'>
-                      {/* 标题 */}
                       <div className='flex items-center gap-2 flex-wrap'>
                         <h2 className='text-xl font-bold text-gray-900 dark:text-white'>
                           {previewData.title || previewItem?.title}
                         </h2>
                       </div>
 
-                      {/* 基础信息 */}
                       <div className='text-xs text-gray-500 dark:text-gray-400 flex flex-wrap gap-x-4 gap-y-1'>
                         <span>年份：{previewData.year || previewItem?.year || '未知'}</span>
                         <span>分类：{previewItem?.type_name || previewData.class || '未知'}</span>
                         <span>来源：{activeSource?.name}</span>
                       </div>
 
-                      {/* 简介 */}
                       {(() => {
                         const desc = (previewData?.desc?.trim()) || (previewItem?.remarks?.trim());
                         return desc ? (
@@ -599,7 +593,6 @@ function SourceBrowserClient() {
                 )}
               </div>
 
-              {/* 弹窗底部操作 */}
               <div className='px-5 py-4 border-t border-gray-100 dark:border-gray-800 bg-gray-50 dark:bg-gray-800/30 flex justify-end gap-3'>
                 <button
                   onClick={() => setPreviewOpen(false)}

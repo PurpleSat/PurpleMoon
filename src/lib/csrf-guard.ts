@@ -14,6 +14,19 @@ export function checkCsrf(
   const origin = request.headers.get('origin');
   const host = request.headers.get('host');
 
+  // 🛡️ 安全加固 (SEC-NEW-04)：优先校验 Fetch Metadata 请求头，拦截显式跨站请求
+  const secFetchSite = request.headers.get('sec-fetch-site')?.trim().toLowerCase();
+  if (secFetchSite && secFetchSite === 'cross-site') {
+    console.warn(`[CSRF 拦截] 接口 ${request.nextUrl.pathname} 遇到 cross-site 请求`);
+    return {
+      ok: false,
+      response: NextResponse.json(
+        { error: 'Forbidden: Cross-Site Request' },
+        { status: 403 }
+      ),
+    };
+  }
+
   if (origin) {
     try {
       if (new URL(origin).host !== host) {

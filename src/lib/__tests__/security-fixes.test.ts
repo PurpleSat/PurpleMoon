@@ -2,8 +2,10 @@
 import { TextDecoder, TextEncoder } from 'util';
 
 import { sanitizeAuthPayload } from '../auth';
+import { getClientIp, UNKNOWN_IP } from '../client-ip';
 import { isInviteCodeRequired } from '../invite';
 import { readJsonLimited, readTextLimited } from '../safe-fetch';
+import { parseFavorite, parsePlayRecord, parseRecordKey } from '../validation';
 
 // Jest 27 + jsdom 缺少这两个全局
 (globalThis as any).TextEncoder ??= TextEncoder;
@@ -62,7 +64,6 @@ describe('L-05 isInviteCodeRequired', () => {
 });
 
 describe('S-06 readTextLimited', () => {
-  // Jest 27 的环境里没有全局 Response，这里用最小的流式假对象模拟（每块 16 字节）
   const mk = (body: string, headers: Record<string, string> = {}) => {
     const bytes = new TextEncoder().encode(body);
     let pos = 0;
@@ -91,5 +92,75 @@ describe('S-06 readTextLimited', () => {
   });
   test('Content-Length 声明超限直接拒绝', async () => {
     await expect(readTextLimited(mk('x', { 'content-length': '999999' }), 100)).rejects.toThrow('过大');
+  });
+});
+
+describe('SEC-NEW-02 getClientIp 生产环境防伪造', () => {
+  const envKeys = ['NODE_ENV', 'TRUST_X_FORWARDED_FOR', 'TRUST_CF_CONNECTING_IP', 'TRUST_X_REAL_IP', 'TRUSTED_PROXY_HOPS'];
+  const saved: Record<string, string | undefined> = {};
+  const env = process.env as Record<string, string | undefined>;
+  beforeEach(() => envKeys.forEach((k) => { saved[k] = env[k]; delete env[k]; }));
+  afterEach(() => envKeys.forEach((k) => { if (saved[k] === undefined) delete env[k]; else env[k] = saved[k]; }));
+
+  test('生产环境未开启 TRUST_* 时不信任客户端伪造的 X-Forwarded-For', () => {
+    env.NODE_ENV = 'production';
+    const ip = getClientIp({
+      headers: {
+        get: (k: string) => (k.toLowerCase() === 'x-forwarded-for' ? '203.0.113.99' : null),
+      },
+    });
+    expect(ip).toBe(UNKNOWN_IP);
+  });
+
+  test('生产环境显式开启 TRUST_X_FORWARDED_FOR=true 时取可信代理跳数对应的 IP', () => {
+    env.NODE_ENV = 'production';
+    env.TRUST_X_FORWARDED_FOR = 'true';
+    env.TRUSTED_PROXY_HOPS = '1';
+    const ip = getClientIp({
+      headers: {
+        get: (k: string) => (k.toLowerCase() === 'x-forwarded-for' ? '1.1.1.1, 198.51.100.7' : null),
+      },
+    });
+    expect(ip).toBe('198.51.100.7');
+  });
+});
+
+describe('SEC-NEW-08 parseRecordKey & cover URL 协议清洗', () => {
+  test('parseRecordKey 仅允许字母数字下划线连字符', () => {
+    expect(parseRecordKey('ruyi+12345')).toEqual({ source: 'ruyi', id: '12345' });
+    expect(parseRecordKey('ruyi:evil+123')).toBeNull();
+    expect(parseRecordKey('ruyi+123+456')).toBeNull();
+    expect(parseRecordKey('ruyi+*')).toBeNull();
+  });
+
+  test('parsePlayRecord 与 parseFavorite 过滤危险封面协议并限制 save_time', () => {
+    const r1 = parsePlayRecord({
+      title: '测试剧集',
+      source_name: '测试源',
+      cover: 'javascript:alert(1)',
+      year: '2026',
+      index: 1,
+      total_episodes: 10,
+      play_time: 12,
+      total_time: 100,
+      save_time: -999,
+    });
+    expect(r1.ok).toBe(true);
+    if (r1.ok) {
+      expect(r1.data.cover).toBe('');
+      expect(r1.data.save_time).toBe(0);
+    }
+
+    const r2 = parseFavorite({
+      title: '测试电影',
+      source_name: '测试源',
+      cover: 'https://image.tmdb.org/t/p/w500/a.jpg',
+      year: '2026',
+      total_episodes: 1,
+    });
+    expect(r2.ok).toBe(true);
+    if (r2.ok) {
+      expect(r2.data.cover).toBe('https://image.tmdb.org/t/p/w500/a.jpg');
+    }
   });
 });

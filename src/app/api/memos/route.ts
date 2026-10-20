@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 
 import { getVerifiedAuthUser } from '@/lib/auth-server';
+import { readLimitedJson } from '@/lib/cookies';
 import { checkCsrf } from '@/lib/csrf-guard';
 import { db } from '@/lib/db';
 import { rejectIfLocalStorageMode } from '@/lib/storage-mode';
@@ -12,13 +13,12 @@ export const runtime = 'edge';
 const postSchema = z.object({
   content: z
     .string({ required_error: '内容不能为空' })
-    .trim() // 先去除首尾空格，防止纯空格绕过校验
+    .trim()
     .min(1, '内容不能为空')
-    .max(500, '内容超长，最多允许 500 个字符'), // 与存储层严格一致
+    .max(500, '内容超长，最多允许 500 个字符'),
 });
 
 const deleteSchema = z.object({
-  // 兼容 ID 是字符串或数字的情况，限制长度防溢出
   id: z.union(
     [
       z.string().min(1, '缺少ID').max(100, 'ID 长度异常'),
@@ -28,40 +28,18 @@ const deleteSchema = z.object({
   ),
 });
 
-async function parseSafeBody(request: NextRequest, maxSizeKB: number) {
-  const text = await request.text();
-
-  // 1. 体积拦截
-  if (text.length > maxSizeKB * 1024) {
-    throw new Error('Payload Too Large');
-  }
-
-  // 2. 空块拦截
-  if (!text.trim()) {
-    throw new Error('Empty Body');
-  }
-
-  // 3. JSON 解析（此时体积已经绝对安全）
-  return JSON.parse(text);
-}
-
-// ------------------------------------------
-// 接口实现
-// ------------------------------------------
-
 export async function GET(request: NextRequest) {
   const localModeReject = rejectIfLocalStorageMode();
   if (localModeReject) return localModeReject;
 
-  // 🛡️ 安全修复 (SEC-02, SEC-04)：强制服务端签名与状态有效性重验
   const authUser = await getVerifiedAuthUser(request);
   if (!authUser || !authUser.username) {
     return NextResponse.json({ error: '未授权' }, { status: 401 });
   }
 
   try {
-    // 传入当前登录用户名，供底层计算 is_owner 标识
-    const memos = await (db as any).storage.getMemos(authUser.username);
+    const isAdmin = authUser.role === 'admin' || authUser.role === 'owner';
+    const memos = await db.getMemos(authUser.username, isAdmin);
     return NextResponse.json({ memos });
   } catch (error) {
     console.error('获取便签失败:', error);
@@ -73,21 +51,24 @@ export async function POST(request: NextRequest) {
   const localModeReject = rejectIfLocalStorageMode();
   if (localModeReject) return localModeReject;
 
-  // 🛡️ 安全修复 (SEC-02, SEC-04)：强制服务端签名与状态有效性重验
+  const csrf = checkCsrf(request);
+  if (!csrf.ok) return csrf.response!;
+
   const authUser = await getVerifiedAuthUser(request);
   if (!authUser || !authUser.username) {
     return NextResponse.json({ error: '未授权' }, { status: 401 });
   }
 
-  const csrf = checkCsrf(request);
-  if (!csrf.ok) return csrf.response!;
-
   try {
-    // 1. 物理防御：限制请求体最大 50KB
-    const rawBody = await parseSafeBody(request, 50);
+    const parsedBody = await readLimitedJson(request, 50 * 1024);
+    if (!parsedBody.ok) {
+      return NextResponse.json(
+        { error: parsedBody.error },
+        { status: parsedBody.status }
+      );
+    }
 
-    // 2. 结构防御：Zod 类型强校验（含 trim）
-    const parsed = postSchema.safeParse(rawBody);
+    const parsed = postSchema.safeParse(parsedBody.data);
     if (!parsed.success) {
       return NextResponse.json(
         { error: parsed.error.issues[0].message },
@@ -97,23 +78,29 @@ export async function POST(request: NextRequest) {
 
     const { content } = parsed.data;
 
-    // 3. 调用底层（内部包含频控及存储引擎防刷）
-    await (db as any).storage.addMemo(authUser.username, content);
+    await db.addMemo(authUser.username, content);
     return NextResponse.json({ success: true });
-
   } catch (error: any) {
-    if (error.message === 'Payload Too Large') {
-      return NextResponse.json({ error: '请求体过大，超出服务器限制' }, { status: 413 });
-    }
-
     console.error('添加便签失败:', error);
 
-    const isRateLimited = error.message?.includes('频繁') || error.status === 429;
-    const statusCode = isRateLimited ? 429 : 400;
+    const isRateLimited = error?.message?.includes('频繁') || error?.status === 429;
+    if (isRateLimited) {
+      return NextResponse.json(
+        { error: '发布过于频繁，10 分钟内最多只能发布 2 条留言。' },
+        { status: 429 }
+      );
+    }
 
+    const isValidation =
+      error?.message?.includes('不能为空') || error?.message?.includes('不能超过');
+    if (isValidation) {
+      return NextResponse.json({ error: error.message }, { status: 400 });
+    }
+
+    // 🛡️ 安全修复 (SEC-NEW-09)：内部存储异常返回 500 通用提示，不向客户端暴露底层错误详情
     return NextResponse.json(
-      { error: error.message || '添加失败，或请求格式错误' },
-      { status: statusCode }
+      { error: '添加失败，请稍后重试' },
+      { status: 500 }
     );
   }
 }
@@ -122,21 +109,24 @@ export async function DELETE(request: NextRequest) {
   const localModeReject = rejectIfLocalStorageMode();
   if (localModeReject) return localModeReject;
 
-  // 🛡️ 安全修复 (SEC-02, SEC-04)：强制服务端签名与状态有效性重验
+  const csrf = checkCsrf(request);
+  if (!csrf.ok) return csrf.response!;
+
   const authUser = await getVerifiedAuthUser(request);
   if (!authUser || !authUser.username) {
     return NextResponse.json({ error: '未授权' }, { status: 401 });
   }
 
-  const csrf = checkCsrf(request);
-  if (!csrf.ok) return csrf.response!;
-
   try {
-    // 物理防御：仅包含 ID 的请求，限制请求体最大 10KB
-    const rawBody = await parseSafeBody(request, 10);
+    const parsedBody = await readLimitedJson(request, 10 * 1024);
+    if (!parsedBody.ok) {
+      return NextResponse.json(
+        { error: parsedBody.error },
+        { status: parsedBody.status }
+      );
+    }
 
-    // 结构防御：Zod 类型强校验
-    const parsed = deleteSchema.safeParse(rawBody);
+    const parsed = deleteSchema.safeParse(parsedBody.data);
     if (!parsed.success) {
       return NextResponse.json(
         { error: parsed.error.issues[0].message },
@@ -147,11 +137,12 @@ export async function DELETE(request: NextRequest) {
     const { id } = parsed.data;
     const memoId = Number(id);
 
-    if (isNaN(memoId)) {
+    if (!Number.isFinite(memoId)) {
       return NextResponse.json({ error: '无效的便签 ID 格式' }, { status: 400 });
     }
 
-    const deleted = await (db as any).storage.deleteMemo(authUser.username, memoId);
+    const isAdmin = authUser.role === 'admin' || authUser.role === 'owner';
+    const deleted = await db.deleteMemo(authUser.username, memoId, isAdmin);
     if (!deleted) {
       return NextResponse.json(
         { error: '未找到该便签，或你无权删除它' },
@@ -159,16 +150,11 @@ export async function DELETE(request: NextRequest) {
       );
     }
     return NextResponse.json({ success: true });
-
   } catch (error: any) {
-    if (error.message === 'Payload Too Large') {
-      return NextResponse.json({ error: '请求体过大，超出服务器限制' }, { status: 413 });
-    }
-
     console.error('删除便签失败:', error);
     return NextResponse.json(
-      { error: error.message || '删除失败，或请求格式错误' },
-      { status: 400 }
+      { error: '删除失败，请稍后重试' },
+      { status: 500 }
     );
   }
 }

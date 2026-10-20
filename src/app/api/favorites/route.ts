@@ -3,6 +3,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 
 import { getVerifiedAuthUser } from '@/lib/auth-server';
+import { readLimitedJson } from '@/lib/cookies';
 import { checkCsrf } from '@/lib/csrf-guard';
 import { db } from '@/lib/db';
 import { rejectIfLocalStorageMode } from '@/lib/storage-mode';
@@ -12,19 +13,11 @@ export const runtime = 'edge';
 
 const MAX_FAVORITES_PER_USER = 1000;
 
-/**
- * GET /api/favorites
- *
- * 支持两种调用方式：
- * 1. 不带 query，返回全部收藏列表（Record<string, Favorite>）。
- * 2. 带 key=source+id，返回单条收藏（Favorite | null）。
- */
 export async function GET(request: NextRequest) {
   const localModeReject = rejectIfLocalStorageMode();
   if (localModeReject) return localModeReject;
 
   try {
-    // 🛡️ 安全修复 (SEC-02, SEC-04)：强制服务端签名与状态有效性重验
     const authUser = await getVerifiedAuthUser(request);
     if (!authUser || !authUser.username) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
@@ -33,20 +26,18 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url);
     const key = searchParams.get('key');
 
-    // 查询单条收藏
     if (key) {
-      const [source, id] = key.split('+');
-      if (!source || !id) {
+      const parsedKey = parseRecordKey(key);
+      if (!parsedKey) {
         return NextResponse.json(
           { error: 'Invalid key format' },
           { status: 400 }
         );
       }
-      const fav = await db.getFavorite(authUser.username, source, id);
+      const fav = await db.getFavorite(authUser.username, parsedKey.source, parsedKey.id);
       return NextResponse.json(fav, { status: 200 });
     }
 
-    // 查询全部收藏
     const favorites = await db.getAllFavorites(authUser.username);
     return NextResponse.json(favorites, { status: 200 });
   } catch (err) {
@@ -58,27 +49,27 @@ export async function GET(request: NextRequest) {
   }
 }
 
-/**
- * POST /api/favorites
- * body: { key: string; favorite: Favorite }
- */
 export async function POST(request: NextRequest) {
   const localModeReject = rejectIfLocalStorageMode();
   if (localModeReject) return localModeReject;
 
-  // 🛡️ 安全修复 (SEC-10)：CSRF 纵深防御
   const csrf = checkCsrf(request);
   if (!csrf.ok) return csrf.response!;
 
   try {
-    // 🛡️ 安全修复 (SEC-02, SEC-04)：强制服务端签名与状态有效性重验
     const authUser = await getVerifiedAuthUser(request);
     if (!authUser || !authUser.username) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const body = await request.json().catch(() => null);
-    const { key, favorite } = (body || {}) as { key?: unknown; favorite?: unknown };
+    const parsedBody = await readLimitedJson(request, 32 * 1024);
+    if (!parsedBody.ok) {
+      return NextResponse.json({ error: parsedBody.error }, { status: parsedBody.status });
+    }
+    const { key, favorite } = (parsedBody.data || {}) as {
+      key?: unknown;
+      favorite?: unknown;
+    };
 
     if (!key || !favorite) {
       return NextResponse.json(
@@ -101,7 +92,6 @@ export async function POST(request: NextRequest) {
     const { source, id } = parsedKey;
     const finalFavorite = parsedFav.data;
 
-    // 🛡️ S-07：每用户收藏条数上限（已存在的收藏可继续更新）
     if (!(await db.getFavorite(authUser.username, source, id))) {
       const existing = await db.getAllFavorites(authUser.username);
       if (Object.keys(existing).length >= MAX_FAVORITES_PER_USER) {
@@ -124,22 +114,14 @@ export async function POST(request: NextRequest) {
   }
 }
 
-/**
- * DELETE /api/favorites
- *
- * 1. 不带 query -> 清空全部收藏
- * 2. 带 key=source+id -> 删除单条收藏
- */
 export async function DELETE(request: NextRequest) {
   const localModeReject = rejectIfLocalStorageMode();
   if (localModeReject) return localModeReject;
 
-  // 🛡️ 安全修复 (SEC-10)：该接口走 query string、无请求体，仅做 Origin/Referer 校验
   const csrf = checkCsrf(request, { requireJsonContentType: false });
   if (!csrf.ok) return csrf.response!;
 
   try {
-    // 🛡️ 安全修复 (SEC-02, SEC-04)：强制服务端签名与状态有效性重验
     const authUser = await getVerifiedAuthUser(request);
     if (!authUser || !authUser.username) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
@@ -150,22 +132,20 @@ export async function DELETE(request: NextRequest) {
     const key = searchParams.get('key');
 
     if (key) {
-      // 删除单条
-      const [source, id] = key.split('+');
-      if (!source || !id) {
+      const parsedKey = parseRecordKey(key);
+      if (!parsedKey) {
         return NextResponse.json(
           { error: 'Invalid key format' },
           { status: 400 }
         );
       }
-      await db.deleteFavorite(username, source, id);
+      await db.deleteFavorite(username, parsedKey.source, parsedKey.id);
     } else {
-      // 清空全部
       const all = await db.getAllFavorites(username);
       await Promise.all(
         Object.keys(all).map(async (k) => {
-          const [s, i] = k.split('+');
-          if (s && i) await db.deleteFavorite(username, s, i);
+          const parsed = parseRecordKey(k);
+          if (parsed) await db.deleteFavorite(username, parsed.source, parsed.id);
         })
       );
     }

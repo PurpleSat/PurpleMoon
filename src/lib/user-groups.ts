@@ -192,12 +192,18 @@ export function removeSourceKeyFromGroups(config: AdminConfig, key: string): voi
 }
 
 // ---------------------------------------------------------------------------
-// 防止管理员借“改密码 / 新建用户”接管权限更高的账号（越权到更高分组）
-// 规则：非站长的管理员，只能为“可访问资源站不超过自己”的账号设置密码。
+// 🛡️ 安全修复 (SEC-NEW-01)：防止管理员借“临时禁用源 + 改密码 / 新建用户”接管权限更高的账号
+// 规则：
+// 1. 比较分组权限时，按 SourceConfig 中全部已配置资源站（不排除 disabled 源）计算，
+//    防止受限管理员先禁用其他源、修改高权限用户密码后再重新启用源。
+// 2. 若目标分组拥有 allSources（含未来新增源）权限，则操作者也必须具备 allSources 权限。
 // ---------------------------------------------------------------------------
 
-function enabledKeysFor(config: AdminConfig, def: UserGroupDef | null): Set<string> {
-  return new Set(filterSitesByGroupDef<SiteLike>(config, def).map((s) => s.key));
+function allConfiguredKeysFor(config: AdminConfig, def: UserGroupDef | null): Set<string> {
+  const allKeys = config.SourceConfig.map((s) => s.key);
+  if (!def || def.allSources) return new Set(allKeys);
+  const valid = new Set(allKeys);
+  return new Set(def.sourceKeys.filter((k) => valid.has(k)));
 }
 
 function isSubset(sub: Set<string>, sup: Set<string>): boolean {
@@ -205,7 +211,22 @@ function isSubset(sub: Set<string>, sup: Set<string>): boolean {
   return true;
 }
 
-/** 管理员是否可以持有（修改密码 / 登录）目标用户的账号：目标可访问的资源站必须是管理员自己的子集 */
+function isGroupSubsetOfAdmin(
+  config: AdminConfig,
+  targetDef: UserGroupDef | null,
+  adminDef: UserGroupDef | null
+): boolean {
+  // 管理员不受限（站长 / 未启用分组 / 所属分组为 allSources）时可管理任何普通分组
+  if (!adminDef || adminDef.allSources) return true;
+  // 管理员受限时，绝不能操作拥有 allSources 权限的分组
+  if (!targetDef || targetDef.allSources) return false;
+  return isSubset(
+    allConfiguredKeysFor(config, targetDef),
+    allConfiguredKeysFor(config, adminDef)
+  );
+}
+
+/** 管理员是否可以操作（修改密码 / 封禁 / 删除）目标用户的账号：目标分组权限必须是管理员自己的子集 */
 export function adminMayTakeOverAccount(
   config: AdminConfig,
   adminUsername: string,
@@ -214,10 +235,9 @@ export function adminMayTakeOverAccount(
 ): boolean {
   if (adminUsername === ownerUsername) return true;
   if (adminUsername === targetUsername) return true;
-  return isSubset(
-    enabledKeysFor(config, getUserGroupDef(config, targetUsername, ownerUsername)),
-    enabledKeysFor(config, getUserGroupDef(config, adminUsername, ownerUsername))
-  );
+  const targetDef = getUserGroupDef(config, targetUsername, ownerUsername);
+  const adminDef = getUserGroupDef(config, adminUsername, ownerUsername);
+  return isGroupSubsetOfAdmin(config, targetDef, adminDef);
 }
 
 /** 管理员新建的用户会进入默认注册分组，该分组的权限不能超过管理员自己 */
@@ -231,8 +251,6 @@ export function adminMayCreateUserInDefaultGroup(
   if (!r.configured) return true;
   const def = r.groups.find((g) => g.id === r.defaultId) ?? null;
   const target = def ?? { id: '', name: '', allSources: false, sourceKeys: [] };
-  return isSubset(
-    enabledKeysFor(config, target),
-    enabledKeysFor(config, getUserGroupDef(config, adminUsername, ownerUsername))
-  );
+  const adminDef = getUserGroupDef(config, adminUsername, ownerUsername);
+  return isGroupSubsetOfAdmin(config, target, adminDef);
 }

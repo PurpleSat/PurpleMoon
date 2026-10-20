@@ -9,7 +9,6 @@ import { checkCsrf } from '@/lib/csrf-guard';
 export const runtime = 'edge';
 
 export async function POST(request: NextRequest) {
-  // 统一使用 checkCsrf（同时校验 Origin / Referer / Content-Type，Origin 格式异常时返回 403 而不是抛 500）
   const csrf = checkCsrf(request);
   if (!csrf.ok) return csrf.response!;
 
@@ -41,15 +40,15 @@ export async function POST(request: NextRequest) {
       { ok: true },
       {
         headers: {
-          'Cache-Control': 'no-store', // 管理员配置不缓存
+          'Cache-Control': 'no-store',
         },
       }
     );
   } catch (error) {
+    console.error('重置管理员配置失败:', error);
     return NextResponse.json(
       {
         error: '重置管理员配置失败',
-        details: (error as Error).message,
       },
       { status: 500 }
     );

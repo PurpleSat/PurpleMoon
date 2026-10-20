@@ -3,6 +3,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 
 import { getVerifiedAuthUser } from '@/lib/auth-server';
+import { readLimitedJson } from '@/lib/cookies';
 import { checkCsrf } from '@/lib/csrf-guard';
 import { db } from '@/lib/db';
 import { rejectIfLocalStorageMode } from '@/lib/storage-mode';
@@ -17,7 +18,6 @@ export async function GET(request: NextRequest) {
   if (localModeReject) return localModeReject;
 
   try {
-    // 🛡️ 安全修复 (SEC-02, SEC-04)：强制服务端签名与状态有效性重验
     const authUser = await getVerifiedAuthUser(request);
     if (!authUser || !authUser.username) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
@@ -42,14 +42,19 @@ export async function POST(request: NextRequest) {
   if (!csrf.ok) return csrf.response!;
 
   try {
-    // 🛡️ 安全修复 (SEC-02, SEC-04)：强制服务端签名与状态有效性重验
     const authUser = await getVerifiedAuthUser(request);
     if (!authUser || !authUser.username) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const body = await request.json().catch(() => null);
-    const { key, record } = (body || {}) as { key?: unknown; record?: unknown };
+    const parsedBody = await readLimitedJson(request, 32 * 1024);
+    if (!parsedBody.ok) {
+      return NextResponse.json({ error: parsedBody.error }, { status: parsedBody.status });
+    }
+    const { key, record } = (parsedBody.data || {}) as {
+      key?: unknown;
+      record?: unknown;
+    };
 
     if (!key || !record) {
       return NextResponse.json(
@@ -72,7 +77,6 @@ export async function POST(request: NextRequest) {
     const { source, id } = parsedKey;
     const finalRecord = parsedRecord.data;
 
-    // 🛡️ S-07：每用户记录条数上限。更新已有记录（播放中频繁保存）不受影响，只有新增时才统计总数。
     if (!(await db.getPlayRecord(authUser.username, source, id))) {
       const existing = await db.getAllPlayRecords(authUser.username);
       if (Object.keys(existing).length >= MAX_PLAY_RECORDS_PER_USER) {
@@ -103,7 +107,6 @@ export async function DELETE(request: NextRequest) {
   if (!csrf.ok) return csrf.response!;
 
   try {
-    // 🛡️ 安全修复 (SEC-02, SEC-04)：强制服务端签名与状态有效性重验
     const authUser = await getVerifiedAuthUser(request);
     if (!authUser || !authUser.username) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
@@ -114,23 +117,21 @@ export async function DELETE(request: NextRequest) {
     const key = searchParams.get('key');
 
     if (key) {
-      // 如果提供了 key，删除单条播放记录
-      const [source, id] = key.split('+');
-      if (!source || !id) {
+      const parsedKey = parseRecordKey(key);
+      if (!parsedKey) {
         return NextResponse.json(
           { error: 'Invalid key format' },
           { status: 400 }
         );
       }
 
-      await db.deletePlayRecord(username, source, id);
+      await db.deletePlayRecord(username, parsedKey.source, parsedKey.id);
     } else {
-      // 未提供 key，则清空全部播放记录
       const all = await db.getAllPlayRecords(username);
       await Promise.all(
         Object.keys(all).map(async (k) => {
-          const [s, i] = k.split('+');
-          if (s && i) await db.deletePlayRecord(username, s, i);
+          const parsed = parseRecordKey(k);
+          if (parsed) await db.deletePlayRecord(username, parsed.source, parsed.id);
         })
       );
     }

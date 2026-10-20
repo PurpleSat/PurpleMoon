@@ -5,6 +5,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { UserGroupDef } from '@/lib/admin.types';
 import { getVerifiedAuthUser } from '@/lib/auth-server';
 import { getConfig, withConfigConflictRetry } from '@/lib/config';
+import { readLimitedJson } from '@/lib/cookies';
 import { checkCsrf } from '@/lib/csrf-guard';
 import { getStorage } from '@/lib/db';
 import { IStorage } from '@/lib/types';
@@ -38,17 +39,6 @@ function newGroupId(): string {
 const bad = (error: string, status = 400) =>
   NextResponse.json({ error }, { status });
 
-/**
- * 用户分组管理（仅站长）。
- * 只允许站长操作：若管理员也能改分组，就能把自己调到权限更大的分组，等于越权。
- *
- *  enableGroups    首次启用分组（创建 A=全部源、B=当前全部源 两个初始分组），已启用则仅做格式迁移
- *  createGroup     { name, allSources, sourceKeys }
- *  updateGroup     { id, name?, allSources?, sourceKeys? }   重命名 / 修改可访问资源站
- *  deleteGroup     { id, moveToGroupId? }  组内用户（及默认注册分组）迁移到 moveToGroupId
- *  setDefaultGroup { id }
- *  setUserGroup    { targetUsername, groupId }
- */
 export async function POST(request: NextRequest) {
   const csrf = checkCsrf(request);
   if (!csrf.ok) return csrf.response!;
@@ -64,7 +54,9 @@ export async function POST(request: NextRequest) {
       return bad('仅站长可管理用户分组', 401);
     }
 
-    const body = (await request.json().catch(() => null)) as any;
+    const parsedBody = await readLimitedJson(request, 32 * 1024);
+    if (!parsedBody.ok) return bad(parsedBody.error, parsedBody.status);
+    const body = parsedBody.data;
     const action = body?.action as Action | undefined;
     if (!action || !ACTIONS.includes(action)) return bad('参数格式错误');
 
@@ -76,7 +68,7 @@ export async function POST(request: NextRequest) {
       if (action === 'enableGroups') {
         const migrated = migrateGroupConfig(adminConfig);
         if (migrated) {
-          adminConfig.GroupConfig = migrated; // 已启用：只做旧格式 → 新格式迁移
+          adminConfig.GroupConfig = migrated;
         } else {
           const enabledKeys = adminConfig.SourceConfig.filter((s) => !s.disabled).map(
             (s) => s.key
@@ -93,13 +85,11 @@ export async function POST(request: NextRequest) {
             ],
             DefaultRegisterGroupId: LEGACY_GROUP_B,
           };
-          // 启用前就存在、尚无分组的用户固化为 A 组，保证其权限不变
           users.forEach((u) => {
             if (u.role !== 'owner' && !u.group) u.group = LEGACY_GROUP_A;
           });
         }
       } else {
-        // 其余操作都要求已启用分组；同时把可能的旧格式迁移为新格式
         const gc = migrateGroupConfig(adminConfig);
         if (!gc) return bad('请先启用分组功能');
         adminConfig.GroupConfig = gc;
@@ -174,7 +164,7 @@ export async function POST(request: NextRequest) {
   } catch (error) {
     console.error('用户分组操作失败:', error);
     return NextResponse.json(
-      { error: '用户分组操作失败', details: (error as Error).message },
+      { error: '用户分组操作失败' },
       { status: 500 }
     );
   }

@@ -1,11 +1,18 @@
 /* eslint-disable @typescript-eslint/no-explicit-any, no-console */
 import { NextRequest, NextResponse } from 'next/server';
 
+import { getClientIp } from '@/lib/client-ip';
+import { checkSearchRateLimit } from '@/lib/search-engine';
 import { fetchUpstreamJson, resolveBrowsableSite } from '@/lib/source-browser';
 
 export const runtime = 'edge';
 
 export async function GET(req: NextRequest) {
+  const ip = getClientIp(req);
+  if (!checkSearchRateLimit(ip, 60, 60000)) {
+    return NextResponse.json({ error: '请求过于频繁，请稍后再试' }, { status: 429 });
+  }
+
   try {
     const { searchParams } = new URL(req.url);
     const rawTypeId = searchParams.get('type_id');
@@ -14,7 +21,6 @@ export async function GET(req: NextRequest) {
     if (!rawTypeId || !/^[a-zA-Z0-9_-]{1,20}$/.test(rawTypeId)) {
       return NextResponse.json({ error: 'Invalid type_id parameter' }, { status: 400 });
     }
-    // 页码必须是 1~1000 的正整数，否则回退到第 1 页
     const page = /^\d{1,4}$/.test(rawPage) && Number(rawPage) >= 1 ? rawPage : '1';
 
     const resolved = await resolveBrowsableSite(req, searchParams.get('source'));

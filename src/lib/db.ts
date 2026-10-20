@@ -3,10 +3,10 @@
 import { AdminConfig } from './admin.types';
 import { D1Storage } from './d1.db';
 import { RedisStorage } from './redis.db';
-import { Favorite, IStorage, Memo,PlayRecord } from './types'; // 【修复】：增加了 Memo 的导入
+import { Favorite, IStorage, Memo, PlayRecord } from './types';
 import { UpstashRedisStorage } from './upstash.db';
 
-// 【新增】：跳过片头片尾的类型定义
+// 跳过片头片尾的类型定义
 export interface SkipConfig {
   enable: boolean;
   intro_time: number;
@@ -203,10 +203,9 @@ export class DbManager {
   }
 
   // =========================================================================
-  // 【新增核心】：跳过片头片尾配置 (单剧集记忆)
-  // 使用安全降级策略：底层如果还没写对应方法，也不会引发服务崩溃
+  // 跳过片头片尾配置 (单剧集记忆)
   // =========================================================================
-  
+
   async getSkipConfig(
     userName: string,
     source: string,
@@ -252,12 +251,12 @@ export class DbManager {
   }
 
   // =========================================================================
-  // 【新增核心】：便利贴功能 (Memos)
+  // 便利贴功能 (Memos)
   // =========================================================================
-  
-  async getMemos(userName: string): Promise<Memo[]> {
+
+  async getMemos(userName: string, isAdmin = false): Promise<Memo[]> {
     if (this.storage && typeof (this.storage as any).getMemos === 'function') {
-      return (this.storage as any).getMemos(userName);
+      return (this.storage as any).getMemos(userName, isAdmin);
     }
     return [];
   }
@@ -268,23 +267,22 @@ export class DbManager {
     }
   }
 
-  async deleteMemo(userName: string, memoId: number): Promise<boolean> {
+  async deleteMemo(userName: string, memoId: number, isAdmin = false): Promise<boolean> {
     if (this.storage && typeof (this.storage as any).deleteMemo === 'function') {
-      return await (this.storage as any).deleteMemo(userName, memoId);
+      return await (this.storage as any).deleteMemo(userName, memoId, isAdmin);
     }
     return false;
   }
 
   // =========================================================================
-  // 【新增核心】：向下透传全局分布式限流功能
+  // 向下透传全局分布式限流功能
   // =========================================================================
-  
+
   async checkRateLimit(key: string, limit: number, windowMs: number): Promise<boolean> {
     if (this.storage && typeof (this.storage as any).checkRateLimit === 'function') {
       return await (this.storage as any).checkRateLimit(key, limit, windowMs);
     }
-    // 如果没有配置外部存储（比如 localstorage 模式），默认返回 true (此时会退回到内存 Map 限流)
-    return true; 
+    return true;
   }
 
   async resetRateLimit(key: string): Promise<void> {

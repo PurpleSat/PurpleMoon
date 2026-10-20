@@ -6,13 +6,11 @@ import { db } from '@/lib/db';
 import { fetchVideoDetail } from '@/lib/fetchVideoDetail';
 import { timingSafeEqual } from '@/lib/password';
 import { SearchResult } from '@/lib/types';
+import { parseRecordKey } from '@/lib/validation';
 
 export const runtime = 'edge';
 
 export async function GET(request: NextRequest) {
-  // ============================================================================
-  // 【核心安全升级】：防 DoS 资源耗尽，严格拦截非法的匿名 Cron 请求
-  // ============================================================================
   const authHeader = request.headers.get('authorization');
   const cronSecret = process.env.CRON_SECRET;
 
@@ -21,17 +19,14 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: 'Unauthorized: CRON_SECRET is not configured' }, { status: 401 });
   }
 
-  // 严格比对 Bearer Token（恒定时间比较）
   if (!authHeader || !timingSafeEqual(authHeader, `Bearer ${cronSecret}`)) {
     console.warn(`拦截：检测到伪造的 Cron 触发请求！`);
     return NextResponse.json({ error: 'Unauthorized: Invalid token' }, { status: 401 });
   }
-  // ============================================================================
 
   try {
     console.log('Cron job triggered:', new Date().toISOString());
 
-    // 必须 await：Serverless / Edge 运行时在响应返回后会终止未完成的任务
     await refreshRecordAndFavorites();
 
     return NextResponse.json({
@@ -46,7 +41,6 @@ export async function GET(request: NextRequest) {
       {
         success: false,
         message: 'Cron job failed',
-        error: error instanceof Error ? error.message : 'Unknown error',
         timestamp: new Date().toISOString(),
       },
       { status: 500 }
@@ -67,10 +61,8 @@ async function refreshRecordAndFavorites() {
     if (process.env.USERNAME && !users.includes(process.env.USERNAME)) {
       users.push(process.env.USERNAME);
     }
-    // 函数级缓存：key 为 `${source}+${id}`，值为 Promise<VideoDetail | null>
     const detailCache = new Map<string, Promise<SearchResult | null>>();
 
-    // 获取详情 Promise（带缓存和错误处理）
     const getDetail = async (
       source: string,
       id: string,
@@ -85,7 +77,6 @@ async function refreshRecordAndFavorites() {
           fallbackTitle: fallbackTitle.trim(),
         })
           .then((detail) => {
-            // 成功时才缓存结果
             const successPromise = Promise.resolve(detail);
             detailCache.set(key, successPromise);
             return detail;
@@ -101,7 +92,6 @@ async function refreshRecordAndFavorites() {
     for (const user of users) {
       console.log(`开始处理用户: ${user}`);
 
-      // 播放记录
       try {
         const playRecords = await db.getAllPlayRecords(user);
         const totalRecords = Object.keys(playRecords).length;
@@ -109,11 +99,12 @@ async function refreshRecordAndFavorites() {
 
         for (const [key, record] of Object.entries(playRecords)) {
           try {
-            const [source, id] = key.split('+');
-            if (!source || !id) {
+            const parsedKey = parseRecordKey(key);
+            if (!parsedKey) {
               console.warn(`跳过无效的播放记录键: ${key}`);
               continue;
             }
+            const { source, id } = parsedKey;
 
             const detail = await getDetail(source, id, record.title);
             if (!detail) {
@@ -143,7 +134,6 @@ async function refreshRecordAndFavorites() {
             processedRecords++;
           } catch (err) {
             console.error(`处理播放记录失败 (${key}):`, err);
-            // 继续处理下一个记录
           }
         }
 
@@ -152,7 +142,6 @@ async function refreshRecordAndFavorites() {
         console.error(`获取用户播放记录失败 (${user}):`, err);
       }
 
-      // 收藏
       try {
         const favorites = await db.getAllFavorites(user);
         const totalFavorites = Object.keys(favorites).length;
@@ -160,11 +149,12 @@ async function refreshRecordAndFavorites() {
 
         for (const [key, fav] of Object.entries(favorites)) {
           try {
-            const [source, id] = key.split('+');
-            if (!source || !id) {
+            const parsedKey = parseRecordKey(key);
+            if (!parsedKey) {
               console.warn(`跳过无效的收藏键: ${key}`);
               continue;
             }
+            const { source, id } = parsedKey;
 
             const favDetail = await getDetail(source, id, fav.title);
             if (!favDetail) {
@@ -191,7 +181,6 @@ async function refreshRecordAndFavorites() {
             processedFavorites++;
           } catch (err) {
             console.error(`处理收藏失败 (${key}):`, err);
-            // 继续处理下一个收藏
           }
         }
 

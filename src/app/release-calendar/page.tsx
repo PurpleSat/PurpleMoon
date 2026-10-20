@@ -14,11 +14,11 @@ function ReleaseCalendarClient() {
   const pathname = usePathname();
   const searchParams = useSearchParams();
 
+  const rawResultRef = useRef<ReleaseCalendarResult | null>(null);
   const [data, setData] = useState<ReleaseCalendarResult | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  // 从 URL 初始化所有状态，实现“分享链接”与“返回键”状态还原
   const [filters, setFilters] = useState({
     type: (searchParams.get('type') || '') as 'movie' | 'tv' | '',
     region: searchParams.get('region') || '',
@@ -28,7 +28,9 @@ function ReleaseCalendarClient() {
     search: searchParams.get('search') || '',
   });
 
-  const [currentPage, setCurrentPage] = useState(parseInt(searchParams.get('page') || '1', 10));
+  const [currentPage, setCurrentPage] = useState(
+    Math.max(1, parseInt(searchParams.get('page') || '1', 10) || 1)
+  );
   const itemsPerPage = 30;
   const [viewMode, setViewMode] = useState<'grid' | 'timeline' | 'calendar'>((searchParams.get('view') as any) || 'grid');
 
@@ -36,7 +38,6 @@ function ReleaseCalendarClient() {
   const [currentCalendarDate, setCurrentCalendarDate] = useState(new Date());
   const [expandedDates, setExpandedDates] = useState<Set<string>>(new Set());
 
-  // 监听状态变化并静默同步到 URL
   const isFirstRender = useRef(true);
   useEffect(() => {
     if (isFirstRender.current) {
@@ -56,10 +57,9 @@ function ReleaseCalendarClient() {
     router.replace(`${pathname}?${params.toString()}`, { scroll: false });
   }, [currentPage, viewMode, filters, pathname, router]);
 
-  // 全局图片兜底容错处理
   const handleImageError = (e: React.SyntheticEvent<HTMLImageElement, Event>) => {
     const target = e.target as HTMLImageElement;
-    target.src = '/logo.png'; 
+    target.src = '/logo.png';
     target.style.objectFit = 'contain';
     target.style.padding = '1rem';
     target.style.opacity = '0.3';
@@ -75,23 +75,10 @@ function ReleaseCalendarClient() {
     });
   };
 
-  const cleanExpiredCache = () => {
-    const CACHE_DURATION = 2 * 60 * 60 * 1000;
-    const now = Date.now();
-    const cacheTimeKey = 'release_calendar_all_data_time';
-    const cachedTime = localStorage.getItem(cacheTimeKey);
-
-    if (cachedTime && now - parseInt(cachedTime) >= CACHE_DURATION) {
-      localStorage.removeItem('release_calendar_all_data');
-      localStorage.removeItem(cacheTimeKey);
-    }
-  };
-
   const fetchData = async (reset = false) => {
     try {
       setLoading(true);
       setError(null);
-      cleanExpiredCache();
 
       const apiUrl = reset ? '/api/release-calendar?refresh=true' : '/api/release-calendar';
       const response = await fetch(apiUrl);
@@ -102,8 +89,8 @@ function ReleaseCalendarClient() {
       }
 
       const result: ReleaseCalendarResult = await response.json();
-      const filteredData = applyClientSideFilters(result);
-      setData(filteredData);
+      rawResultRef.current = result;
+      setData(applyClientSideFiltersWithParams(result, filters));
     } catch (err) {
       setError(err instanceof Error ? err.message : '未知错误');
     } finally {
@@ -111,12 +98,17 @@ function ReleaseCalendarClient() {
     }
   };
 
-  const applyClientSideFilters = (data: ReleaseCalendarResult): ReleaseCalendarResult => {
-    return applyClientSideFiltersWithParams(data, filters);
-  };
-
-  const applyClientSideFiltersWithParams = (data: ReleaseCalendarResult, filterParams: typeof filters): ReleaseCalendarResult => {
-    let filteredItems = [...data.items];
+  const applyClientSideFiltersWithParams = (
+    rawData: ReleaseCalendarResult,
+    filterParams: typeof filters
+  ): ReleaseCalendarResult => {
+    // 🛡️ 逻辑修复 (LOG-06)：在分页前先按标题去重，确保每页固定满额 30 条且总页数准确
+    const seenTitles = new Set<string>();
+    let filteredItems = rawData.items.filter((item) => {
+      if (seenTitles.has(item.title)) return false;
+      seenTitles.add(item.title);
+      return true;
+    });
 
     if (filterParams.type) filteredItems = filteredItems.filter(item => item.type === filterParams.type);
     if (filterParams.region && filterParams.region !== '全部') filteredItems = filteredItems.filter(item => item.region.includes(filterParams.region!));
@@ -132,35 +124,31 @@ function ReleaseCalendarClient() {
       );
     }
 
-    return { ...data, items: filteredItems, total: filteredItems.length, hasMore: false };
+    return { ...rawData, items: filteredItems, total: filteredItems.length, hasMore: false };
   };
 
   const applyFilters = () => {
     setCurrentPage(1);
-    fetchData(false);
+    if (rawResultRef.current) {
+      setData(applyClientSideFiltersWithParams(rawResultRef.current, filters));
+    } else {
+      fetchData(false);
+    }
   };
 
   const handleRefreshClick = async () => {
-    try {
-      localStorage.removeItem('release_calendar_all_data');
-      localStorage.removeItem('release_calendar_all_data_time');
-      await fetchData(true);
-    } catch (error) {
-      // Ignore
-    }
+    await fetchData(true);
   };
 
-  // 【终极稳健方案】：智能清洗片名，直接无缝对接全局搜索页（/search）
   const handlePlayClick = (item: ReleaseCalendarItem) => {
     let cleanTitle = item.title;
     if (cleanTitle) {
-      cleanTitle = cleanTitle.split('：')[0].split(':')[0]; // 移除冒号后副标题
-      cleanTitle = cleanTitle.replace(/（[^）]*）|\([^)]*\)/g, ''); // 移除括号
-      cleanTitle = cleanTitle.trim().split(' ')[0]; // 移除英文名
+      cleanTitle = cleanTitle.split('：')[0].split(':')[0];
+      cleanTitle = cleanTitle.replace(/（[^）]*）|\([^)]*\)/g, '');
+      cleanTitle = cleanTitle.trim().split(' ')[0];
     }
 
     const keyword = encodeURIComponent(cleanTitle || item.title);
-    // 直接跳转至项目自带的搜索页，并把清洗后的关键词带过去
     router.push(`/search?q=${keyword}&keyword=${keyword}`);
   };
 
@@ -168,7 +156,6 @@ function ReleaseCalendarClient() {
   const totalPages = Math.ceil(totalItems / itemsPerPage);
   const currentItems = data?.items.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage) || [];
 
-  // 初始化加载
   useEffect(() => { fetchData(); }, []);
 
   useEffect(() => {
@@ -178,8 +165,8 @@ function ReleaseCalendarClient() {
   }, []);
 
   const scrollToTop = () => {
-    try { document.body.scrollTo({ top: 0, behavior: 'smooth' }); } 
-    catch (e) { document.body.scrollTop = 0; document.documentElement.scrollTop = 0; }
+    try { document.body.scrollTo({ top: 0, behavior: 'smooth' }); }
+    catch { document.body.scrollTop = 0; document.documentElement.scrollTop = 0; }
   };
 
   const formatDate = (dateStr: string) => {
@@ -192,11 +179,11 @@ function ReleaseCalendarClient() {
   return (
     <PageLayout activePath="/release-calendar">
       <div className="flex flex-col min-h-screen pb-10 bg-gray-50 dark:bg-[#0a0a0a] transition-colors">
-        
+
         {/* 吸顶导航栏 & 过滤器 */}
         <div className="sticky top-0 z-40 bg-white/80 dark:bg-gray-900/80 backdrop-blur-xl border-b border-gray-200 dark:border-gray-800 transition-colors">
           <div className="max-w-7xl mx-auto px-4 py-3">
-            
+
             {/* 顶部标题与视图切换 */}
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-3">
               <div className="flex items-center gap-2">
@@ -266,18 +253,27 @@ function ReleaseCalendarClient() {
                 {data?.filters.regions.map(r => <option key={r.value} value={r.value}>{r.label}</option>)}
               </select>
 
+              <select
+                value={filters.genre}
+                onChange={(e) => { setFilters(prev => ({ ...prev, genre: e.target.value })); }}
+                className="shrink-0 px-3 py-1.5 text-xs font-medium bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 rounded-full border-none focus:ring-2 focus:ring-blue-500 outline-none appearance-none cursor-pointer"
+              >
+                <option value="">全部题材</option>
+                {data?.filters.genres.map(g => <option key={g.value} value={g.value}>{g.label}</option>)}
+              </select>
+
               <div className="shrink-0 flex items-center gap-1 bg-gray-100 dark:bg-gray-800 rounded-full px-2 py-1">
                 <input
                   type="date"
                   value={filters.dateFrom}
-                  onChange={(e) => { setFilters(prev => ({ ...prev, dateFrom: e.target.value })) }}
+                  onChange={(e) => { setFilters(prev => ({ ...prev, dateFrom: e.target.value })); }}
                   className="text-xs bg-transparent border-none text-gray-700 dark:text-gray-300 focus:ring-0 outline-none p-0.5 cursor-pointer w-[105px]"
                 />
                 <span className="text-gray-400 text-xs">-</span>
                 <input
                   type="date"
                   value={filters.dateTo}
-                  onChange={(e) => { setFilters(prev => ({ ...prev, dateTo: e.target.value })) }}
+                  onChange={(e) => { setFilters(prev => ({ ...prev, dateTo: e.target.value })); }}
                   className="text-xs bg-transparent border-none text-gray-700 dark:text-gray-300 focus:ring-0 outline-none p-0.5 cursor-pointer w-[105px]"
                 />
               </div>
@@ -312,15 +308,14 @@ function ReleaseCalendarClient() {
               {/* 1. 现代化网格海报墙视图 (Grid View) */}
               {viewMode === 'grid' && (
                 <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3 sm:gap-4">
-                  {currentItems.filter((item, i, self) => i === self.findIndex(t => t.title === item.title)).map((item) => {
+                  {currentItems.map((item) => {
                     const isToday = item.releaseDate === new Date().toISOString().split('T')[0];
                     return (
-                      <div 
-                        key={item.id} 
+                      <div
+                        key={item.id}
                         className="group relative aspect-[2/3] w-full rounded-xl overflow-hidden bg-gray-200 dark:bg-gray-800 shadow-sm transition-all duration-300 hover:shadow-2xl hover:-translate-y-1 hover:ring-2 hover:ring-blue-500/50 cursor-pointer"
                         onClick={() => handlePlayClick(item)}
                       >
-                        {/* 海报图片 */}
                         {item.poster ? (
                           <img src={item.poster} alt={item.title} className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-105" loading="lazy" onError={handleImageError} />
                         ) : (
@@ -329,15 +324,13 @@ function ReleaseCalendarClient() {
                             <span className="mt-2 text-xs font-medium text-gray-500 line-clamp-2">{item.title}</span>
                           </div>
                         )}
-                        
-                        {/* 顶部 TODAY 标签 */}
+
                         {isToday && (
                           <div className="absolute top-2 right-2 px-1.5 py-0.5 rounded bg-red-600/90 backdrop-blur-md text-[10px] text-white font-bold tracking-wider shadow-lg z-10">
                             TODAY
                           </div>
                         )}
 
-                        {/* 常驻的底部信息遮罩，直接内嵌在海报里 */}
                         <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/95 via-black/70 to-transparent pt-12 pb-3 px-3 flex flex-col justify-end z-10">
                           <h3 className="text-white font-bold text-sm line-clamp-1 drop-shadow-md">
                             {item.title}
@@ -362,7 +355,6 @@ function ReleaseCalendarClient() {
                           </p>
                         </div>
 
-                        {/* 鼠标悬浮时出现的深色遮罩和搜索/播放按钮 */}
                         <div className="absolute inset-0 bg-black/30 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-all duration-300 backdrop-blur-[1px] z-20">
                           <div className="w-12 h-12 bg-blue-500/90 rounded-full flex items-center justify-center transform scale-75 group-hover:scale-100 transition-transform duration-300 shadow-[0_0_15px_rgba(59,130,246,0.6)]">
                             <Play className="w-5 h-5 text-white ml-1" fill="currentColor" />
@@ -387,7 +379,6 @@ function ReleaseCalendarClient() {
                     }, {} as Record<string, ReleaseCalendarItem[]>)).sort(([a], [b]) => a.localeCompare(b)).map(([date, items]) => {
                       const todayStr = new Date().toISOString().split('T')[0];
                       const isToday = date === todayStr;
-                      const uniqueItems = items.filter((item, i, self) => i === self.findIndex(t => t.title === item.title));
 
                       return (
                         <div key={date} className="relative flex flex-col md:flex-row items-start justify-between group">
@@ -400,7 +391,7 @@ function ReleaseCalendarClient() {
                               {formatDate(date)}
                             </span>
                             <span className="text-xs text-gray-500 dark:text-gray-500 font-medium">
-                              {uniqueItems.length} 部作品
+                              {items.length} 部作品
                             </span>
                           </div>
 
@@ -411,7 +402,7 @@ function ReleaseCalendarClient() {
                           </div>
 
                           <div className="w-full md:w-[calc(50%-2rem)] pl-16 md:pl-4 space-y-3">
-                            {uniqueItems.map((item, i) => (
+                            {items.map((item, i) => (
                               <div key={`${item.id}-${i}`} onClick={() => handlePlayClick(item)} className="flex gap-3 p-3 bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-100 dark:border-gray-800/60 hover:shadow-md transition-shadow cursor-pointer relative overflow-hidden group/card">
                                 {item.poster ? (
                                   <img src={item.poster} alt={item.title} className="w-12 h-16 object-cover rounded-md shadow-sm shrink-0 bg-gray-200 dark:bg-gray-800" loading="lazy" onError={handleImageError} />
@@ -443,13 +434,28 @@ function ReleaseCalendarClient() {
               {viewMode === 'calendar' && (
                 <div className="bg-white dark:bg-gray-900/50 rounded-2xl shadow-sm border border-gray-200 dark:border-gray-800/60 p-4 sm:p-6">
                   <div className="flex items-center justify-between mb-6">
-                    <button onClick={() => setCurrentCalendarDate(new Date(currentCalendarDate.setMonth(currentCalendarDate.getMonth() - 1)))} className="p-2 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-full transition-colors">
+                    {/* 🛡️ 逻辑修复 (LOG-06)：构造新 Date 时固定为当月 1 号，避免 31 日翻月时的 Date 溢出与状态原地修改 */}
+                    <button
+                      onClick={() =>
+                        setCurrentCalendarDate(
+                          (prev) => new Date(prev.getFullYear(), prev.getMonth() - 1, 1)
+                        )
+                      }
+                      className="p-2 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-full transition-colors"
+                    >
                       <ChevronLeft className="w-5 h-5 text-gray-600 dark:text-gray-400" />
                     </button>
                     <h3 className="text-xl font-bold text-gray-900 dark:text-white tracking-tight">
                       {currentCalendarDate.toLocaleDateString('zh-CN', { year: 'numeric', month: 'long' })}
                     </h3>
-                    <button onClick={() => setCurrentCalendarDate(new Date(currentCalendarDate.setMonth(currentCalendarDate.getMonth() + 1)))} className="p-2 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-full transition-colors">
+                    <button
+                      onClick={() =>
+                        setCurrentCalendarDate(
+                          (prev) => new Date(prev.getFullYear(), prev.getMonth() + 1, 1)
+                        )
+                      }
+                      className="p-2 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-full transition-colors"
+                    >
                       <ChevronRight className="w-5 h-5 text-gray-600 dark:text-gray-400" />
                     </button>
                   </div>
@@ -477,15 +483,15 @@ function ReleaseCalendarClient() {
                         const dateStr = `${current.getFullYear()}-${String(current.getMonth() + 1).padStart(2, '0')}-${String(current.getDate()).padStart(2, '0')}`;
                         const isCurrentMonth = current.getMonth() === currentMonth;
                         const isToday = dateStr === todayStr;
-                        const dayItems = allItems.filter(item => item.releaseDate === dateStr).filter((item, index, self) => index === self.findIndex(t => t.title === item.title));
+                        const dayItems = allItems.filter(item => item.releaseDate === dateStr);
 
                         days.push(
                           <div key={dateStr} className={`min-h-[80px] sm:min-h-[100px] p-1.5 sm:p-2 rounded-xl border ${
-                            isToday ? 'border-blue-500/50 bg-blue-50/50 dark:bg-blue-900/10 shadow-[0_0_10px_rgba(59,130,246,0.1)]' 
-                            : isCurrentMonth ? 'border-gray-100 dark:border-gray-800/60 bg-transparent hover:bg-gray-50 dark:hover:bg-gray-800/50' 
+                            isToday ? 'border-blue-500/50 bg-blue-50/50 dark:bg-blue-900/10 shadow-[0_0_10px_rgba(59,130,246,0.1)]'
+                            : isCurrentMonth ? 'border-gray-100 dark:border-gray-800/60 bg-transparent hover:bg-gray-50 dark:hover:bg-gray-800/50'
                             : 'border-transparent opacity-40'
                           } transition-colors flex flex-col`}>
-                            
+
                             <span className={`text-[10px] sm:text-xs font-medium w-6 h-6 flex items-center justify-center rounded-full mb-1 ${
                               isToday ? 'bg-blue-500 text-white shadow-sm' : 'text-gray-700 dark:text-gray-300'
                             }`}>
@@ -554,7 +560,6 @@ function ReleaseCalendarClient() {
   );
 }
 
-// 补充缺失的 Lucide 图标依赖
 const ChevronLeft = ({ className }: { className?: string }) => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><path d="m15 18-6-6 6-6"/></svg>;
 const ChevronRight = ({ className }: { className?: string }) => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><path d="m9 18 6-6-6-6"/></svg>;
 

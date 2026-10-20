@@ -1,13 +1,24 @@
 /* eslint-disable no-console */
 import { NextResponse } from 'next/server';
 
+import { getClientIp } from '@/lib/client-ip';
 import { getCacheTime } from '@/lib/config';
 import { getDetailFromApi } from '@/lib/downstream';
+import { checkSearchRateLimit } from '@/lib/search-engine';
 import { resolveAccessibleSite } from '@/lib/site-access';
 
 export const runtime = 'edge';
 
 export async function GET(request: Request) {
+  // 🛡️ 安全加固 (SEC-NEW-09)：接入统一的检索频控，防止被滥用刷上游详情接口
+  const ip = getClientIp(request as { headers: Headers });
+  if (!checkSearchRateLimit(ip, 60, 60000)) {
+    return NextResponse.json(
+      { error: '请求过于频繁，请稍后再试' },
+      { status: 429 }
+    );
+  }
+
   const { searchParams } = new URL(request.url);
   const id = searchParams.get('id');
   const sourceCode = searchParams.get('source');
@@ -16,8 +27,8 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: '缺少必要参数' }, { status: 400 });
   }
 
-  if (!/^[\w-]+$/.test(id)) {
-    return NextResponse.json({ error: '无效的视频ID格式' }, { status: 400 });
+  if (!/^[\w-]{1,100}$/.test(id) || !/^[\w-]{1,50}$/.test(sourceCode)) {
+    return NextResponse.json({ error: '无效的参数格式' }, { status: 400 });
   }
 
   try {
@@ -35,7 +46,6 @@ export async function GET(request: Request) {
       },
     });
   } catch (error) {
-    // 内部异常信息（上游地址、网络错误细节等）只写服务端日志，不回传给客户端
     console.error('获取视频详情失败:', error);
     return NextResponse.json({ error: '获取视频详情失败' }, { status: 500 });
   }

@@ -126,7 +126,7 @@ describe('custom user groups', () => {
     expect(r.groups.map((g) => [g.id, g.allSources])).toEqual([['A', true], ['B', false]]);
     expect(r.defaultId).toBe('B');
     c.UserConfig.Users.push({ username: 'oldb', role: 'user', group: 'B' });
-    expect(keys(getSitesForUser(c, 'oldb', ).sites)).toEqual(['s2']);
+    expect(keys(getSitesForUser(c, 'oldb').sites)).toEqual(['s2']);
     const m = migrateGroupConfig(c)!;
     expect(m.Groups).toHaveLength(2);
     expect(m.DefaultRegisterGroupId).toBe('B');
@@ -171,7 +171,6 @@ describe('custom user groups', () => {
   });
 
   describe('管理员越权防护', () => {
-    // adm 在 g_basic（仅 s1）；vip 在 g_vip（全部）；lost 回退默认分组 g_basic
     it('管理员不能接管权限更高的账号，可接管同级 / 更低 / 自己', () => {
       const c = withGroups(base());
       expect(adminMayTakeOverAccount(c, 'adm', 'vip', 'boss')).toBe(false);
@@ -179,7 +178,22 @@ describe('custom user groups', () => {
       expect(adminMayTakeOverAccount(c, 'adm', 'adm', 'boss')).toBe(true);
       expect(adminMayTakeOverAccount(c, 'adm', 'lost', 'boss')).toBe(true);
       c.UserConfig.Users.push({ username: 'none', role: 'user', group: 'g_none' });
-      expect(adminMayTakeOverAccount(c, 'adm', 'none', 'boss')).toBe(true); // 更低
+      expect(adminMayTakeOverAccount(c, 'adm', 'none', 'boss')).toBe(true);
+    });
+
+    it('SEC-NEW-01：即使其他视频源被临时禁用，受限分组管理员仍不能接管更高分组或 allSources 账号', () => {
+      const c = withGroups(base());
+      // 把除 s1 外的源全部设为 disabled
+      c.SourceConfig.forEach((s) => {
+        if (s.key !== 's1') s.disabled = true;
+      });
+      // vip 属于 allSources=true 分组，受限管理员 adm 仍不可接管
+      expect(adminMayTakeOverAccount(c, 'adm', 'vip', 'boss')).toBe(false);
+
+      // 新增一个拥有 ['s1', 's2']（但 s2 当前处于 disabled）的分组用户
+      c.GroupConfig!.Groups!.push(G('g_plus', '进阶', false, ['s1', 's2']));
+      c.UserConfig.Users.push({ username: 'plus_user', role: 'user', group: 'g_plus' });
+      expect(adminMayTakeOverAccount(c, 'adm', 'plus_user', 'boss')).toBe(false);
     });
 
     it('站长不受限；管理员在“全部源”分组时可接管任意用户', () => {
@@ -198,7 +212,7 @@ describe('custom user groups', () => {
 
     it('管理员新建用户：默认注册分组权限不能高于自己', () => {
       const c = withGroups(base());
-      expect(adminMayCreateUserInDefaultGroup(c, 'adm', 'boss')).toBe(true); // 默认 g_basic = 自己
+      expect(adminMayCreateUserInDefaultGroup(c, 'adm', 'boss')).toBe(true);
       c.GroupConfig!.DefaultRegisterGroupId = 'g_vip';
       expect(adminMayCreateUserInDefaultGroup(c, 'adm', 'boss')).toBe(false);
       expect(adminMayCreateUserInDefaultGroup(c, 'boss', 'boss')).toBe(true);

@@ -29,6 +29,8 @@ function SearchPageClient() {
   const [isStreaming, setIsStreaming] = useState(false);
   // 用于取消上一次尚未结束的搜索，避免旧结果覆盖新结果
   const abortRef = useRef<AbortController | null>(null);
+  // 🛡️ 逻辑修复 (LOG-04)：记录最近一次已触发的搜索词，防止 handleSearch 与 useEffect([searchParams]) 双重触发
+  const lastTriggeredQueryRef = useRef<string | null>(null);
   const [showResults, setShowResults] = useState(false);
   const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
 
@@ -40,7 +42,7 @@ function SearchPageClient() {
         return JSON.parse(userSetting);
       }
     }
-    return true; // 默认启用聚合
+    return true;
   };
 
   // 是否启用流式搜索：读取用户本地设置，默认开启；值缺失或损坏时按开启处理
@@ -67,7 +69,6 @@ function SearchPageClient() {
   const aggregatedResults = useMemo(() => {
     const map = new Map<string, SearchResult[]>();
     searchResults.forEach((item) => {
-      // 使用 title + year + type 作为键，year 必然存在，但依然兜底 'unknown'
       const key = `${item.title.replaceAll(' ', '')}-${
         item.year || 'unknown'
       }-${item.episodes.length === 1 ? 'movie' : 'tv'}`;
@@ -75,14 +76,13 @@ function SearchPageClient() {
       arr.push(item);
       map.set(key, arr);
     });
+    const normalizedQuery = searchQuery.trim().replaceAll(' ', '').toLowerCase();
     return Array.from(map.entries()).sort((a, b) => {
-      // 优先排序：标题与搜索词完全一致的排在前面
-      const aExactMatch = a[1][0].title
-        .replaceAll(' ', '')
-        .includes(searchQuery.trim().replaceAll(' ', ''));
-      const bExactMatch = b[1][0].title
-        .replaceAll(' ', '')
-        .includes(searchQuery.trim().replaceAll(' ', ''));
+      // 🛡️ 逻辑修复 (LOG-04)：使用精确相等比较代替 .includes()，确保同名作品真正排在最前
+      const aExactMatch =
+        a[1][0].title.replaceAll(' ', '').toLowerCase() === normalizedQuery;
+      const bExactMatch =
+        b[1][0].title.replaceAll(' ', '').toLowerCase() === normalizedQuery;
 
       if (aExactMatch && !bExactMatch) return -1;
       if (!aExactMatch && bExactMatch) return 1;
@@ -91,32 +91,27 @@ function SearchPageClient() {
       if (a[1][0].year === b[1][0].year) {
         return a[0].localeCompare(b[0]);
       } else {
-        // 处理 unknown 的情况
         const aYear = a[1][0].year;
         const bYear = b[1][0].year;
 
         if (aYear === 'unknown' && bYear === 'unknown') {
           return 0;
         } else if (aYear === 'unknown') {
-          return 1; // a 排在后面
+          return 1;
         } else if (bYear === 'unknown') {
-          return -1; // b 排在后面
+          return -1;
         } else {
-          // 都是数字年份，按数字大小排序（大的在前面）
           return aYear > bYear ? -1 : 1;
         }
       }
     });
-  }, [searchResults]);
+  }, [searchResults, searchQuery]);
 
   useEffect(() => {
-    // 无搜索参数时聚焦搜索框
     !searchParams.get('q') && document.getElementById('searchInput')?.focus();
 
-    // 初始加载搜索历史
     getSearchHistory().then(setSearchHistory);
 
-    // 监听搜索历史更新事件
     const unsubscribe = subscribeToDataUpdates(
       'searchHistoryUpdated',
       (newHistory: string[]) => {
@@ -132,15 +127,17 @@ function SearchPageClient() {
   }, []);
 
   useEffect(() => {
-    // 当搜索参数变化时更新搜索状态
     const query = searchParams.get('q');
     if (query) {
-      setSearchQuery(query);
-      fetchSearchResults(query);
-
-      // 保存到搜索历史 (事件监听会自动更新界面)
-      addSearchHistory(query);
+      const trimmed = query.trim().replace(/\s+/g, ' ');
+      setSearchQuery(trimmed);
+      if (lastTriggeredQueryRef.current !== trimmed) {
+        lastTriggeredQueryRef.current = trimmed;
+        fetchSearchResults(trimmed);
+        addSearchHistory(trimmed);
+      }
     } else {
+      lastTriggeredQueryRef.current = null;
       setShowResults(false);
     }
   }, [searchParams]);
@@ -164,20 +161,17 @@ function SearchPageClient() {
   };
 
   const fetchSearchResults = async (query: string) => {
-    // 取消上一次搜索
     abortRef.current?.abort();
     const controller = new AbortController();
     abortRef.current = controller;
     const isStale = () => abortRef.current !== controller;
 
     const trimmed = query.trim();
-    // 每次搜索时读取一次，设置面板里切换后下一次搜索即生效
     const useStream = getEnableStreamSearch();
     setIsLoading(true);
     setIsStreaming(false);
     setSearchResults([]);
 
-    // 按资源站累积结果；资源站返回顺序不定，渲染时统一重新排序
     const bySource = new Map<string, SearchResult[]>();
     let flushTimer: ReturnType<typeof setTimeout> | null = null;
     const flush = () => {
@@ -186,11 +180,9 @@ function SearchPageClient() {
       const merged = Array.from(bySource.values()).flat();
       setSearchResults(sortResults(merged, trimmed));
       setShowResults(true);
-      // 第一批结果到达后就撤掉整页转圈，只保留“仍在搜索”的小提示
       setIsLoading(false);
       setIsStreaming(true);
     };
-    // 合并短时间内到达的多个资源站，减少重复渲染
     const scheduleFlush = () => {
       if (flushTimer === null) flushTimer = setTimeout(flush, 120);
     };
@@ -206,7 +198,6 @@ function SearchPageClient() {
     };
 
     try {
-      // 关闭流式搜索：直接使用普通搜索，整页转圈直到全部搜完
       if (!useStream) {
         await fallbackToPlainSearch();
         if (!isStale()) setShowResults(true);
@@ -219,7 +210,6 @@ function SearchPageClient() {
       );
 
       if (response.status === 429) {
-        // 请求过于频繁：直接显示空结果，不再降级重试
         if (!isStale()) setSearchResults([]);
       } else if (!response.ok || !response.body) {
         await fallbackToPlainSearch();
@@ -267,12 +257,10 @@ function SearchPageClient() {
       if (!isStale()) setShowResults(true);
     } catch (error: any) {
       if (error?.name === 'AbortError' || isStale()) return;
-      // 普通搜索模式下失败：不再重复请求同一个接口
       if (!useStream) {
         setSearchResults([]);
         return;
       }
-      // 流式接口不可用（例如被代理拦截）时退回普通接口
       try {
         await fallbackToPlainSearch();
         if (!isStale()) setShowResults(true);
@@ -293,17 +281,15 @@ function SearchPageClient() {
     const trimmed = searchQuery.trim().replace(/\s+/g, ' ');
     if (!trimmed) return;
 
-    // 回显搜索框
     setSearchQuery(trimmed);
     setIsLoading(true);
     setShowResults(true);
 
-    router.push(`/search?q=${encodeURIComponent(trimmed)}`);
-    // 直接发请求
+    // 标记本次搜索已由表单提交触发，避免 router.push 引发的 useEffect 再次重复发起请求
+    lastTriggeredQueryRef.current = trimmed;
     fetchSearchResults(trimmed);
-
-    // 保存到搜索历史 (事件监听会自动更新界面)
     addSearchHistory(trimmed);
+    router.push(`/search?q=${encodeURIComponent(trimmed)}`);
   };
 
   return (
@@ -422,7 +408,7 @@ function SearchPageClient() {
                 {searchHistory.length > 0 && (
                   <button
                     onClick={() => {
-                      clearSearchHistory(); // 事件监听会自动更新界面
+                      clearSearchHistory();
                     }}
                     className='ml-3 text-sm text-gray-500 hover:text-red-500 transition-colors dark:text-gray-400 dark:hover:text-red-500'
                   >
@@ -435,9 +421,13 @@ function SearchPageClient() {
                   <div key={item} className='relative group'>
                     <button
                       onClick={() => {
-                        setSearchQuery(item);
+                        const trimmed = item.trim();
+                        setSearchQuery(trimmed);
+                        lastTriggeredQueryRef.current = trimmed;
+                        fetchSearchResults(trimmed);
+                        addSearchHistory(trimmed);
                         router.push(
-                          `/search?q=${encodeURIComponent(item.trim())}`
+                          `/search?q=${encodeURIComponent(trimmed)}`
                         );
                       }}
                       className='px-4 py-2 bg-gray-500/10 hover:bg-gray-300 rounded-full text-sm text-gray-700 transition-colors duration-200 dark:bg-gray-700/50 dark:hover:bg-gray-600 dark:text-gray-300'
@@ -450,7 +440,7 @@ function SearchPageClient() {
                       onClick={(e) => {
                         e.stopPropagation();
                         e.preventDefault();
-                        deleteSearchHistory(item); // 事件监听会自动更新界面
+                        deleteSearchHistory(item);
                       }}
                       className='absolute -top-1 -right-1 w-4 h-4 opacity-0 group-hover:opacity-100 bg-gray-400 hover:bg-red-500 text-white rounded-full flex items-center justify-center text-[10px] transition-colors'
                     >

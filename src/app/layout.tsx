@@ -12,12 +12,15 @@ import { ThemeProvider } from '../components/ThemeProvider';
 // 动态生成 metadata，支持配置更新后的标题变化
 export async function generateMetadata(): Promise<Metadata> {
   let siteName = process.env.SITE_NAME || 'PurpleMoon';
-  if (
-    process.env.NEXT_PUBLIC_STORAGE_TYPE !== 'd1' &&
-    process.env.NEXT_PUBLIC_STORAGE_TYPE !== 'upstash'
-  ) {
-    const config = await getConfig();
-    siteName = config.SiteConfig.SiteName;
+  if (process.env.NEXT_PHASE !== 'phase-production-build') {
+    try {
+      const config = await getConfig();
+      if (config?.SiteConfig?.SiteName) {
+        siteName = config.SiteConfig.SiteName;
+      }
+    } catch {
+      // 构建期或存储尚未就绪时安全回退至环境变量默认值
+    }
   }
 
   return {
@@ -42,18 +45,23 @@ export default async function RootLayout({
     'Welcome to PurpleMoon. Please note that all content available on this site is sourced from the Internet.';
   let enableRegister = process.env.NEXT_PUBLIC_ENABLE_REGISTER === 'true';
   let imageProxy = process.env.NEXT_PUBLIC_IMAGE_PROXY || '';
-  if (
-    process.env.NEXT_PUBLIC_STORAGE_TYPE !== 'd1' &&
-    process.env.NEXT_PUBLIC_STORAGE_TYPE !== 'upstash'
-  ) {
-    const config = await getConfig();
-    siteName = config.SiteConfig.SiteName;
-    announcement = config.SiteConfig.Announcement;
-    enableRegister = config.UserConfig.AllowRegister;
-    imageProxy = config.SiteConfig.ImageProxy;
+
+  // 🛡️ 逻辑修复 (LOG-02)：运行时在所有存储模式（含 d1 / upstash）下均读取最新配置，
+  // 用 try/catch 保护静态构建阶段，确保后台修改开放注册、站点名、公告或图片代理后全局生效。
+  if (process.env.NEXT_PHASE !== 'phase-production-build') {
+    try {
+      const config = await getConfig();
+      if (config) {
+        siteName = config.SiteConfig.SiteName || siteName;
+        announcement = config.SiteConfig.Announcement ?? announcement;
+        enableRegister = Boolean(config.UserConfig.AllowRegister);
+        imageProxy = config.SiteConfig.ImageProxy ?? imageProxy;
+      }
+    } catch {
+      // 存储暂不可用时回退至环境变量默认值
+    }
   }
 
-  // 将运行时配置注入到全局 window 对象，供客户端在运行时读取
   const runtimeConfig = {
     STORAGE_TYPE: process.env.NEXT_PUBLIC_STORAGE_TYPE || 'localstorage',
     ENABLE_REGISTER: enableRegister,
@@ -64,13 +72,6 @@ export default async function RootLayout({
   return (
     <html lang='zh-CN' suppressHydrationWarning>
       <head>
-        {/* 将配置序列化后直接写入脚本，浏览器端可通过 window.RUNTIME_CONFIG 获取 */}
-        {/* 🛡️ 安全修复 (P1)：JSON.stringify 不会转义 "<" / "/"，
-            若 runtimeConfig 中包含管理员可配置的字符串字段（如 IMAGE_PROXY），
-            攻击者可构造形如 "</script><script>...</script>" 的值跳出当前
-            <script> 标签、在所有访问该页面的用户浏览器中执行任意脚本
-            （存储型 XSS）。此处将 "<" 转义为 "\u003c"，从字节层面彻底避免
-            标签闭合，这也是 Next.js 官方推荐的内联脚本安全写法。 */}
         {/* eslint-disable-next-line @next/next/no-sync-scripts */}
         <script
           dangerouslySetInnerHTML={{
