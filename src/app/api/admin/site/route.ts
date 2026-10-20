@@ -13,8 +13,8 @@ export const runtime = 'edge';
 const siteConfigSchema = z.object({
   SiteName: z.string().min(1, '站点名称不能为空').max(100, '站点名称过长'),
   Announcement: z.string().max(5000, '公告内容过长'),
-  SearchDownstreamMaxPage: z.number().min(1, '页数不能小于1').max(100, '页数限制过大'),
-  SiteInterfaceCacheTime: z.number().min(0, '缓存时间不能为负'),
+  SearchDownstreamMaxPage: z.number().int('页数必须是整数').min(1, '页数不能小于1').max(100, '页数限制过大'),
+  SiteInterfaceCacheTime: z.number().int('缓存时间必须是整数').min(0, '缓存时间不能为负').max(86400 * 7, '缓存时间不能超过 7 天（604800 秒）'),
   ImageProxy: z
     .string()
     .max(200, '代理地址过长')

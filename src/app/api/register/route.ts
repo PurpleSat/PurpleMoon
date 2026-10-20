@@ -4,11 +4,11 @@ import { z } from 'zod';
 
 import { getClientIp } from '@/lib/client-ip';
 import { getConfig, persistNewUserGroup } from '@/lib/config';
-import { isUsernameTaken } from '@/lib/username';
 import { buildAuthCookieValue, setAuthCookies } from '@/lib/cookies';
 import { db } from '@/lib/db';
-import { timingSafeEqual } from '@/lib/password';
 import { isInviteCodeRequired } from '@/lib/invite';
+import { timingSafeEqual } from '@/lib/password';
+import { isUsernameTaken } from '@/lib/username';
 
 export const runtime = 'edge';
 

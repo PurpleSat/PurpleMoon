@@ -115,6 +115,11 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // 🛡️ 逻辑修复 (L-04)：配置版本冲突会让下面的闭包重试。registerUser 是有副作用的（INSERT 用户），
+    // 重试时再执行一次会因主键冲突抛错 → 返回 500，但账号其实已经创建、配置却没写入。
+    // 用闭包外的标志位保证“本次请求最多注册一次”，重试只重做配置合并。
+    let registeredInThisRequest = false;
+
     return await withConfigConflictRetry(async () => {
     // 获取配置与存储
     const adminConfig = await getConfig();
@@ -192,7 +197,10 @@ export async function POST(request: NextRequest) {
               { status: 500 }
             );
           }
-          await storage.registerUser(targetUsername!, targetPassword);
+          if (!registeredInThisRequest) {
+            await storage.registerUser(targetUsername!, targetPassword);
+            registeredInThisRequest = true;
+          }
           // 更新配置
           adminConfig.UserConfig.Users.push({
             username: targetUsername!,

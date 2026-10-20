@@ -4,7 +4,7 @@ import { Redis } from '@upstash/redis';
 
 import { AdminConfig } from './admin.types';
 import { ConfigConflictError } from './config-errors';
-import { hashPassword, verifyPassword } from './password'; // 【安全升级】：引入加盐哈希与防时序攻击验证
+import { hashPassword, verifyPassword, verifyPasswordDummy } from './password'; // 【安全升级】：引入加盐哈希与防时序攻击验证
 import { Favorite, IStorage, Memo,PlayRecord, SkipConfig } from './types'; // 引入 SkipConfig 和 Memo
 
 // 搜索历史最大条数
@@ -168,7 +168,7 @@ export class UpstashRedisStorage implements IStorage {
     const stored = await withRetry(() =>
       this.client.get(this.userPwdKey(userName))
     );
-    if (stored === null) return false;
+    if (stored === null) return await verifyPasswordDummy(password);
     return await verifyPassword(password, stored as string);
   }
 

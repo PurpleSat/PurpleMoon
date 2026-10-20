@@ -8,6 +8,7 @@ import { Heart } from 'lucide-react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Suspense, useEffect, useRef, useState } from 'react';
 
+import { getCustomFingerprints, installAdLearnHelpers, rememberRawPlaylist } from '@/lib/ad-learn';
 import {
   deleteFavorite,
   deletePlayRecord,
@@ -21,12 +22,12 @@ import {
   saveSkipConfig,
   subscribeToDataUpdates,
 } from '@/lib/db.client';
+import { filterAdsFromM3U8, stripDiscontinuityLegacy } from '@/lib/m3u8-ad-filter';
 import { SearchResult } from '@/lib/types';
 import { getVideoResolutionFromM3u8, processImageUrl } from '@/lib/utils';
 
 import EpisodeSelector from '@/components/EpisodeSelector';
 import PageLayout from '@/components/PageLayout';
-import { filterAdsFromM3U8, stripDiscontinuityLegacy } from '@/lib/m3u8-ad-filter';
 
 // 扩展 HTMLVideoElement 类型以支持 hls 属性
 declare global {
@@ -512,9 +513,12 @@ function PlayPageClient() {
                   .split(',')
                   .map((x) => x.trim())
                   .filter(Boolean);
+                installAdLearnHelpers();
+                rememberRawPlaylist(response.data);
                 const r = filterAdsFromM3U8(response.data, {
                   baseUrl: context?.url,
                   extraPatterns: extra,
+                  extraFingerprints: getCustomFingerprints(process.env.NEXT_PUBLIC_AD_FINGERPRINTS),
                 });
                 if (r.removedSegments > 0) {
                   console.info(`[去广告] 已移除 ${r.removedSegments} 个分片（约 ${r.removedSeconds.toFixed(1)} 秒）`);

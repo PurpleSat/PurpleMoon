@@ -1,6 +1,6 @@
 {
   "name": "purplemoon",
-  "version": "0.1.0",
+  "version": "2.5.8",
   "private": true,
   "scripts": {
     "dev": "pnpm gen:runtime && pnpm gen:manifest && next dev -H 0.0.0.0",
@@ -9,7 +9,6 @@
     "lint": "next lint",
     "lint:fix": "eslint src --fix && pnpm format",
     "lint:strict": "eslint --max-warnings=0 src",
-    "typecheck": "tsc --noEmit --incremental false",
     "typecheck": "pnpm gen:runtime && tsc --noEmit --incremental false",
     "test:watch": "jest --watch",
     "test": "jest",

@@ -53,50 +53,78 @@ async function checkRateLimit(req: NextRequest): Promise<boolean> {
   }
 }
 
-// =========== 按账号限流 ===========
-// 仅按 IP 限流时，攻击者轮换 IP（或直连公网时伪造 X-Forwarded-For）即可对单个账号无限次猜密码。
-// 这里再叠加“按账号”的上限：15 分钟内同一用户名最多 20 次尝试（大小写不敏感），登录成功即清零。
-// 20 次 > 单 IP 每分钟 10 次的上限，普通用户输错几次不受影响；
-// 代价是攻击者可短时间内让某账号暂时无法登录（锁定仅 15 分钟，且已登录的会话不受影响）。
-const ACCOUNT_LIMIT = 20;
+// =========== 登录失败防护（S-01 / S-03）===========
+// 旧实现的两个缺口：
+//  1) 本地存储模式只有“按 IP”限流，而没有任何前置代理时 IP 可由客户端通过 X-Forwarded-For 伪造，
+//     站长密码可被无限次猜测；
+//  2) 数据库模式下“按账号”限流只看用户名：任何人用 21 次请求就能把站长账号锁 15 分钟，且可持续重复。
+// 现在拆成两层：
+//  - 账号 + IP：同一来源对同一账号 15 分钟内最多 20 次。攻击者从自己的 IP 只能锁住“自己对该账号”的尝试，
+//    不会影响站长从自己的 IP 登录；
+//  - 账号总量上限（不区分 IP）：15 分钟内最多 ACCOUNT_CEILING 次，兜底防止“轮换 IP 的分布式猜密码”。
+//    登录成功会清零这两个计数。
+//  本地存储模式没有用户名，把固定账号 admin 当作账号，同样适用。
+// 说明：账号总量上限被打满时，该账号 15 分钟内无法登录——这是对抗“可伪造 IP 的暴力破解”必须付出的代价；
+// 生产环境请置于反向代理之后并设置 TRUST_* 变量，让 IP 不可伪造。
+const PAIR_LIMIT = 20;
+const ACCOUNT_CEILING = STORAGE_TYPE === 'localstorage' ? 60 : 200;
 const ACCOUNT_WINDOW_MS = 15 * 60 * 1000;
-const localAccountMap = new Map<string, { count: number; resetAt: number }>();
+const localCounters = new Map<string, { count: number; resetAt: number }>();
 
-function accountKey(username: string): string {
-  return `rate_limit:login_acct:${username.toLowerCase()}`;
+function normalizeAccount(username: string): string {
+  // 截断长度：避免攻击者用超长/海量不同的用户名制造无限多的限流键
+  return username.toLowerCase().slice(0, 64);
 }
 
-function checkLocalAccountLimit(key: string): boolean {
+function pairKey(username: string, ip: string): string {
+  return `rate_limit:login_pair:${normalizeAccount(username)}:${ip}`;
+}
+
+function accountKey(username: string): string {
+  return `rate_limit:login_acct:${normalizeAccount(username)}`;
+}
+
+function checkLocalCounter(key: string, limit: number, windowMs: number): boolean {
   const now = Date.now();
-  localAccountMap.forEach((v, k) => {
-    if (now > v.resetAt) localAccountMap.delete(k);
+  localCounters.forEach((v, k) => {
+    if (now > v.resetAt) localCounters.delete(k);
   });
-  const cur = localAccountMap.get(key);
+  // 本地计数表也要有上限，防止被海量不同键撑爆内存
+  if (localCounters.size > 10000 && !localCounters.has(key)) return true;
+  const cur = localCounters.get(key);
   if (!cur) {
-    localAccountMap.set(key, { count: 1, resetAt: now + ACCOUNT_WINDOW_MS });
+    localCounters.set(key, { count: 1, resetAt: now + windowMs });
     return true;
   }
   cur.count++;
-  return cur.count <= ACCOUNT_LIMIT;
+  return cur.count <= limit;
 }
 
-async function checkAccountRateLimit(username: string): Promise<boolean> {
-  const key = accountKey(username);
+async function checkKeyLimit(key: string, limit: number, windowMs: number): Promise<boolean> {
+  if (STORAGE_TYPE === 'localstorage') return checkLocalCounter(key, limit, windowMs);
   try {
-    return await db.checkRateLimit(key, ACCOUNT_LIMIT, ACCOUNT_WINDOW_MS);
+    return await db.checkRateLimit(key, limit, windowMs);
   } catch (err) {
-    console.error('账号限流存储异常，已降级至本地内存限流:', err);
-    return checkLocalAccountLimit(key);
+    console.error('登录限流存储异常，已降级至本地内存限流:', err);
+    return checkLocalCounter(key, limit, windowMs);
   }
 }
 
-async function resetAccountRateLimit(username: string): Promise<void> {
-  const key = accountKey(username);
-  localAccountMap.delete(key);
-  try {
-    await db.resetRateLimit(key);
-  } catch (err) {
-    console.error('清除账号限流计数失败（计数将自然过期）:', err);
+/** 返回 false 表示应拒绝（429） */
+async function checkLoginAttemptLimits(username: string, ip: string): Promise<boolean> {
+  if (!(await checkKeyLimit(pairKey(username, ip), PAIR_LIMIT, ACCOUNT_WINDOW_MS))) return false;
+  return checkKeyLimit(accountKey(username), ACCOUNT_CEILING, ACCOUNT_WINDOW_MS);
+}
+
+async function resetLoginAttemptLimits(username: string, ip: string): Promise<void> {
+  for (const key of [pairKey(username, ip), accountKey(username)]) {
+    localCounters.delete(key);
+    if (STORAGE_TYPE === 'localstorage') continue;
+    try {
+      await db.resetRateLimit(key);
+    } catch (err) {
+      console.error('清除登录限流计数失败（计数将自然过期）:', err);
+    }
   }
 }
 
@@ -120,6 +148,13 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ error: '密码不能为空' }, { status: 400 });
       }
 
+      if (!(await checkLoginAttemptLimits('admin', getClientIp(req)))) {
+        return NextResponse.json(
+          { error: '尝试登录过于频繁，请 15 分钟后再试' },
+          { status: 429 }
+        );
+      }
+
       if (!timingSafeEqual(password, envPassword)) {
         return NextResponse.json(
           { ok: false, error: '密码错误' },
@@ -130,6 +165,7 @@ export async function POST(req: NextRequest) {
       const response = NextResponse.json({ ok: true });
       const cookieValue = await buildAuthCookieValue('admin', 'admin');
       setAuthCookies(response, req, cookieValue, 'admin', 'admin');
+      await resetLoginAttemptLimits('admin', getClientIp(req));
 
       return response;
     }
@@ -144,7 +180,8 @@ export async function POST(req: NextRequest) {
     }
 
     // 按账号限流：对任意用户名（含不存在的）一视同仁，不泄露账号是否存在
-    if (!(await checkAccountRateLimit(username))) {
+    const clientIp = getClientIp(req);
+    if (!(await checkLoginAttemptLimits(username, clientIp))) {
       return NextResponse.json(
         { error: '该账号尝试登录过于频繁，请 15 分钟后再试' },
         { status: 429 }
@@ -160,7 +197,7 @@ export async function POST(req: NextRequest) {
       const response = NextResponse.json({ ok: true });
       const cookieValue = await buildAuthCookieValue(username, 'admin');
       setAuthCookies(response, req, cookieValue, username, 'admin');
-      await resetAccountRateLimit(username);
+      await resetLoginAttemptLimits(username, clientIp);
 
       return response;
     } else if (username === process.env.USERNAME) {
@@ -192,7 +229,7 @@ export async function POST(req: NextRequest) {
       const response = NextResponse.json({ ok: true });
       const cookieValue = await buildAuthCookieValue(username, sessionRole);
       setAuthCookies(response, req, cookieValue, username, sessionRole);
-      await resetAccountRateLimit(username);
+      await resetLoginAttemptLimits(username, clientIp);
 
       return response;
     } catch (err) {

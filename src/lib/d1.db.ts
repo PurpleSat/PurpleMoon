@@ -2,7 +2,7 @@
 
 import { AdminConfig } from './admin.types';
 import { ConfigConflictError } from './config-errors';
-import { hashPassword, verifyPassword } from './password'; // 修补密码明文时序攻击 (Timing Attack)
+import { hashPassword, verifyPassword, verifyPasswordDummy } from './password'; // 修补密码明文时序攻击 (Timing Attack)
 import { Favorite, IStorage, Memo,PlayRecord, SkipConfig } from './types'; // 引入 Memo 类型
 
 // 搜索历史最大条数
@@ -302,7 +302,7 @@ export class D1Storage implements IStorage {
         .bind(userName)
         .first<{ password: string }>();
 
-      if (!result) return false;
+      if (!result) return await verifyPasswordDummy(password);
       // 启用防时序攻击比对（自动向下兼容旧版明文密码）
       return await verifyPassword(password, result.password);
     } catch (err) {
@@ -679,7 +679,7 @@ export class D1Storage implements IStorage {
   }
 
   async addMemo(userName: string, content: string): Promise<void> {
-    // 1. 【防刷限流校验】：单用户 60 秒 (60000 毫秒) 内最多发布 2 条留言
+    // 1. 【防刷限流校验】：单用户 10 分钟 (600000 毫秒) 内最多发布 2 条留言
     const isAllowed = await this.checkRateLimit(`memo:${userName}`, 2, 600000);
     if (!isAllowed) {
       throw new Error('发布过于频繁，10 分钟内最多只能发布 2 条留言。');
@@ -752,6 +752,16 @@ export class D1Storage implements IStorage {
         await db.prepare('CREATE TABLE IF NOT EXISTS rate_limits (key TEXT PRIMARY KEY, count INTEGER, reset_at INTEGER)').run();
       } catch (e: any) {
         // ignore
+      }
+
+      // 🛡️ 安全修复 (S-08)：过期行此前永不清理，而登录限流键包含未认证者可任意构造的用户名，
+      // 表会无限增长。这里按约 2% 的概率顺带清掉已过期的行（单条带索引主键范围之外的 DELETE，开销很小）。
+      if (Math.random() < 0.02) {
+        try {
+          await db.prepare('DELETE FROM rate_limits WHERE reset_at < ?').bind(now).run();
+        } catch (e) {
+          // 清理失败不影响限流本身
+        }
       }
 
       // 🛡️ 安全修复 (SEC-11)：利用 SQLite 原生原子 UPSERT + RETURNING 避免并发竞态击穿

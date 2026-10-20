@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import { checkUpstreamUrlSafety } from './ssrf-guard';
 
 const MAX_REDIRECTS = 3;
@@ -38,4 +39,51 @@ export async function safeFetch(
   }
 
   throw new Error('上游重定向次数过多');
+}
+
+/** 上游响应体上限：资源站的列表/详情 JSON 通常远小于此值 */
+export const MAX_UPSTREAM_BYTES = 4 * 1024 * 1024;
+
+/**
+ * 🛡️ 安全修复 (S-06)：按字节上限读取上游响应体。
+ * 以前直接 response.json()/text()，恶意或被攻陷的资源站可以返回超大响应占满内存。
+ * 先看 Content-Length，再流式累计字节，超限立即取消读取并抛错。
+ */
+export async function readTextLimited(
+  res: Response,
+  maxBytes = MAX_UPSTREAM_BYTES
+): Promise<string> {
+  const declared = Number(res.headers.get('content-length') || '0');
+  if (declared > maxBytes) {
+    throw new Error('上游响应体过大');
+  }
+  if (!res.body) return await res.text();
+
+  const reader = res.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    total += value.byteLength;
+    if (total > maxBytes) {
+      await reader.cancel().catch(() => undefined);
+      throw new Error('上游响应体过大');
+    }
+    chunks.push(value);
+  }
+  const merged = new Uint8Array(total);
+  let offset = 0;
+  for (const c of chunks) {
+    merged.set(c, offset);
+    offset += c.byteLength;
+  }
+  return new TextDecoder().decode(merged);
+}
+
+export async function readJsonLimited(
+  res: Response,
+  maxBytes = MAX_UPSTREAM_BYTES
+): Promise<any> {
+  return JSON.parse(await readTextLimited(res, maxBytes));
 }

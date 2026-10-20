@@ -5,11 +5,17 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getVerifiedAuthUser } from '@/lib/auth-server';
 import { checkCsrf } from '@/lib/csrf-guard';
 import { db } from '@/lib/db';
+import { rejectIfLocalStorageMode } from '@/lib/storage-mode';
 import { parsePlayRecord, parseRecordKey } from '@/lib/validation';
 
 export const runtime = 'edge';
 
+const MAX_PLAY_RECORDS_PER_USER = 500;
+
 export async function GET(request: NextRequest) {
+  const localModeReject = rejectIfLocalStorageMode();
+  if (localModeReject) return localModeReject;
+
   try {
     // 🛡️ 安全修复 (SEC-02, SEC-04)：强制服务端签名与状态有效性重验
     const authUser = await getVerifiedAuthUser(request);
@@ -29,6 +35,9 @@ export async function GET(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
+  const localModeReject = rejectIfLocalStorageMode();
+  if (localModeReject) return localModeReject;
+
   const csrf = checkCsrf(request);
   if (!csrf.ok) return csrf.response!;
 
@@ -63,6 +72,17 @@ export async function POST(request: NextRequest) {
     const { source, id } = parsedKey;
     const finalRecord = parsedRecord.data;
 
+    // 🛡️ S-07：每用户记录条数上限。更新已有记录（播放中频繁保存）不受影响，只有新增时才统计总数。
+    if (!(await db.getPlayRecord(authUser.username, source, id))) {
+      const existing = await db.getAllPlayRecords(authUser.username);
+      if (Object.keys(existing).length >= MAX_PLAY_RECORDS_PER_USER) {
+        return NextResponse.json(
+          { error: `播放记录已达上限（${MAX_PLAY_RECORDS_PER_USER} 条），请先清理` },
+          { status: 400 }
+        );
+      }
+    }
+
     await db.savePlayRecord(authUser.username, source, id, finalRecord);
 
     return NextResponse.json({ success: true }, { status: 200 });
@@ -76,6 +96,9 @@ export async function POST(request: NextRequest) {
 }
 
 export async function DELETE(request: NextRequest) {
+  const localModeReject = rejectIfLocalStorageMode();
+  if (localModeReject) return localModeReject;
+
   const csrf = checkCsrf(request, { requireJsonContentType: false });
   if (!csrf.ok) return csrf.response!;
 

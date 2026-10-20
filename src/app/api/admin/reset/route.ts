@@ -4,22 +4,14 @@ import { NextRequest, NextResponse } from 'next/server';
 
 import { getVerifiedAuthUser } from '@/lib/auth-server';
 import { resetConfig } from '@/lib/config';
+import { checkCsrf } from '@/lib/csrf-guard';
 
 export const runtime = 'edge';
 
 export async function POST(request: NextRequest) {
-  const origin = request.headers.get('origin');
-  const host = request.headers.get('host');
-  // 如果请求带有 Origin 且与当前主机的 host 不匹配，直接拦截
-  if (origin && new URL(origin).host !== host) {
-    console.warn(`[CSRF 拦截] 配置重置接口遇到异常的 Origin: ${origin}`);
-    return NextResponse.json({ error: 'Forbidden: Invalid Origin' }, { status: 403 });
-  }
-
-  const contentType = request.headers.get('content-type') || '';
-  if (!contentType.includes('application/json')) {
-    return NextResponse.json({ error: 'Unsupported Media Type: must be application/json' }, { status: 415 });
-  }
+  // 统一使用 checkCsrf（同时校验 Origin / Referer / Content-Type，Origin 格式异常时返回 403 而不是抛 500）
+  const csrf = checkCsrf(request);
+  if (!csrf.ok) return csrf.response!;
 
   const storageType = process.env.NEXT_PUBLIC_STORAGE_TYPE || 'localstorage';
   if (storageType === 'localstorage') {

@@ -17,6 +17,7 @@ export async function GET(request: Request) {
     return NextResponse.json(
       { result: null, error: '缺少必要参数: q 或 resourceId' },
       {
+        status: 400,
         headers: {
           'Cache-Control': `private, max-age=${cacheTime}`,
           Vary: 'Cookie',

@@ -1,6 +1,6 @@
 import { ApiSite } from '@/lib/config';
+import { readJsonLimited, safeFetch } from '@/lib/safe-fetch';
 import { resolveAccessibleSites } from '@/lib/site-access';
-import { safeFetch } from '@/lib/safe-fetch';
 import { checkUpstreamUrlSafety } from '@/lib/ssrf-guard';
 
 /**
@@ -38,7 +38,7 @@ export async function fetchUpstreamJson(url: string, timeoutMs = 8000) {
       headers: { Accept: 'application/json' },
     });
     if (!res.ok) throw new Error(`upstream status ${res.status}`);
-    return await res.json();
+    return await readJsonLimited(res);
   } finally {
     clearTimeout(timer);
   }

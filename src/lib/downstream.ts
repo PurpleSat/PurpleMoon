@@ -1,5 +1,6 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import { API_CONFIG, ApiSite, getConfig } from '@/lib/config';
-import { safeFetch } from '@/lib/safe-fetch';
+import { readJsonLimited, readTextLimited, safeFetch } from '@/lib/safe-fetch';
 import { checkUpstreamUrlSafety } from '@/lib/ssrf-guard';
 import { SearchResult } from '@/lib/types';
 import { cleanHtmlTags } from '@/lib/utils';
@@ -71,7 +72,7 @@ export async function searchFromApi(
     }
 
     // 响应体读取也要受超时保护，所以在 json() 完成后才清除定时器
-    const data = await response.json();
+    const data = await readJsonLimited(response);
     clearTimeout(timeoutId);
     if (
       !data ||
@@ -163,7 +164,7 @@ export async function searchFromApi(
               return [];
             }
 
-            const pageData = await pageResponse.json();
+            const pageData = await readJsonLimited(pageResponse);
             clearTimeout(pageTimeoutId);
 
             if (!pageData || !pageData.list || !Array.isArray(pageData.list))
@@ -250,13 +251,18 @@ export async function getDetailFromApi(
     signal: controller.signal,
   });
 
-  clearTimeout(timeoutId);
-
   if (!response.ok) {
+    clearTimeout(timeoutId);
     throw new Error(`详情请求失败: ${response.status}`);
   }
 
-  const data = await response.json();
+  // 超时同样覆盖响应体读取，并限制体积（S-06）
+  let data: any;
+  try {
+    data = await readJsonLimited(response);
+  } finally {
+    clearTimeout(timeoutId);
+  }
 
   if (
     !data ||
@@ -327,13 +333,17 @@ async function handleSpecialSourceDetail(
     signal: controller.signal,
   });
 
-  clearTimeout(timeoutId);
-
   if (!response.ok) {
+    clearTimeout(timeoutId);
     throw new Error(`详情页请求失败: ${response.status}`);
   }
 
-  const html = await response.text();
+  let html: string;
+  try {
+    html = await readTextLimited(response);
+  } finally {
+    clearTimeout(timeoutId);
+  }
   let matches: string[] = [];
 
   if (apiSite.key === 'ffzy') {

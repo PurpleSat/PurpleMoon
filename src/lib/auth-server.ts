@@ -2,8 +2,8 @@
 // 仅供 Node/Edge 路由处理函数使用;不要被 middleware.ts 引用(config.ts 含 Edge 不允许的 eval)
 import { NextRequest } from 'next/server';
 
-import { getAuthInfoFromCookie, verifyAuthSignature } from '@/lib/auth';
 import type { AdminConfig } from '@/lib/admin.types';
+import { getAuthInfoFromCookie, verifyAuthSignature } from '@/lib/auth';
 import { getConfig, invalidateConfigCache } from '@/lib/config';
 
 /**

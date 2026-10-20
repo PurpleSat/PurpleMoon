@@ -223,6 +223,7 @@ networks:
 | UPSTASH_TOKEN               | upstash redis 连接 token                                    | 连接 token                       | 空                                                                                                                         |
 | NEXT_PUBLIC_ENABLE_REGISTER | 是否开放注册，仅在非 localstorage 部署时生效                | true / false                     | false                                                                                                                      |
 | NEXT_PUBLIC_SEARCH_MAX_PAGE | 搜索接口可拉取的最大页数                                    | 1-50                             | 5                                                                                                                          |
+| NEXT_PUBLIC_AD_FINGERPRINTS | 额外的广告“分片时长指纹”（构建时注入；也可在播放页控制台用 `__adLearn(开始秒, 结束秒)` 自助记录） | 多支用 `;` 分隔，同一支的分片时长（秒）用逗号分隔，如 `5.567,2.933,5.7,3.333,1.533` | 空 |
 | NEXT_PUBLIC_IMAGE_PROXY     | 默认的浏览器端图片代理                                      | https://timis.dpdns.org/?url=     | 空                                                                                                                     |
 | TMDB_API_TOKEN              | 上映日程TMDBTOKEN                                     | API 读访问令牌                          | 空                                                                                                                         |
 | VALID_INVITE_CODE | 注册邀请码（开启邀请制时必填，否则注册接口返回配置异常） | 任意字符串，建议 16 位以上 | 空 |
@@ -504,3 +505,14 @@ networks:
 ```
                                                              
                                                                                                                                                                   
+
+## 更新记录（v2.5.8 测试报告修复）
+
+- 去广告：合并回时长指纹、帧率规则、整块规则与 `__adLearn` 自助学习（见环境变量 `NEXT_PUBLIC_AD_FINGERPRINTS`），补回测试样本目录 `src/lib/__tests__/fixtures/`（L-01 / L-02）。
+- Service Worker 不再缓存任何 `/api/*` 响应，退出登录与 401 时清空浏览器缓存存储（S-02）。
+- 登录防护：按“账号 + IP”限流（15 分钟 20 次）加“账号总量”兜底（数据库模式 15 分钟 200 次，本地存储模式 60 次），登录成功清零；本地存储模式同样生效，轮换 `X-Forwarded-For` 不再能绕过（S-01 / S-03）。账号总量被打满时该账号 15 分钟内无法登录，生产环境请置于反向代理之后并设置 `TRUST_*`。
+- 用户不存在时同样做一次 PBKDF2，消除用户名枚举的耗时差（S-04）；Cookie 载荷严格校验类型，用户名/角色不得含 `:`（S-05）。
+- 上游资源站响应限制 4 MB，且超时覆盖响应体读取（S-06）；每用户播放记录 500 / 收藏 1000 / 片头片尾配置 1000 条上限（S-07）；D1 限流表顺带清理过期行（S-08）。
+- 本地存储模式下便签 / 收藏 / 播放记录 / 搜索历史 / 跳过配置接口返回 400 而不是 500（L-03）；管理员新增用户遇配置版本冲突重试不再重复注册（L-04）；配置了 `VALID_INVITE_CODE` 即视为要求邀请码，要“开放注册但不要邀请码”请设 `REQUIRE_INVITE_CODE=false`（L-05）。
+- 其它：`/api/admin/reset` 统一用 `checkCsrf`；`/api/detail` 不再回传内部异常信息；`/api/search/one` 缺参返回 400；站点设置的缓存时间/页数改为整数并设上限；Redis 改用 SCAN 代替 KEYS。
+- 构建与部署：Node 20 → 22（Dockerfile、`.nvmrc`）；去掉 `next/font/google`（构建不再需要访问 Google Fonts，使用系统字体）；去掉重复的 `typecheck` 脚本；`package.json` 版本号 2.5.8；Dockerfile 增加 `HEALTHCHECK`；构建产物 `public/sw.js`、`workbox-*.js` 不再打进压缩包。

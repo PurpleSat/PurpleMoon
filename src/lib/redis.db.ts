@@ -4,7 +4,7 @@ import { createClient, RedisClientType } from 'redis';
 
 import { AdminConfig } from './admin.types';
 import { ConfigConflictError } from './config-errors';
-import { hashPassword, verifyPassword } from './password';
+import { hashPassword, verifyPassword, verifyPasswordDummy } from './password';
 import { Favorite, IStorage, Memo,PlayRecord, SkipConfig } from './types';
 
 // 搜索历史最大条数
@@ -52,6 +52,18 @@ export class RedisStorage implements IStorage {
     return safeJsonParse<PlayRecord>(val);
   }
 
+  /**
+   * 🛡️ 逻辑修复 (L-08)：用 SCAN 迭代代替 KEYS。KEYS 是 O(N) 的阻塞命令，库大了会卡住整个 Redis 实例。
+   * SCAN 分批返回、不阻塞；同一个键可能被重复返回，这里去重。
+   */
+  private async scanKeys(pattern: string): Promise<string[]> {
+    const found = new Set<string>();
+    for await (const key of this.client.scanIterator({ MATCH: pattern, COUNT: 200 })) {
+      found.add(key as unknown as string);
+    }
+    return Array.from(found);
+  }
+
   async setPlayRecord(
     userName: string,
     key: string,
@@ -65,7 +77,7 @@ export class RedisStorage implements IStorage {
   ): Promise<Record<string, PlayRecord>> {
     const safeUser = escapeRedisPattern(userName);
     const pattern = `u:${safeUser}:pr:*`;
-    const keys: string[] = await this.client.keys(pattern);
+    const keys: string[] = await this.scanKeys(pattern);
     if (keys.length === 0) return {};
 
     const result: Record<string, PlayRecord> = {};
@@ -105,7 +117,7 @@ export class RedisStorage implements IStorage {
   async getAllFavorites(userName: string): Promise<Record<string, Favorite>> {
     const safeUser = escapeRedisPattern(userName);
     const pattern = `u:${safeUser}:fav:*`;
-    const keys: string[] = await this.client.keys(pattern);
+    const keys: string[] = await this.scanKeys(pattern);
     if (keys.length === 0) return {};
 
     const result: Record<string, Favorite> = {};
@@ -136,7 +148,7 @@ export class RedisStorage implements IStorage {
 
   async verifyUser(userName: string, password: string): Promise<boolean> {
     const stored = await this.client.get(this.userPwdKey(userName));
-    if (stored === null) return false;
+    if (stored === null) return await verifyPasswordDummy(password);
     return await verifyPassword(password, stored);
   }
 
@@ -155,17 +167,17 @@ export class RedisStorage implements IStorage {
     await this.client.del(this.shKey(userName));
     await this.client.del(`memo:rate:${userName}`);
 
-    const playRecordKeys = await this.client.keys(`u:${userName}:pr:*`);
+    const playRecordKeys = await this.scanKeys(`u:${userName}:pr:*`);
     if (playRecordKeys.length > 0) {
       await this.client.del(playRecordKeys);
     }
 
-    const favoriteKeys = await this.client.keys(`u:${userName}:fav:*`);
+    const favoriteKeys = await this.scanKeys(`u:${userName}:fav:*`);
     if (favoriteKeys.length > 0) {
       await this.client.del(favoriteKeys);
     }
 
-    const skipKeys = await this.client.keys(`u:${userName}:skip:*`);
+    const skipKeys = await this.scanKeys(`u:${userName}:skip:*`);
     if (skipKeys.length > 0) {
       await this.client.del(skipKeys);
     }
@@ -209,7 +221,7 @@ export class RedisStorage implements IStorage {
 
   // ---------- 获取全部用户 ----------
   async getAllUsers(): Promise<string[]> {
-    const keys = await this.client.keys('u:*:pwd');
+    const keys = await this.scanKeys('u:*:pwd');
     return keys
       .map((k) => {
         const match = k.match(/^u:(.+?):pwd$/);
@@ -295,7 +307,7 @@ export class RedisStorage implements IStorage {
   async getAllSkipConfigs(userName: string): Promise<Record<string, SkipConfig>> {
     const safeUser = escapeRedisPattern(userName);
     const pattern = `u:${safeUser}:skip:*`;
-    const keys: string[] = await this.client.keys(pattern);
+    const keys: string[] = await this.scanKeys(pattern);
     if (keys.length === 0) return {};
 
     const result: Record<string, SkipConfig> = {};
@@ -348,7 +360,7 @@ export class RedisStorage implements IStorage {
       throw new Error('留言内容不能超过 500 个字符');
     }
 
-    // 限流校验：基于 ZSET 滑动窗口（60 秒内最多 3 条）
+    // 限流校验：基于 ZSET 滑动窗口（10 分钟内最多 2 条）
     const isAllowed = await this.checkRateLimit(`memo:rate:${userName}`, 2, 600000);
     if (!isAllowed) {
       throw new Error('发布过于频繁，10分钟内最多只能发布 2 条留言。');

@@ -1,9 +1,9 @@
 /** @jest-environment node */
 import type { AdminConfig, UserGroupDef } from '../admin.types';
 import {
-  filterSitesByGroupDef,
   adminMayCreateUserInDefaultGroup,
   adminMayTakeOverAccount,
+  filterSitesByGroupDef,
   getDefaultRegisterGroup,
   getDiscoveredUserGroup,
   getSitesForUser,

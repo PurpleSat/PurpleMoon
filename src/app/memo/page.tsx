@@ -24,6 +24,10 @@ function MemoPageClient() {
       if (res.ok) {
         const data = await res.json();
         setMemos(data.memos || []);
+      } else {
+        // 例如本地存储模式下该功能不可用：把服务端给出的原因展示出来，而不是静默空白
+        const data = await res.json().catch(() => null);
+        setErrorMessage(data?.error || '获取便利贴失败');
       }
     } catch (e) {
       console.error('获取便利贴失败', e);

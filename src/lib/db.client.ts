@@ -2,6 +2,7 @@
 'use client';
 
 import { getAuthInfoFromBrowserCookie } from './auth';
+import { clearClientCaches } from './clear-client-caches';
 
 // 【修复 1】：直接在本地声明 SkipConfig，彻底移除对 './types' 的错误导入依赖
 export interface SkipConfig {
@@ -467,6 +468,7 @@ async function fetchWithAuth(
       } catch (error) {
         console.error('注销请求失败:', error);
       }
+      await clearClientCaches();
       const currentUrl = window.location.pathname + window.location.search;
       const loginUrl = new URL('/login', window.location.origin);
       loginUrl.searchParams.set('redirect', currentUrl);

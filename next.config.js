@@ -117,11 +117,25 @@ const nextConfig = {
   },
 };
 
+// 🛡️ 安全修复 (S-02)：next-pwa 默认会把所有同源 GET /api/* 响应缓存 24 小时（NetworkFirst），
+// 包含 /api/me、/api/playrecords、/api/favorites、/api/admin/config 等带身份的数据，
+// 且服务端的 Cache-Control: no-store 对 Service Worker 缓存无效，共用设备上下一位用户可能读到。
+// 这里把 /api/ 放在默认规则之前并改为 NetworkOnly：永不缓存。
+const runtimeCaching = [
+  {
+    urlPattern: ({ url }) =>
+      self.origin === url.origin && url.pathname.startsWith('/api/'),
+    handler: 'NetworkOnly',
+  },
+  ...require('next-pwa/cache'),
+];
+
 const withPWA = require('next-pwa')({
   dest: 'public',
   disable: process.env.NODE_ENV === 'development',
   register: true,
   skipWaiting: true,
+  runtimeCaching,
 });
 
 module.exports = withPWA(nextConfig);

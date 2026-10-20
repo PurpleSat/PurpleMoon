@@ -19,10 +19,28 @@ export function getAuthInfoFromCookie(request: NextRequest): AuthPayload | null 
   try {
     const decoded = decodeURIComponent(authCookie.value);
     const authData = JSON.parse(decoded);
-    return authData;
+    return sanitizeAuthPayload(authData);
   } catch (error) {
     return null;
   }
+}
+
+/**
+ * 🛡️ 安全修复 (S-05)：Cookie 载荷是客户端可构造的 JSON，字段类型必须严格校验。
+ * 签名是对 `${username}:${timestamp}:${role}` 字符串做的，数组/对象等会被隐式转成字符串后
+ * 仍然通过验签（例如 role:["admin"]），后续的严格比较会因类型不同而表现不一致。
+ * 只接受：username/role/signature 为非空字符串，timestamp 为有限数字，且用户名/角色不含用于拼接的 ':'。
+ */
+export function sanitizeAuthPayload(data: unknown): AuthPayload | null {
+  if (!data || typeof data !== 'object' || Array.isArray(data)) return null;
+  const d = data as Record<string, unknown>;
+  const { username, role, signature, timestamp } = d;
+  if (typeof username !== 'string' || !username || username.length > 128) return null;
+  if (typeof role !== 'string' || !role || role.length > 32) return null;
+  if (typeof signature !== 'string' || !/^[0-9a-f]{64}$/.test(signature)) return null;
+  if (typeof timestamp !== 'number' || !Number.isFinite(timestamp)) return null;
+  if (username.includes(':') || role.includes(':')) return null;
+  return { username, role, signature, timestamp };
 }
 
 // 从cookie获取认证信息 (客户端使用)

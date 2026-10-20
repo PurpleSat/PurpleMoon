@@ -6,6 +6,7 @@ import { getVerifiedAuthUser } from '@/lib/auth-server';
 import { getConfig } from '@/lib/config';
 import { checkCsrf } from '@/lib/csrf-guard';
 import { db } from '@/lib/db';
+import { rejectIfLocalStorageMode } from '@/lib/storage-mode';
 import { parseRecordKey } from '@/lib/validation';
 
 export interface SkipConfig {
@@ -16,7 +17,12 @@ export interface SkipConfig {
 
 export const runtime = 'edge';
 
+const MAX_SKIP_CONFIGS_PER_USER = 1000;
+
 export async function GET(request: NextRequest) {
+  const localModeReject = rejectIfLocalStorageMode();
+  if (localModeReject) return localModeReject;
+
   try {
     // 🛡️ 安全修复 (SEC-02, SEC-04)：强制服务端签名与状态有效性重验
     const authUser = await getVerifiedAuthUser(request);
@@ -58,6 +64,9 @@ export async function GET(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
+  const localModeReject = rejectIfLocalStorageMode();
+  if (localModeReject) return localModeReject;
+
   const csrf = checkCsrf(request);
   if (!csrf.ok) return csrf.response!;
 
@@ -107,6 +116,17 @@ export async function POST(request: NextRequest) {
       outro_time: Math.max(Math.min(toNumber(config.outro_time), 0), -MAX_SECONDS),
     };
 
+    // 🛡️ S-07：每用户跳过片头片尾配置条数上限（已存在的可继续更新）
+    if (!(await db.getSkipConfig(authUser.username, source, id))) {
+      const existing = await db.getAllSkipConfigs(authUser.username);
+      if (Object.keys(existing).length >= MAX_SKIP_CONFIGS_PER_USER) {
+        return NextResponse.json(
+          { error: `片头片尾配置已达上限（${MAX_SKIP_CONFIGS_PER_USER} 条），请先清理` },
+          { status: 400 }
+        );
+      }
+    }
+
     await db.setSkipConfig(authUser.username, source, id, skipConfig);
 
     return NextResponse.json({ success: true });
@@ -120,6 +140,9 @@ export async function POST(request: NextRequest) {
 }
 
 export async function DELETE(request: NextRequest) {
+  const localModeReject = rejectIfLocalStorageMode();
+  if (localModeReject) return localModeReject;
+
   const csrf = checkCsrf(request, { requireJsonContentType: false });
   if (!csrf.ok) return csrf.response!;
 

@@ -83,3 +83,13 @@ export async function verifyPassword(password: string, storedValue: string): Pro
 
   return timingSafeEqual(buf2hex(hash), originalHashHex);
 }
+
+// 🛡️ 安全修复 (S-04)：用户不存在时也要做一次同等代价的 PBKDF2，
+// 否则“不存在 → 立即返回、存在 → 计算 10 万次迭代”的耗时差可被用来枚举用户名。
+const DUMMY_STORED_HASH =
+  '00112233445566778899aabbccddeeff:' + '0'.repeat(64);
+
+export async function verifyPasswordDummy(password: string): Promise<false> {
+  await verifyPassword(password, DUMMY_STORED_HASH);
+  return false;
+}

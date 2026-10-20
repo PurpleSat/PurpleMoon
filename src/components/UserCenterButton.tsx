@@ -6,6 +6,8 @@ import { LogOut, User, X } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 
+import { clearClientCaches } from '@/lib/clear-client-caches';
+
 interface UserInfo {
   authenticated: boolean;
   username?: string;
@@ -67,6 +69,7 @@ export const UserCenterButton: React.FC = () => {
     } catch (error) {
       console.error('注销请求失败:', error);
     }
+    await clearClientCaches();
     window.location.reload();
   };
 

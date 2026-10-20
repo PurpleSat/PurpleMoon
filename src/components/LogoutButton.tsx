@@ -5,6 +5,8 @@
 import { LogOut } from 'lucide-react';
 import { useState } from 'react';
 
+import { clearClientCaches } from '@/lib/clear-client-caches';
+
 export const LogoutButton: React.FC = () => {
   const [loading, setLoading] = useState(false);
 
@@ -22,6 +24,7 @@ export const LogoutButton: React.FC = () => {
     } catch (error) {
       console.error('注销请求失败:', error);
     }
+    await clearClientCaches();
 
     window.location.reload();
   };

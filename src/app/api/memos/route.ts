@@ -5,6 +5,7 @@ import { z } from 'zod';
 import { getVerifiedAuthUser } from '@/lib/auth-server';
 import { checkCsrf } from '@/lib/csrf-guard';
 import { db } from '@/lib/db';
+import { rejectIfLocalStorageMode } from '@/lib/storage-mode';
 
 export const runtime = 'edge';
 
@@ -49,6 +50,9 @@ async function parseSafeBody(request: NextRequest, maxSizeKB: number) {
 // ------------------------------------------
 
 export async function GET(request: NextRequest) {
+  const localModeReject = rejectIfLocalStorageMode();
+  if (localModeReject) return localModeReject;
+
   // 🛡️ 安全修复 (SEC-02, SEC-04)：强制服务端签名与状态有效性重验
   const authUser = await getVerifiedAuthUser(request);
   if (!authUser || !authUser.username) {
@@ -66,6 +70,9 @@ export async function GET(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
+  const localModeReject = rejectIfLocalStorageMode();
+  if (localModeReject) return localModeReject;
+
   // 🛡️ 安全修复 (SEC-02, SEC-04)：强制服务端签名与状态有效性重验
   const authUser = await getVerifiedAuthUser(request);
   if (!authUser || !authUser.username) {
@@ -112,6 +119,9 @@ export async function POST(request: NextRequest) {
 }
 
 export async function DELETE(request: NextRequest) {
+  const localModeReject = rejectIfLocalStorageMode();
+  if (localModeReject) return localModeReject;
+
   // 🛡️ 安全修复 (SEC-02, SEC-04)：强制服务端签名与状态有效性重验
   const authUser = await getVerifiedAuthUser(request);
   if (!authUser || !authUser.username) {
