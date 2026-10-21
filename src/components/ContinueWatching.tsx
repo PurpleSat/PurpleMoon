@@ -68,7 +68,7 @@ export default function ContinueWatching({ className }: ContinueWatchingProps) {
     return unsubscribe;
   }, []);
 
-  // 如果没有播放记录，则在页面中央显示logo
+  // 如果没有播放记录，则在页面中央显示图片 Logo
   if (!loading && playRecords.length === 0) {
     return (
       <div className='flex min-h-[55vh] flex-col items-center justify-center px-4'>
