@@ -173,7 +173,7 @@ function LoginPageClient() {
                     id='username'
                     type='text'
                     autoComplete='username'
-                    className='block w-full pl-12 pr-6 py-4 bg-gray-100 dark:bg-zinc-900 border border-transparent rounded-full text-[15px] font-medium focus:border-black dark:focus:border-white focus:ring-0 focus:bg-white dark:focus:bg-black outline-none text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-600 transition-all'
+                    className='block w-full pl-12 pr-6 py-4 bg-gray-100 dark:bg-zinc-900 border border-transparent rounded-full text-base font-medium focus:border-black dark:focus:border-white focus:ring-0 focus:bg-white dark:focus:bg-black outline-none text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-600 transition-all'
                     placeholder='Username'
                     value={username}
                     onChange={(e) => setUsername(e.target.value)}
@@ -192,7 +192,7 @@ function LoginPageClient() {
                   id='password'
                   type='password'
                   autoComplete={isRegisterMode ? 'new-password' : 'current-password'}
-                  className='block w-full pl-12 pr-6 py-4 bg-gray-100 dark:bg-zinc-900 border border-transparent rounded-full text-[15px] font-medium focus:border-black dark:focus:border-white focus:ring-0 focus:bg-white dark:focus:bg-black outline-none text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-600 transition-all'
+                  className='block w-full pl-12 pr-6 py-4 bg-gray-100 dark:bg-zinc-900 border border-transparent rounded-full text-base font-medium focus:border-black dark:focus:border-white focus:ring-0 focus:bg-white dark:focus:bg-black outline-none text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-600 transition-all'
                   placeholder='Password'
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
@@ -210,7 +210,7 @@ function LoginPageClient() {
                   <input
                     id='inviteCode'
                     type='text'
-                    className='block w-full pl-12 pr-6 py-4 bg-gray-100 dark:bg-zinc-900 border border-transparent rounded-full text-[15px] font-medium focus:border-black dark:focus:border-white focus:ring-0 focus:bg-white dark:focus:bg-black outline-none text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-600 transition-all'
+                    className='block w-full pl-12 pr-6 py-4 bg-gray-100 dark:bg-zinc-900 border border-transparent rounded-full text-base font-medium focus:border-black dark:focus:border-white focus:ring-0 focus:bg-white dark:focus:bg-black outline-none text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-600 transition-all'
                     placeholder='Invite Code'
                     value={inviteCode}
                     onChange={(e) => setInviteCode(e.target.value)}

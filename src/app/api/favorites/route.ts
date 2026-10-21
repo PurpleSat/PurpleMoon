@@ -3,9 +3,11 @@
 import { NextRequest, NextResponse } from 'next/server';
 
 import { getVerifiedAuthUser } from '@/lib/auth-server';
+import { getConfig } from '@/lib/config';
 import { readLimitedJson } from '@/lib/cookies';
 import { checkCsrf } from '@/lib/csrf-guard';
 import { db } from '@/lib/db';
+import { formatSourceNameForRole } from '@/lib/site-access';
 import { rejectIfLocalStorageMode } from '@/lib/storage-mode';
 import { parseFavorite, parseRecordKey } from '@/lib/validation';
 
@@ -23,6 +25,7 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
+    const config = authUser.config ?? (await getConfig());
     const { searchParams } = new URL(request.url);
     const key = searchParams.get('key');
 
@@ -35,11 +38,45 @@ export async function GET(request: NextRequest) {
         );
       }
       const fav = await db.getFavorite(authUser.username, parsedKey.source, parsedKey.id);
-      return NextResponse.json(fav, { status: 200 });
+      if (!fav) {
+        return NextResponse.json(null, { status: 200 });
+      }
+      return NextResponse.json(
+        {
+          ...fav,
+          source_name: formatSourceNameForRole(
+            config,
+            authUser.username,
+            authUser.role,
+            parsedKey.source,
+            fav.source_name
+          ),
+        },
+        { status: 200 }
+      );
     }
 
     const favorites = await db.getAllFavorites(authUser.username);
-    return NextResponse.json(favorites, { status: 200 });
+    const formatted = Object.fromEntries(
+      Object.entries(favorites).map(([k, fav]) => {
+        const parsed = parseRecordKey(k);
+        const sourceKey = parsed ? parsed.source : k.split('+')[0];
+        return [
+          k,
+          {
+            ...fav,
+            source_name: formatSourceNameForRole(
+              config,
+              authUser.username,
+              authUser.role,
+              sourceKey,
+              fav.source_name
+            ),
+          },
+        ];
+      })
+    );
+    return NextResponse.json(formatted, { status: 200 });
   } catch (err) {
     console.error('获取收藏失败', err);
     return NextResponse.json(
@@ -91,6 +128,13 @@ export async function POST(request: NextRequest) {
     }
     const { source, id } = parsedKey;
     const finalFavorite = parsedFav.data;
+
+    // 落库时若能匹配到配置中的真实源名则写入标准源名，读取时再按当前角色动态脱敏或展示真实名
+    const config = authUser.config ?? (await getConfig());
+    const realSiteName = config?.SourceConfig?.find((s) => s.key === source)?.name;
+    if (realSiteName) {
+      finalFavorite.source_name = realSiteName;
+    }
 
     if (!(await db.getFavorite(authUser.username, source, id))) {
       const existing = await db.getAllFavorites(authUser.username);

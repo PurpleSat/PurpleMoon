@@ -58,8 +58,7 @@ export function getClientIp(request: HeaderSource): string {
     if (real) return real;
   }
 
-  // 4. X-Forwarded-For：仅在显式声明 TRUST_X_FORWARDED_FOR=true（或非生产调试环境）时读取，
-  //    严禁在生产环境无条件信任未声明的 X-Forwarded-For，防止直连部署被伪造 IP 绕过限流。
+  // 4. X-Forwarded-For：显式声明 TRUST_X_FORWARDED_FOR=true（或非生产调试环境）时按可信跳数读取
   const xff = request.headers.get('x-forwarded-for');
   if (xff && (envFlag('TRUST_X_FORWARDED_FOR') || !isProd)) {
     const chain = xff.split(',').map((s) => s.trim()).filter(Boolean);

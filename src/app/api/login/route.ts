@@ -105,7 +105,7 @@ async function checkKeyLimit(key: string, limit: number, windowMs: number): Prom
 
 async function checkLoginAttemptLimits(username: string, ip: string): Promise<boolean> {
   // 无法识别来源 IP（unknown_ip）时不使用“账号+IP”桶：它会变成全体匿名用户共享的桶，
-  // 一个人就能把该账号锁死；此时只用账号级上限兜底
+  // 一个人发 20 次错误密码就能把该账号锁死；此时只用账号级上限兜底
   if (
     ip !== UNKNOWN_IP &&
     !(await checkKeyLimit(pairKey(username, ip), PAIR_LIMIT, ACCOUNT_WINDOW_MS))
@@ -134,7 +134,7 @@ export async function POST(req: NextRequest) {
 
   try {
     if (!(await checkRateLimit(req))) {
-      return NextResponse.json({ error: '登录过于频繁，请 3 分钟后再试' }, { status: 429 });
+      return NextResponse.json({ error: '尝试登录过于频繁，请 1 分钟后再试' }, { status: 429 });
     }
 
     if (STORAGE_TYPE === 'localstorage') {
