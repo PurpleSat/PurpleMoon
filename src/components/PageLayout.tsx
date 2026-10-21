@@ -13,19 +13,19 @@ interface PageLayoutProps {
 
 const PageLayout = ({ children, activePath = '/' }: PageLayoutProps) => {
   return (
-    <div className='w-full min-h-screen'>
+    <div className='w-full max-w-full min-h-screen overflow-x-clip'>
       {/* 移动端头部 */}
       <MobileHeader showBackButton={['/play'].includes(activePath)} />
 
       {/* 主要布局容器 */}
-      <div className='flex md:grid md:grid-cols-[auto_1fr] w-full min-h-screen md:min-h-auto'>
+      <div className='flex md:grid md:grid-cols-[auto_1fr] w-full max-w-full min-h-screen md:min-h-auto'>
         {/* 侧边栏 - 桌面端显示，移动端隐藏 */}
         <div className='hidden md:block'>
           <Sidebar activePath={activePath} />
         </div>
 
         {/* 主内容区域 */}
-        <div className='relative min-w-0 flex-1 transition-all duration-300'>
+        <div className='relative min-w-0 w-full max-w-full flex-1 transition-all duration-300'>
           {/* 桌面端左上角返回按钮 */}
           {['/play'].includes(activePath) && (
             <div className='absolute top-3 left-1 z-20 hidden md:flex'>
@@ -42,7 +42,7 @@ const PageLayout = ({ children, activePath = '/' }: PageLayoutProps) => {
 
           {/* 主内容 */}
           <main
-            className='flex-1 md:min-h-0 mb-14 md:mb-0'
+            className='w-full max-w-full min-w-0 flex-1 md:min-h-0 mb-14 md:mb-0'
             style={{
               paddingBottom: 'calc(3.5rem + env(safe-area-inset-bottom))',
             }}
