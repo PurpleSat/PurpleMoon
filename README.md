@@ -4,7 +4,7 @@
   <img src="public/logo.png" alt="PurpleMoon Logo" width="120">
 </div>
 
-> 🎬 PurpleMoon 是一个开箱即用的、跨平台的影视聚合播放器。它基于 **Next.js 15** + **Tailwind&nbsp;CSS** + **TypeScript** 构建，支持多资源搜索、在线播放、收藏同步、播放记录、本地/云端存储，让你可以随时随地畅享海量免费影视内容。
+> 🎬 PurpleMoon 是一个开箱即用的、跨平台的影视聚合播放器。它基于 **Next.js 15** + **Tailwind&nbsp;CSS** + **TypeScript** 构建，支持多资源搜索、在线播放、收藏同步、播放记录、本地/云端存储，让你可以随时随地畅享海量免费影视内容。**多源聚合搜索**：内置数十个免费资源站点，一次搜索立刻返回全源结果；**丰富详情页**：支持剧集列表、演员、年份、简介等完整信息展示；**流畅在线播放**：集成 HLS.js & ArtPlayer；**收藏 + 继续观看**：支持 Redis/D1 存储，多端同步进度；**PWA**：离线缓存、安装到桌面/主屏，移动端原生体验；**响应式布局**：桌面底部导航 + 移动底部导航，自适应各种屏幕尺寸。
 
 <div align="center">
 
@@ -15,46 +15,30 @@
 ![Docker Ready](https://img.shields.io/badge/Docker-ready-blue?logo=docker)
 ![HLS](https://img.shields.io/badge/HLS-1.7.3-8A2BE2)
 ![Artplayer](https://img.shields.io/badge/Artplayer-5.4.0-RED)
-![Version](https://img.shields.io/badge/Version-2.6.0-red)
+![Version](https://img.shields.io/badge/Version-2.6.1-red)
 ![Github](https://img.shields.io/badge/github-PurpleSat-8A2BE2?logo=github)
 
 </div>
 
 ---
 
-## ✨ 功能特性
-
-- 🔍 **多源聚合搜索**：内置数十个免费资源站点，一次搜索立刻返回全源结果。
-- 📄 **丰富详情页**：支持剧集列表、演员、年份、简介等完整信息展示。
-- ▶️ **流畅在线播放**：集成 HLS.js & ArtPlayer。
-- ❤️ **收藏 + 继续观看**：支持 Redis/D1 存储，多端同步进度。
-- 📱 **PWA**：离线缓存、安装到桌面/主屏，移动端原生体验。
-- 🌗 **响应式布局**：桌面底部导航 + 移动底部导航，自适应各种屏幕尺寸。
-- 🚀 **极简部署**：一条 Docker 命令即可将完整服务跑起来，或免费部署到 Vercel 和 Cloudflare。
-- 👿 **自定义跳过片头片尾**：多设备同步自定义跳过片头片尾功能。
-- 🔒 **鉴权交互**：中级防护。
-- 💬 **留言板**：全用户留言板块。
-- 🌐 **源库分类浏览**：一览源站分类内容。
-- 🎬 **视频解析**：一键解析视频。
-- 🔔 **TMDB最近上映**：TMDB最新上映和热播。
-
 ## 目录
 
-- [技术栈](#技术栈)
-- [部署](#部署)
-  - [Vercel](#vercel-部署)
-  - [Cloudflare](#cloudflare-部署)
-  - [Docker 与 Docker Compose](#docker-部署)
-- [环境变量](#环境变量)
-- [不同部署环境的变量配置](#不同部署环境的变量配置)
-- [部署与 IP 识别](#部署与-ip-识别)
-- [配置说明](#配置说明)
-- [管理员配置](#管理员配置)
-- [AndroidTV 使用](#androidtv-使用)
-- [更新记录](#更新记录)
-- [Roadmap](#roadmap)
-- [License](#license)
-- [致谢](#致谢)
+- [🔍技术栈](#技术栈)
+- [🚀部署](#部署)
+  - [🌐Vercel](#vercel-部署)
+  - [🌐Cloudflare](#cloudflare-部署)
+  - [🌐Docker 与 Docker Compose](#docker-部署)
+- [📄环境变量](#环境变量)
+- [📱不同部署环境的变量配置](#不同部署环境的变量配置)
+- [🌗部署与 IP 识别](#部署与-ip-识别)
+- [👿配置说明](#配置说明)
+- [🔒管理员配置](#管理员配置)
+- [▶️AndroidTV 使用](#androidtv-使用)
+- [💬更新记录](#更新记录)
+- [🎬Roadmap](#roadmap)
+- [🔔License](#license)
+- [❤️致谢](#致谢)
 
 ---
 
@@ -561,29 +545,9 @@ PurpleMoon 支持标准的苹果 CMS V10 API 格式。
 
 ## 更新记录
 
-### 2.6.0
+### 2.6.1
 
-相对 2.5.9：
-
-- **会话吊销**：用户配置新增 `sessionsValidAfter`。管理员修改某用户密码或封禁该用户后，签发时间早于该时间戳的旧 Cookie 立即失效（仅数据库存储模式；localstorage 模式只有站长一个账号，要撤销会话需轮换 `AUTH_SECRET`）。
-- **管理员修改自己的密码**：服务端为当前浏览器重签 Cookie，其它设备上的旧会话被踢下线，当前会话不会掉线。
-- **鉴权缓存刷新冷却**：`getVerifiedAuthUser` 查不到用户时才强制刷新配置，并按用户名限频（5 秒，最多记录 1000 个用户名）。已删用户的旧 Cookie 不能反复击穿缓存读库，也不会影响其他新用户的首次请求。
-- **重置配置**（`resetConfig`）保留每个用户的分组、封禁状态和 `sessionsValidAfter`，不会借重置把已封禁用户解封；同名账号被重新注册时按全新普通用户处理，清除旧的封禁与吊销状态。
-- **登录限流 / 客户端 IP**：未配置任何 `TRUST_*` 时，取 `X-Forwarded-For` 最右侧一项作为来源（最靠近本服务的一跳）；没有任何可用来源头才落入 `unknown_ip`，此时只使用账号级上限，不再使用「账号+IP」共享桶。注意：账号级上限（localstorage 60 次 / 数据库 200 次，15 分钟）被打满时，该账号在窗口内仍无法登录。生产环境请按部署方式配置 `TRUST_CF_CONNECTING_IP` / `TRUST_X_REAL_IP` / `TRUST_X_FORWARDED_FOR`（`TRUSTED_PROXY_HOPS`），不要依赖兜底。
-- **D1**：收藏写入遇到并发 `ALTER TABLE`（列已存在）时先用完整列重试再降级；`skip_configs` 表自动创建（需要账号有 CREATE/ALTER 权限，否则功能降级）。
-- **测试**：新增会话撤销、鉴权冷却、重置配置、管理员改密码、IP 解析等用例；修复测试文件的 tsc 类型错误。
-- **打包**：不再包含 `.swc`、`next-env.d.ts`、`tsconfig.tsbuildinfo`。
-
-### 2.5.8（测试报告修复）
-
-- 去广告：合并回时长指纹、帧率规则、整块规则与 `__adLearn` 自助学习（见环境变量 `NEXT_PUBLIC_AD_FINGERPRINTS`），补回测试样本目录 `src/lib/__tests__/fixtures/`（L-01 / L-02）。
-- Service Worker 不再缓存任何 `/api/*` 响应，退出登录与 401 时清空浏览器缓存存储（S-02）。
-- 登录防护：按“账号 + IP”限流（15 分钟 20 次）加“账号总量”兜底（数据库模式 15 分钟 200 次，本地存储模式 60 次），登录成功清零；本地存储模式同样生效，轮换 `X-Forwarded-For` 不再能绕过（S-01 / S-03）。账号总量被打满时该账号 15 分钟内无法登录，生产环境请置于反向代理之后并设置 `TRUST_*`。
-- 用户不存在时同样做一次 PBKDF2，消除用户名枚举的耗时差（S-04）；Cookie 载荷严格校验类型，用户名/角色不得含 `:`（S-05）。
-- 上游资源站响应限制 4 MB，且超时覆盖响应体读取（S-06）；每用户播放记录 500 / 收藏 1000 / 片头片尾配置 1000 条上限（S-07）；D1 限流表顺带清理过期行（S-08）。
-- 本地存储模式下便签 / 收藏 / 播放记录 / 搜索历史 / 跳过配置接口返回 400 而不是 500（L-03）；管理员新增用户遇配置版本冲突重试不再重复注册（L-04）；配置了 `VALID_INVITE_CODE` 即视为要求邀请码，要“开放注册但不要邀请码”请设 `REQUIRE_INVITE_CODE=false`（L-05）。
-- 其它：`/api/admin/reset` 统一用 `checkCsrf`；`/api/detail` 不再回传内部异常信息；`/api/search/one` 缺参返回 400；站点设置的缓存时间/页数改为整数并设上限；Redis 改用 SCAN 代替 KEYS。
-- 构建与部署：Node 20 → 22（Dockerfile、`.nvmrc`）；去掉 `next/font/google`（构建不再需要访问 Google Fonts，使用系统字体）；去掉重复的 `typecheck` 脚本；`package.json` 版本号 2.5.8；Dockerfile 增加 `HEALTHCHECK`；构建产物 `public/sw.js`、`workbox-*.js` 不再打进压缩包。
+- 更新说明见PM更新日志
 
 ## Roadmap
 
