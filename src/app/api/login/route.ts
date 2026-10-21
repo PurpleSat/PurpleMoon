@@ -31,10 +31,10 @@ function checkLocalRateLimit(ip: string, maxPerMin = 10): boolean {
   const limitData = localRateLimitMap.get(ip);
 
   localRateLimitMap.forEach((value, key) => {
-    if (now - value.timestamp > 180000) localRateLimitMap.delete(key);
+    if (now - value.timestamp > 60000) localRateLimitMap.delete(key);
   });
 
-  if (limitData && now - limitData.timestamp < 180000) {
+  if (limitData && now - limitData.timestamp < 60000) {
     if (limitData.count >= maxPerMin) return false;
     limitData.count++;
   } else {
@@ -46,7 +46,7 @@ function checkLocalRateLimit(ip: string, maxPerMin = 10): boolean {
 async function checkRateLimit(req: NextRequest): Promise<boolean> {
   const ip = getClientIp(req);
   // 若未配置可信代理导致落在 unknown_ip 共享桶，适当放宽单桶分钟阈值，由下方的按账号限流兜底
-  const maxPerMin = ip === UNKNOWN_IP ? 60 : 5;
+  const maxPerMin = ip === UNKNOWN_IP ? 60 : 10;
 
   if (STORAGE_TYPE === 'localstorage') {
     return checkLocalRateLimit(ip, maxPerMin);
@@ -54,7 +54,7 @@ async function checkRateLimit(req: NextRequest): Promise<boolean> {
 
   try {
     const key = `rate_limit:login:${ip}`;
-    return await db.checkRateLimit(key, maxPerMin, 180000);
+    return await db.checkRateLimit(key, maxPerMin, 60000);
   } catch (err) {
     console.error('分布式限流存储异常，已安全降级至本地内存限流:', err);
     return checkLocalRateLimit(ip, maxPerMin);
