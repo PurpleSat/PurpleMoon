@@ -68,18 +68,14 @@ export default function ContinueWatching({ className }: ContinueWatchingProps) {
     return unsubscribe;
   }, []);
 
-  // 如果没有播放记录，则在页面中央显示图片 Logo
+
+  // 如果没有播放记录，则在页面中央显示欢迎语
   if (!loading && playRecords.length === 0) {
     return (
-      <div className='flex min-h-[55vh] flex-col items-center justify-center px-4'>
-        <Image
-          src='/logo.png'
-          alt='Logo'
-          width={160}
-          height={160}
-          priority
-          className='h-28 w-auto object-contain opacity-85 transition-transform duration-300 hover:scale-105 sm:h-36'
-        />
+      <div className='flex min-h-[55vh] items-center justify-center px-4'>
+        <p className='text-center text-lg font-medium tracking-wide text-gray-500 sm:text-2xl dark:text-gray-400'>
+          💥导航开始🔻探索紫月💥
+        </p>
       </div>
     );
   }
