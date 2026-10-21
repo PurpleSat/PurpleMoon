@@ -178,11 +178,11 @@ function ReleaseCalendarClient() {
 
   return (
     <PageLayout activePath="/release-calendar">
-      <div className="flex flex-col min-h-screen pb-10 bg-gray-50 dark:bg-[#0a0a0a] transition-colors">
+      <div className="flex flex-col w-full max-w-full min-w-0 min-h-screen pb-10 bg-gray-50 dark:bg-[#0a0a0a] transition-colors">
 
         {/* 吸顶导航栏 & 过滤器 */}
-        <div className="sticky top-0 z-40 bg-white/80 dark:bg-gray-900/80 backdrop-blur-xl border-b border-gray-200 dark:border-gray-800 transition-colors">
-          <div className="max-w-7xl mx-auto px-4 py-3">
+        <div className="sticky top-0 z-40 w-full max-w-full min-w-0 bg-white/80 dark:bg-gray-900/80 backdrop-blur-xl border-b border-gray-200 dark:border-gray-800 transition-colors">
+          <div className="max-w-7xl w-full min-w-0 mx-auto px-4 py-3">
 
             {/* 顶部标题与视图切换 */}
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-3">

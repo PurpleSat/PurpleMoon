@@ -1224,7 +1224,7 @@ function PlayPageClient() {
               </div>
             </div>
 
-            <div className='mb-6 w-80 mx-auto'>
+            <div className='mb-6 w-full max-w-[20rem] mx-auto'>
               <div className='flex justify-center space-x-2 mb-4'>
                 <div className={`w-3 h-3 rounded-full transition-all duration-500 ${loadingStage === 'searching' || loadingStage === 'fetching' ? 'bg-green-500 scale-125' : loadingStage === 'preferring' || loadingStage === 'ready' ? 'bg-green-500' : 'bg-gray-300'}`}></div>
                 <div className={`w-3 h-3 rounded-full transition-all duration-500 ${loadingStage === 'preferring' ? 'bg-green-500 scale-125' : loadingStage === 'ready' ? 'bg-green-500' : 'bg-gray-300'}`}></div>
@@ -1293,7 +1293,7 @@ function PlayPageClient() {
 
   return (
     <PageLayout activePath='/play'>
-      <div className='flex flex-col gap-3 py-4 px-5 lg:px-[3rem] 2xl:px-20'>
+      <div className='flex flex-col w-full max-w-full min-w-0 gap-3 py-4 px-4 sm:px-5 lg:px-[3rem] 2xl:px-20'>
         <div className='py-1'>
           <h1 className='text-xl font-semibold text-gray-900 dark:text-gray-100'>
             {videoTitle || '影片标题'}
@@ -1321,7 +1321,7 @@ function PlayPageClient() {
           </div>
 
           <div className={`grid gap-4 lg:h-[500px] xl:h-[650px] 2xl:h-[750px] transition-all duration-300 ease-in-out ${isEpisodeSelectorCollapsed ? 'grid-cols-1' : 'grid-cols-1 md:grid-cols-4'}`}>
-            <div className={`h-full transition-all duration-300 ease-in-out rounded-xl border border-white/0 dark:border-white/30 ${isEpisodeSelectorCollapsed ? 'col-span-1' : 'md:col-span-3'}`}>
+            <div className={`h-full min-w-0 transition-all duration-300 ease-in-out rounded-xl border border-white/0 dark:border-white/30 ${isEpisodeSelectorCollapsed ? 'col-span-1' : 'md:col-span-3'}`}>
               <div className='relative w-full h-[300px] lg:h-full'>
                 <div ref={artRef} className='bg-black w-full h-full rounded-xl overflow-hidden shadow-lg'></div>
                 {isVideoLoading && (
@@ -1347,7 +1347,7 @@ function PlayPageClient() {
               </div>
             </div>
 
-            <div className={`h-[300px] lg:h-full md:overflow-hidden transition-all duration-300 ease-in-out ${isEpisodeSelectorCollapsed ? 'md:col-span-1 lg:hidden lg:opacity-0 lg:scale-95' : 'md:col-span-1 lg:opacity-100 lg:scale-100'}`}>
+            <div className={`h-[300px] lg:h-full min-w-0 overflow-hidden transition-all duration-300 ease-in-out ${isEpisodeSelectorCollapsed ? 'md:col-span-1 lg:hidden lg:opacity-0 lg:scale-95' : 'md:col-span-1 lg:opacity-100 lg:scale-100'}`}>
               <EpisodeSelector
                 totalEpisodes={totalEpisodes}
                 episodes_titles={(detail as any)?.episodes_titles || []}

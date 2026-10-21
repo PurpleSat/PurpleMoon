@@ -31,6 +31,12 @@ export async function generateMetadata(): Promise<Metadata> {
 }
 
 export const viewport: Viewport = {
+  width: 'device-width',
+  initialScale: 1,
+  maximumScale: 1,
+  minimumScale: 1,
+  userScalable: false,
+  viewportFit: 'cover',
   themeColor: '#000000',
 };
 
@@ -72,6 +78,10 @@ export default async function RootLayout({
   return (
     <html lang='zh-CN' suppressHydrationWarning>
       <head>
+        <meta
+          name='viewport'
+          content='width=device-width, initial-scale=1, maximum-scale=1, minimum-scale=1, user-scalable=no, viewport-fit=cover'
+        />
         {/* eslint-disable-next-line @next/next/no-sync-scripts */}
         <script
           dangerouslySetInnerHTML={{
@@ -80,7 +90,7 @@ export default async function RootLayout({
         />
       </head>
       <body
-        className="font-primary min-h-screen bg-white text-gray-900 dark:bg-black dark:text-gray-200"
+        className="font-primary min-h-screen w-full max-w-full overflow-x-clip bg-white text-gray-900 dark:bg-black dark:text-gray-200"
       >
         <ThemeProvider
           attribute='class'
