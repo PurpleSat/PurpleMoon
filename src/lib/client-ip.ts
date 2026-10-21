@@ -9,7 +9,7 @@
 //   TRUST_X_FORWARDED_FOR=true    前置代理会向 X-Forwarded-For 追加真实来源地址
 //   TRUSTED_PROXY_HOPS=1          X-Forwarded-For 中可信代理的层数（默认 1），取倒数第 N 个
 //
-// 无法确定 IP 时返回固定的 'unknown_ip'（调用方可针对 unknown_ip 结合账号级限流做差异化防刷）。
+// 无法确定 IP 时（无任何可用头）返回固定的 'unknown_ip'（调用方可针对 unknown_ip 结合账号级限流做差异化防刷）。
 
 export const UNKNOWN_IP = 'unknown_ip';
 
@@ -73,7 +73,17 @@ export function getClientIp(request: HeaderSource): string {
     }
   }
 
-  // 5. 开发环境允许回环地址，便于本地调试
+  // 5. 兜底：未声明可信代理时，仍取 X-Forwarded-For 最右侧一项。
+  //    最右侧是离本服务最近的一跳（反向代理/平台追加），客户端无法改写它；
+  //    直连部署时它由客户端自己填写，只能用来“换桶”，账号级限流仍然兜底。
+  //    这样默认部署下不会把所有用户折叠进同一个 unknown_ip 桶（避免被一个人锁住全站登录）。
+  if (xff) {
+    const chain = xff.split(',').map((s) => s.trim()).filter(Boolean);
+    const ip = sanitizeIp(chain[chain.length - 1]);
+    if (ip) return ip;
+  }
+
+  // 6. 开发环境允许回环地址，便于本地调试
   if (!isProd) return '127.0.0.1';
 
   return UNKNOWN_IP;

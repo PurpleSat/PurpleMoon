@@ -102,14 +102,29 @@ describe('SEC-NEW-02 getClientIp 生产环境防伪造', () => {
   beforeEach(() => envKeys.forEach((k) => { saved[k] = env[k]; delete env[k]; }));
   afterEach(() => envKeys.forEach((k) => { if (saved[k] === undefined) delete env[k]; else env[k] = saved[k]; }));
 
-  test('生产环境未开启 TRUST_* 时不信任客户端伪造的 X-Forwarded-For', () => {
+  test('生产环境未开启 TRUST_* 时，单值 XFF 仍作为最近一跳使用（不折叠进 unknown_ip）', () => {
     env.NODE_ENV = 'production';
     const ip = getClientIp({
       headers: {
         get: (k: string) => (k.toLowerCase() === 'x-forwarded-for' ? '203.0.113.99' : null),
       },
     });
-    expect(ip).toBe(UNKNOWN_IP);
+    expect(ip).toBe('203.0.113.99');
+  });
+
+  test('生产环境未开启 TRUST_* 时，客户端在最左侧伪造的值不会生效（取最右侧）', () => {
+    env.NODE_ENV = 'production';
+    const ip = getClientIp({
+      headers: {
+        get: (k: string) => (k.toLowerCase() === 'x-forwarded-for' ? '6.6.6.6, 198.51.100.7' : null),
+      },
+    });
+    expect(ip).toBe('198.51.100.7');
+  });
+
+  test('生产环境没有任何可用头时返回 unknown_ip', () => {
+    env.NODE_ENV = 'production';
+    expect(getClientIp({ headers: { get: () => null } })).toBe(UNKNOWN_IP);
   });
 
   test('生产环境显式开启 TRUST_X_FORWARDED_FOR=true 时取可信代理跳数对应的 IP', () => {

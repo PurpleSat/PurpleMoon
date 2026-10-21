@@ -15,7 +15,7 @@
 ![Docker Ready](https://img.shields.io/badge/Docker-ready-blue?logo=docker)
 ![HLS](https://img.shields.io/badge/HLS-1.7.3-8A2BE2)
 ![Artplayer](https://img.shields.io/badge/Artplayer-5.4.0-RED)
-![Version](https://img.shields.io/badge/Version-2.6-red)
+![Version](https://img.shields.io/badge/Version-2.6.0-red)
 ![Github](https://img.shields.io/badge/github-PurpleSat-8A2BE2?logo=github)
 
 </div>
@@ -38,21 +38,25 @@
 - 🎬 **视频解析**：一键解析视频。
 - 🔔 **TMDB最近上映**：TMDB最新上映和热播。
 
-
-
-## 🗺 目录
+## 目录
 
 - [技术栈](#技术栈)
 - [部署](#部署)
-- [Docker Compose 最佳实践](#Docker-Compose-最佳实践)
+  - [Vercel](#vercel-部署)
+  - [Cloudflare](#cloudflare-部署)
+  - [Docker 与 Docker Compose](#docker-部署)
 - [环境变量](#环境变量)
 - [不同部署环境的变量配置](#不同部署环境的变量配置)
+- [部署与 IP 识别](#部署与-ip-识别)
 - [配置说明](#配置说明)
 - [管理员配置](#管理员配置)
-- [AndroidTV 使用](#AndroidTV-使用)
+- [AndroidTV 使用](#androidtv-使用)
+- [更新记录](#更新记录)
 - [Roadmap](#roadmap)
 - [License](#license)
 - [致谢](#致谢)
+
+---
 
 ## 技术栈
 
@@ -63,24 +67,22 @@
 | 语言      | TypeScript 4                                                                                          |
 | 播放器    | [ArtPlayer](https://github.com/zhw2590582/ArtPlayer) · [HLS.js](https://github.com/video-dev/hls.js/) |
 | 代码质量  | ESLint · Prettier · Jest                                                                              |
-| 部署      | Docker · Vercel · CloudFlare pages                                                                    |
+| 部署      | Docker · Vercel · Cloudflare Pages                                                                    |
 
 ## 部署
 
 本项目**支持 Vercel、Docker 和 Cloudflare** 部署。
 
-存储支持矩阵
+### 存储支持矩阵
 
 |               | Docker | Vercel | Cloudflare |
 | :-----------: | :----: | :----: | :--------: |
 | localstorage  |   ✅   |   ✅   |     ✅     |
-|  原生 redis   |   ✅   |        |            |
+|  原生 Redis   |   ✅   |        |            |
 | Cloudflare D1 |        |        |     ✅     |
 | Upstash Redis |   ✅   |   ✅   |     ✅     |
 
-✅：经测试支持
-
-除 localstorage 方式外，其他方式都支持多账户、记录同步和管理页面
+✅：经测试支持。除 localstorage 外，其他方式都支持多账户、记录同步和管理页面。
 
 ### Vercel 部署
 
@@ -130,11 +132,13 @@
 
 ### Docker 部署
 
-#### 1. 直接运行（最简单）
+> **注意**：本仓库不提供公开的预构建镜像（Docker 镜像名必须全小写，且 `ghcr.io` 上的包默认私有，直接 `docker pull` 会报 `denied`）。请在服务器上用源码自行构建，或推送到你自己的镜像仓库。
+
+#### 1. 构建并运行（最简单）
 
 ```bash
-# 拉取预构建镜像
-docker pull ghcr.io/purplesat/purplemoon:latest
+# 在项目根目录（含 Dockerfile 的目录）构建镜像，约需几分钟
+docker build -t purplemoon:latest .
 
 # 运行容器
 # -d: 后台运行  -p: 映射端口 3000 -> 3000
@@ -142,22 +146,28 @@ docker pull ghcr.io/purplesat/purplemoon:latest
 docker run -d --name purplemoon -p 3000:3000 \
   -e PASSWORD=your_password \
   -e AUTH_SECRET=$(openssl rand -hex 32) \
-  ghcr.io/purplesat/purplemoon:latest
+  purplemoon:latest
 ```
 
-访问 `http://服务器 IP:3000` 即可。（需自行到服务器控制台放通 `3000` 端口）
+访问 `http://服务器 IP:3000` 即可（需自行到服务器控制台放通 `3000` 端口）。正式对外提供服务时，请把它放在反向代理之后，并阅读下文「[部署与 IP 识别](#部署与-ip-识别)」。
 
+可选：推送到你自己的 GHCR / Docker Hub，供多台服务器拉取：
 
-## Docker Compose 最佳实践
+```bash
+echo $GHCR_TOKEN | docker login ghcr.io -u <你的用户名> --password-stdin
+docker tag purplemoon:latest ghcr.io/<你的用户名>/purplemoon:latest
+docker push ghcr.io/<你的用户名>/purplemoon:latest
+# 推送后到 GitHub → Packages → 该包 → Package settings 将可见性改为 Public，或在服务器上先 docker login
+```
 
-若你使用 docker compose 部署，以下是一些 compose 示例
+#### 2. Docker Compose
 
-### local storage 版本
+**localstorage 版本**
 
 ```yaml
 services:
   purplemoon:
-    image: ghcr.io/purplesat/purplemoon:latest
+    image: purplemoon:latest
     container_name: purplemoon
     restart: unless-stopped
     ports:
@@ -170,12 +180,12 @@ services:
     #   - ./config.json:/app/config.json:ro
 ```
 
-### Redis 版本（推荐，多账户数据隔离，跨设备同步）
+**Redis 版本（推荐，多账户数据隔离，跨设备同步）**
 
 ```yaml
 services:
-  purplemoon-core:
-    image: ghcr.io/purplesat/purplemoon:latest
+  purplemoon:
+    image: purplemoon:latest
     container_name: purplemoon
     restart: unless-stopped
     ports:
@@ -187,6 +197,8 @@ services:
       - NEXT_PUBLIC_STORAGE_TYPE=redis
       - REDIS_URL=redis://purplemoon-redis:6379
       - NEXT_PUBLIC_ENABLE_REGISTER=true
+      # 放在 Nginx 等反向代理之后时，按「部署与 IP 识别」一节加上对应的 TRUST_* 变量
+      # - TRUST_X_REAL_IP=true
     networks:
       - purplemoon-network
     depends_on:
@@ -208,36 +220,58 @@ networks:
     driver: bridge
 ```
 
-
 ## 环境变量
 
-| 变量                        | 说明                                                        | 可选值                           | 默认值                                                                                                                     |
-| --------------------------- | ----------------------------------------------------------- | -------------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
-| USERNAME                    | redis 部署时的管理员账号                                    | 任意字符串                       | 空                                                                                                                   |
-| PASSWORD                    | 默认部署时为唯一访问密码，redis 部署时为管理员密码              | 任意字符串                       | 空                                                                                                                   |
-| SITE_NAME                   | 站点名称                                                   | 任意字符串                       | purplemoon                                                                                                                     |
-| ANNOUNCEMENT                | 站点公告                                                 | 任意字符串                       | 本网站仅提供影视信息搜索服务，所有内容均来自第三方网站。本站不存储任何视频资源，不对任何内容的准确性、合法性、完整性负责。 |
-| NEXT_PUBLIC_STORAGE_TYPE    | 播放记录/收藏的存储方式                                     | localstorage、redis、d1、upstash | localstorage                                                                                                               |
-| REDIS_URL                   | redis 连接 url，若 NEXT_PUBLIC_STORAGE_TYPE 为 redis 则必填 | 连接 url                         | 空                                                                                                                         |
-| UPSTASH_URL                 | upstash redis 连接 url                                      | 连接 url                         | 空                                                                                                                         |
-| UPSTASH_TOKEN               | upstash redis 连接 token                                    | 连接 token                       | 空                                                                                                                         |
-| NEXT_PUBLIC_ENABLE_REGISTER | 是否开放注册，仅在非 localstorage 部署时生效                | true / false                     | false                                                                                                                      |
-| NEXT_PUBLIC_SEARCH_MAX_PAGE | 搜索接口可拉取的最大页数                                    | 1-50                             | 5                                                                                                                          |
-| NEXT_PUBLIC_AD_FINGERPRINTS | 额外的广告“分片时长指纹”（构建时注入；也可在播放页控制台用 `__adLearn(开始秒, 结束秒)` 自助记录） | 多支用 `;` 分隔，同一支的分片时长（秒）用逗号分隔，如 `5.567,2.933,5.7,3.333,1.533` | 空 |
-| NEXT_PUBLIC_IMAGE_PROXY     | 默认的浏览器端图片代理                                      | https://timis.dpdns.org/?url=     | 空                                                                                                                     |
-| TMDB_API_TOKEN              | 上映日程TMDBTOKEN                                     | API 读访问令牌                          | 空                                                                                                                         |
-| VALID_INVITE_CODE | 注册邀请码（开启邀请制时必填，否则注册接口返回配置异常） | 任意字符串，建议 16 位以上 | 空 |
-| REQUIRE_INVITE_CODE | 是否强制邀请码注册。未设置时跟随 `NEXT_PUBLIC_ENABLE_REGISTER`（开放注册即强制邀请码） | true / false | 空 |
-| TMDB_API_KEY | TMDB v3 API Key（与 `TMDB_API_TOKEN` 二选一，用于“最近上映”） | API Key | 空 |
-| TMDB_BASE_URL | TMDB API 地址（自建反代时修改） | URL | https://api.themoviedb.org/3 |
-| AUTH_SECRET                 | **必填**。用于签名登录 Cookie；缺失或少于 16 字符时，生产环境服务拒绝启动 | 建议 32 位以上随机字符串（`openssl rand -hex 32`） | 空 |
-| CRON_SECRET | `/api/cron` 的 Bearer 密钥。**未设置时 cron 接口一律返回 401**（不会刷新收藏/播放记录的集数）。Docker 内置定时器和 Vercel Cron 都会自动带上它 | 任意 32 位以上字符串 | 空 |
-| TRUST_CF_CONNECTING_IP | 设为 true 才会信任 `CF-Connecting-IP` 头做限流 IP 识别。仅当站点部署在 Cloudflare （且源站只接受 Cloudflare 回源）时开启，否则客户端可伪造该头绕过限流 | true | 空 |
-| TRUST_X_REAL_IP | 设为 true 才会信任 `X-Real-IP` 头。仅当前置反向代理（如 Nginx 的 `proxy_set_header X-Real-IP $remote_addr;`）会覆盖该头时开启 | true | 空 |
-| TRUST_X_FORWARDED_FOR | 设为 true 才会信任 `X-Forwarded-For` 头，并取**倒数第 N 个**地址（N 见 TRUSTED_PROXY_HOPS），不再取最左侧值。仅当前置代理会追加真实来源地址时开启 | true | 空 |
-| COOKIE_SECURE | 显式控制登录 Cookie 是否带 `Secure`。默认：生产环境下仅当请求实际经由 HTTPS（`X-Forwarded-Proto: https`）时才加。通过 `http://IP:3000` 直连时请保持默认或设为 false，否则浏览器会丢弃 Cookie 导致“登录后立即回到登录页” | true / false | 空（自动） |
-| *限流 IP 兜底* | 未设置任何 `TRUST_*` 时，生产环境若请求带有 `X-Forwarded-For`，将取其**最右侧**一项（最近一层代理看到的来源）做限流。**请务必把服务放在反向代理之后**；若直接暴露公网，客户端可伪造该头规避限流，而且没有该头时所有请求会共用同一个限流桶 | - | - |
-| TRUSTED_PROXY_HOPS | `X-Forwarded-For` 链上可信代理层数，取倒数第 N 个。如 Cloudflare → Nginx → 应用 填 2 | 1-5 | 1 |
+### 必填与核心
+
+| 变量 | 说明 | 可选值 | 默认值 |
+| ---- | ---- | ------ | ------ |
+| `AUTH_SECRET` | **必填**。用于签名登录 Cookie；缺失或少于 16 字符时，生产环境服务拒绝启动。轮换它会让所有已登录会话失效 | 建议 32 位以上随机字符串（`openssl rand -hex 32`） | 空 |
+| `PASSWORD` | 默认部署时为唯一访问密码，数据库模式时为站长密码。**不设置则整站免登录** | 任意字符串 | 空 |
+| `USERNAME` | 数据库模式（redis / d1 / upstash）下的站长账号 | 任意字符串 | 空 |
+| `CRON_SECRET` | `/api/cron` 的 Bearer 密钥。**未设置时 cron 接口一律返回 401**（不会刷新收藏/播放记录的集数）。Docker 内置定时器和 Vercel Cron 都会自动带上它 | 任意 32 位以上字符串 | 空 |
+
+### 存储
+
+| 变量 | 说明 | 可选值 | 默认值 |
+| ---- | ---- | ------ | ------ |
+| `NEXT_PUBLIC_STORAGE_TYPE` | 播放记录/收藏的存储方式 | localstorage、redis、d1、upstash | localstorage |
+| `REDIS_URL` | redis 连接 url，`NEXT_PUBLIC_STORAGE_TYPE` 为 redis 时必填 | 连接 url | 空 |
+| `UPSTASH_URL` | upstash redis 连接 url | 连接 url | 空 |
+| `UPSTASH_TOKEN` | upstash redis 连接 token | 连接 token | 空 |
+
+### 注册与邀请
+
+| 变量 | 说明 | 可选值 | 默认值 |
+| ---- | ---- | ------ | ------ |
+| `NEXT_PUBLIC_ENABLE_REGISTER` | 是否开放注册，仅在非 localstorage 部署时生效 | true / false | false |
+| `VALID_INVITE_CODE` | 注册邀请码（开启邀请制时必填，否则注册接口返回配置异常） | 任意字符串，建议 16 位以上 | 空 |
+| `REQUIRE_INVITE_CODE` | 是否强制邀请码注册。未设置时跟随 `NEXT_PUBLIC_ENABLE_REGISTER`（开放注册即强制邀请码） | true / false | 空 |
+
+### 站点与功能
+
+| 变量 | 说明 | 可选值 | 默认值 |
+| ---- | ---- | ------ | ------ |
+| `SITE_NAME` | 站点名称 | 任意字符串 | purplemoon |
+| `ANNOUNCEMENT` | 站点公告 | 任意字符串 | 本网站仅提供影视信息搜索服务，所有内容均来自第三方网站。本站不存储任何视频资源，不对任何内容的准确性、合法性、完整性负责。 |
+| `NEXT_PUBLIC_SEARCH_MAX_PAGE` | 搜索接口可拉取的最大页数 | 1-50 | 5 |
+| `NEXT_PUBLIC_IMAGE_PROXY` | 默认的浏览器端图片代理 | `https://timis.dpdns.org/?url=` | 空 |
+| `NEXT_PUBLIC_AD_FINGERPRINTS` | 额外的广告“分片时长指纹”（构建时注入；也可在播放页控制台用 `__adLearn(开始秒, 结束秒)` 自助记录） | 多支用 `;` 分隔，同一支的分片时长（秒）用逗号分隔，如 `5.567,2.933,5.7,3.333,1.533` | 空 |
+| `TMDB_API_TOKEN` | 上映日程 TMDB 令牌 | API 读访问令牌 | 空 |
+| `TMDB_API_KEY` | TMDB v3 API Key（与 `TMDB_API_TOKEN` 二选一，用于“最近上映”） | API Key | 空 |
+| `TMDB_BASE_URL` | TMDB API 地址（自建反代时修改） | URL | https://api.themoviedb.org/3 |
+
+### 安全与客户端 IP
+
+这几项的原理、取舍和示例见「[部署与 IP 识别](#部署与-ip-识别)」。
+
+| 变量 | 说明 | 可选值 | 默认值 |
+| ---- | ---- | ------ | ------ |
+| `TRUST_CF_CONNECTING_IP` | 设为 true 才会信任 `CF-Connecting-IP` 头。仅当站点部署在 Cloudflare 且源站只接受 Cloudflare 回源时开启 | true | 空 |
+| `TRUST_X_REAL_IP` | 设为 true 才会信任 `X-Real-IP` 头。仅当前置反向代理会用真实连接地址覆盖该头时开启 | true | 空 |
+| `TRUST_X_FORWARDED_FOR` | 设为 true 才会信任 `X-Forwarded-For` 头，并取**倒数第 N 个**地址（N 见 `TRUSTED_PROXY_HOPS`）。仅当前置代理会追加真实来源地址时开启 | true | 空 |
+| `TRUSTED_PROXY_HOPS` | `X-Forwarded-For` 链上你自己控制的代理层数，取倒数第 N 个 | 1-5 | 1 |
+| `COOKIE_SECURE` | 显式控制登录 Cookie 是否带 `Secure`。默认：生产环境下仅当请求实际经由 HTTPS（`X-Forwarded-Proto: https`）时才加。通过 `http://IP:3000` 直连时请保持默认或设为 false，否则浏览器会丢弃 Cookie 导致“登录后立即回到登录页” | true / false | 空（自动） |
 
 ## 不同部署环境的变量配置
 
@@ -358,6 +392,128 @@ NEXT_PUBLIC_ENABLE_REGISTER=true               （开放注册时）
 | Vercel / Cloudflare + 数据库 | **每次请求都以环境变量为准**，后台修改这几项（如注册开关）不会持久生效，要改请改环境变量并重新部署 |
 | localstorage | 始终以环境变量为准，没有后台 |
 
+## 部署与 IP 识别
+
+登录、注册、便签等接口按“来源 IP”限流，其中登录还按“账号 + IP”计数。程序取到的 IP 对不对，直接决定限流有没有用：
+
+- 取成代理自己的地址：所有用户共用一个计数桶，一个人就能把大家的限流用光。
+- 取到了客户端自己写的值：攻击者每次换一个值就能换桶，绕过“账号 + IP”限制，只剩账号级上限在保护。
+
+请求头（`X-Forwarded-For`、`X-Real-IP`、`CF-Connecting-IP`）都是普通头，只有**你自己控制的代理**写进去的值才可信。`TRUST_*` 变量就是让你声明“哪个头可信”。
+
+### 取 IP 的顺序
+
+| 步骤 | 来源 | 何时使用 |
+| :--: | ---- | -------- |
+| 1 | 运行平台直接提供的连接地址 | 有就用，客户端无法伪造 |
+| 2 | `CF-Connecting-IP` | 仅当 `TRUST_CF_CONNECTING_IP=true` |
+| 3 | `X-Real-IP` | 仅当 `TRUST_X_REAL_IP=true` |
+| 4 | `X-Forwarded-For` 倒数第 N 个 | 仅当 `TRUST_X_FORWARDED_FOR=true`，N 由 `TRUSTED_PROXY_HOPS` 决定（默认 1） |
+| 5 | `X-Forwarded-For` 最右侧一项 | 兜底：没有任何 `TRUST_*` 命中时使用 |
+| 6 | `unknown_ip` | 以上都没有时 |
+
+开关只认字符串 `true`（不区分大小写）；写成 `1`、`yes` 无效。开发环境（非 production）不受此限制，没有来源信息时回落到 `127.0.0.1`。
+
+### 三个开关
+
+**`TRUST_CF_CONNECTING_IP=true`**
+
+站点在 Cloudflare 后面时使用。前提：源站防火墙只放行 Cloudflare 的 IP 段，否则别人绕过 Cloudflare 直连源站，就能自己写这个头。
+
+**`TRUST_X_REAL_IP=true`**
+
+前面有 Nginx 等代理，并且它会用真实连接地址覆盖 `X-Real-IP`（Nginx：`proxy_set_header X-Real-IP $remote_addr;`），不能透传客户端自带的值。
+
+**`TRUST_X_FORWARDED_FOR=true` + `TRUSTED_PROXY_HOPS=N`**
+
+代理会把真实来源追加到 `X-Forwarded-For` 末尾。程序取倒数第 N 个，因为最左边的值客户端可以随便写，右边才是你自己的代理加的。N 等于你控制的代理层数：
+
+- 只有 1 层 Nginx：`TRUSTED_PROXY_HOPS=1`。
+- Cloudflare → Nginx → 应用：Nginx 追加的是 Cloudflare 的 IP，真实用户在倒数第 2 个，填 `2`；这种情况更推荐直接用 `TRUST_CF_CONNECTING_IP`。
+
+### 配置示例
+
+**示例 1：Cloudflare 直连源站（含 Cloudflare Pages）**
+
+```
+TRUST_CF_CONNECTING_IP=true
+```
+
+自建源站时，再在防火墙里只放行 Cloudflare 的 IP 段访问 80/443。Cloudflare Pages 上必须设置，否则取不到真实客户端 IP。
+
+**示例 2：Docker + Nginx 反向代理（最常见）**
+
+Nginx：
+
+```nginx
+location / {
+    proxy_pass http://127.0.0.1:3000;
+    proxy_set_header Host $host;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $remote_addr;   # 覆盖，而不是 $proxy_add_x_forwarded_for
+}
+```
+
+应用：
+
+```
+TRUST_X_REAL_IP=true
+```
+
+Docker Compose：
+
+```yaml
+services:
+  purplemoon:
+    environment:
+      - TRUST_X_REAL_IP=true
+```
+
+`Host` 和 `X-Forwarded-Proto` 也必须传，否则写操作会因 CSRF 校验失败返回 403。
+
+**示例 3：Nginx 保留 `$proxy_add_x_forwarded_for`**
+
+```
+TRUST_X_FORWARDED_FOR=true
+TRUSTED_PROXY_HOPS=1
+```
+
+此时链为 `客户端伪造值, 真实IP`，取倒数第 1 个即真实 IP。
+
+**示例 4：Cloudflare → Nginx → 应用**
+
+```
+TRUST_CF_CONNECTING_IP=true
+```
+
+最简单，不用计算跳数；前提同样是源站只接受 Cloudflare 回源。
+
+**示例 5：Vercel**
+
+Vercel 会覆盖 `X-Forwarded-For`，默认的兜底规则（取最右侧一项）即可得到真实来源，不需要设置任何 `TRUST_*`。
+
+### 不配置或配错的后果
+
+| 情况 | 结果 |
+| ---- | ---- |
+| 一个都不配，站点在代理后面 | 走兜底：取 `X-Forwarded-For` 最右侧一项，通常就是代理看到的真实来源，一般可用 |
+| 一个都不配，直接暴露公网 | 最右侧一项由客户端自己写，攻击者可换桶；没有该头时所有请求落入 `unknown_ip`。两种情况下账号级上限都仍然生效，不会无限试密码 |
+| 开启了开关，但代理没有覆盖对应头 | 攻击者伪造该头即可每次换一个 IP，绕过“账号 + IP”限制，只剩账号级上限保护 |
+| `TRUSTED_PROXY_HOPS` 偏大 | 取到更靠左的、可被伪造的值 |
+| `TRUSTED_PROXY_HOPS` 偏小 | 取到代理自己的 IP，所有用户共用一个桶 |
+
+账号级上限（localstorage 60 次、数据库 200 次，每 15 分钟）被打满时，该账号在窗口内无法登录，包括站长账号。这是防止暴力破解的代价，请务必让服务只接受反向代理的流量，并配置好 `TRUST_*`，不要依赖兜底。
+
+### 如何验证配置正确
+
+程序没有提供显示“识别到的 IP”的接口，可以这样临时验证：
+
+1. 在 `src/app/api/login/route.ts` 的 `POST` 里临时加一行 `console.log('client ip:', getClientIp(req))`，部署到测试环境。
+2. 分别用手机流量和家里宽带各登录一次，日志里应当是各自的公网 IP，而不是 `127.0.0.1`、内网地址或 `unknown_ip`。
+3. 再用 `curl -H 'X-Forwarded-For: 1.2.3.4' ...` 自己伪造一次，日志里仍应是你的真实 IP；如果变成了 `1.2.3.4`，说明信任范围配得太宽。
+4. 验证完毕，删掉那行日志。
+
 ## 配置说明
 
 所有可自定义项集中在根目录的 `config.json` 中：
@@ -403,12 +559,38 @@ PurpleMoon 支持标准的苹果 CMS V10 API 格式。
 
 暂时收藏夹与播放记录和网页端隔离，后续会支持同步用户数据
 
+## 更新记录
+
+### 2.6.0
+
+相对 2.5.9：
+
+- **会话吊销**：用户配置新增 `sessionsValidAfter`。管理员修改某用户密码或封禁该用户后，签发时间早于该时间戳的旧 Cookie 立即失效（仅数据库存储模式；localstorage 模式只有站长一个账号，要撤销会话需轮换 `AUTH_SECRET`）。
+- **管理员修改自己的密码**：服务端为当前浏览器重签 Cookie，其它设备上的旧会话被踢下线，当前会话不会掉线。
+- **鉴权缓存刷新冷却**：`getVerifiedAuthUser` 查不到用户时才强制刷新配置，并按用户名限频（5 秒，最多记录 1000 个用户名）。已删用户的旧 Cookie 不能反复击穿缓存读库，也不会影响其他新用户的首次请求。
+- **重置配置**（`resetConfig`）保留每个用户的分组、封禁状态和 `sessionsValidAfter`，不会借重置把已封禁用户解封；同名账号被重新注册时按全新普通用户处理，清除旧的封禁与吊销状态。
+- **登录限流 / 客户端 IP**：未配置任何 `TRUST_*` 时，取 `X-Forwarded-For` 最右侧一项作为来源（最靠近本服务的一跳）；没有任何可用来源头才落入 `unknown_ip`，此时只使用账号级上限，不再使用「账号+IP」共享桶。注意：账号级上限（localstorage 60 次 / 数据库 200 次，15 分钟）被打满时，该账号在窗口内仍无法登录。生产环境请按部署方式配置 `TRUST_CF_CONNECTING_IP` / `TRUST_X_REAL_IP` / `TRUST_X_FORWARDED_FOR`（`TRUSTED_PROXY_HOPS`），不要依赖兜底。
+- **D1**：收藏写入遇到并发 `ALTER TABLE`（列已存在）时先用完整列重试再降级；`skip_configs` 表自动创建（需要账号有 CREATE/ALTER 权限，否则功能降级）。
+- **测试**：新增会话撤销、鉴权冷却、重置配置、管理员改密码、IP 解析等用例；修复测试文件的 tsc 类型错误。
+- **打包**：不再包含 `.swc`、`next-env.d.ts`、`tsconfig.tsbuildinfo`。
+
+### 2.5.8（测试报告修复）
+
+- 去广告：合并回时长指纹、帧率规则、整块规则与 `__adLearn` 自助学习（见环境变量 `NEXT_PUBLIC_AD_FINGERPRINTS`），补回测试样本目录 `src/lib/__tests__/fixtures/`（L-01 / L-02）。
+- Service Worker 不再缓存任何 `/api/*` 响应，退出登录与 401 时清空浏览器缓存存储（S-02）。
+- 登录防护：按“账号 + IP”限流（15 分钟 20 次）加“账号总量”兜底（数据库模式 15 分钟 200 次，本地存储模式 60 次），登录成功清零；本地存储模式同样生效，轮换 `X-Forwarded-For` 不再能绕过（S-01 / S-03）。账号总量被打满时该账号 15 分钟内无法登录，生产环境请置于反向代理之后并设置 `TRUST_*`。
+- 用户不存在时同样做一次 PBKDF2，消除用户名枚举的耗时差（S-04）；Cookie 载荷严格校验类型，用户名/角色不得含 `:`（S-05）。
+- 上游资源站响应限制 4 MB，且超时覆盖响应体读取（S-06）；每用户播放记录 500 / 收藏 1000 / 片头片尾配置 1000 条上限（S-07）；D1 限流表顺带清理过期行（S-08）。
+- 本地存储模式下便签 / 收藏 / 播放记录 / 搜索历史 / 跳过配置接口返回 400 而不是 500（L-03）；管理员新增用户遇配置版本冲突重试不再重复注册（L-04）；配置了 `VALID_INVITE_CODE` 即视为要求邀请码，要“开放注册但不要邀请码”请设 `REQUIRE_INVITE_CODE=false`（L-05）。
+- 其它：`/api/admin/reset` 统一用 `checkCsrf`；`/api/detail` 不再回传内部异常信息；`/api/search/one` 缺参返回 400；站点设置的缓存时间/页数改为整数并设上限；Redis 改用 SCAN 代替 KEYS。
+- 构建与部署：Node 20 → 22（Dockerfile、`.nvmrc`）；去掉 `next/font/google`（构建不再需要访问 Google Fonts，使用系统字体）；去掉重复的 `typecheck` 脚本；`package.json` 版本号 2.5.8；Dockerfile 增加 `HEALTHCHECK`；构建产物 `public/sw.js`、`workbox-*.js` 不再打进压缩包。
+
 ## Roadmap
 
 - [x] 深色模式
 - [x] 持久化存储
 - [x] 多账户
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         
+
 ## License
 
 [MIT](LICENSE) © 2025 MoonTV & Contributors
@@ -420,89 +602,3 @@ PurpleMoon 支持标准的苹果 CMS V10 API 格式。
 - [ArtPlayer](https://github.com/zhw2590582/ArtPlayer) — 提供强大的网页视频播放器。
 - [HLS.js](https://github.com/video-dev/hls.js) — 实现 HLS 流媒体在浏览器中的播放支持。
 - 感谢所有提供免费影视接口的站点。
-                                                                                                                                                                   
-> **注意**：本仓库不提供公开的预构建镜像（Docker 镜像名必须全小写，且 `ghcr.io` 上的包默认私有，直接 `docker pull` 会报 `denied`）。请在服务器上用源码自行构建，或推送到你自己的镜像仓库。
-
-```bash
-# 在项目根目录（含 Dockerfile 的目录）构建镜像，约需几分钟
-docker build -t purplemoon:latest .
-
-# 可选：推送到你自己的 GHCR / Docker Hub，供多台服务器拉取
-# echo $GHCR_TOKEN | docker login ghcr.io -u <你的用户名> --password-stdin
-# docker tag purplemoon:latest ghcr.io/<你的用户名>/purplemoon:latest
-# docker push ghcr.io/<你的用户名>/purplemoon:latest
-# （推送后到 GitHub → Packages → 该包 → Package settings 将可见性改为 Public，或在服务器上先 docker login）
-
-# 运行容器
-# -d: 后台运行  -p: 映射端口 3000 -> 3000
-# AUTH_SECRET 为必填项（至少 16 字符，建议 32 字符以上），缺失时服务将拒绝启动
-docker run -d --name PurpleMoon -p 3000:3000 \
-  -e PASSWORD=your_password \
-  -e AUTH_SECRET=$(openssl rand -hex 32) \
-  purplemoon:latest
-```
-
-访问 `http://服务器 IP:3000` 即可。（需自行到服务器控制台放通 `3000` 端口）
-
-## Docker Compose 最佳实践
-
-若你使用 docker compose 部署，以下是一些 compose 示例
-
-### local storage 版本
-
-```yaml
-services:
-  PurpleMoon:
-    image: purplemoon:latest
-    container_name: PurpleMoon
-    restart: unless-stopped
-    ports:
-      - '3000:3000'
-    environment:
-      - PASSWORD=your_password
-      - AUTH_SECRET=CHANGE_ME   # 必填：必须替换为至少 32 位随机字符串（openssl rand -hex 32），保持 CHANGE_ME 将无法启动
-    # 如需自定义配置，可挂载文件
-    # volumes:
-    #   - ./config.json:/app/config.json:ro
-```
-
-### Redis 版本（推荐，多账户数据隔离，跨设备同步）
-
-```yaml
-services:
-  PurpleMoon-core:
-    image: purplemoon:latest
-    container_name: PurpleMoon
-    restart: unless-stopped
-    ports:
-      - '3000:3000'
-    environment:
-      - USERNAME=admin
-      - PASSWORD=admin_password
-      - AUTH_SECRET=CHANGE_ME   # 必填：必须替换为至少 32 位随机字符串（openssl rand -hex 32），保持 CHANGE_ME 将无法启动
-      - NEXT_PUBLIC_STORAGE_TYPE=redis
-      - REDIS_URL=redis://PurpleMoon-redis:6379
-      - NEXT_PUBLIC_ENABLE_REGISTER=true
-    networks:
-      - PurpleMoon-network
-    depends_on:
-      - PurpleMoon-redis
-    # 如需自定义配置，可挂载文件
-    # volumes:
-    #   - ./config.json:/app/config.json:ro
-  PurpleMoon-redis:
-    image: redis
-    container_name: PurpleMoon-redis
-    restart: unless-stopped
-    networks:
-      - PurpleMoon-network
-    # 如需持久化
-    # volumes:
-    #   - ./data:/data
-networks:
-  PurpleMoon-network:
-    driver: bridge
-```
-                                                             
-                                                                                                                                                                  
-

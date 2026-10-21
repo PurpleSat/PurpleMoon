@@ -104,7 +104,14 @@ async function checkKeyLimit(key: string, limit: number, windowMs: number): Prom
 }
 
 async function checkLoginAttemptLimits(username: string, ip: string): Promise<boolean> {
-  if (!(await checkKeyLimit(pairKey(username, ip), PAIR_LIMIT, ACCOUNT_WINDOW_MS))) return false;
+  // 无法识别来源 IP（unknown_ip）时不使用“账号+IP”桶：它会变成全体匿名用户共享的桶，
+  // 一个人就能把该账号锁死；此时只用账号级上限兜底
+  if (
+    ip !== UNKNOWN_IP &&
+    !(await checkKeyLimit(pairKey(username, ip), PAIR_LIMIT, ACCOUNT_WINDOW_MS))
+  ) {
+    return false;
+  }
   return checkKeyLimit(accountKey(username), ACCOUNT_CEILING, ACCOUNT_WINDOW_MS);
 }
 

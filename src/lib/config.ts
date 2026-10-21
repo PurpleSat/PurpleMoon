@@ -497,13 +497,9 @@ export async function getAvailableApiSites(): Promise<ApiSite[]> {
   return config.SourceConfig.filter((s) => !s.disabled).map((s) => ({
     key: s.key,
     name: s.name,
-    api: siteApi(s.api),
+    api: s.api,
     detail: s.detail,
   }));
-}
-
-function siteApi(api: string): string {
-  return api;
 }
 
 /**
