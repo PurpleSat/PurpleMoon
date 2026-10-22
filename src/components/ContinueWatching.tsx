@@ -77,8 +77,8 @@ export default function ContinueWatching({ className }: ContinueWatchingProps) {
         <button
           type='button'
           onClick={() => router.push('/search')}
-          title='点击进入搜索'
-          aria-label='点击进入搜索'
+          title='探索紫月'
+          aria-label='探索紫月'
           className='group rounded-full p-2 transition-all duration-300 hover:scale-110 active:scale-95 focus:outline-none focus-visible:ring-2 focus-visible:ring-purple-500/50 cursor-pointer'
         >
           {/* eslint-disable-next-line @next/next/no-img-element */}
