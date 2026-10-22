@@ -64,6 +64,10 @@
       "api": "https://cj.lziapi.com/api.php/provide/vod",
       "name": "量子资源站"
     },
+    "lzi": {
+      "api": "https://cj.lzcaiji.com/api.php/provide/vod",
+      "name": "量子影视"
+    },
     "aiqiyi": {
       "api": "https://iqiyizyapi.com/api.php/provide/vod",
       "name": "爱奇艺"
