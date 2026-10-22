@@ -1,6 +1,7 @@
 /* eslint-disable no-console */
 'use client';
 
+import { useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
 
 import type { PlayRecord } from '@/lib/db.client';
@@ -18,6 +19,7 @@ interface ContinueWatchingProps {
 }
 
 export default function ContinueWatching({ className }: ContinueWatchingProps) {
+  const router = useRouter();
   const [playRecords, setPlayRecords] = useState<
     (PlayRecord & { key: string })[]
   >([]);
@@ -68,19 +70,27 @@ export default function ContinueWatching({ className }: ContinueWatchingProps) {
     return unsubscribe;
   }, []);
 
-  // 如果没有播放记录，则在页面中央显示图片 logo
+  // 如果没有播放记录，则在页面中央显示可点击跳转至搜索页的图片 Logo 按钮
   if (!loading && playRecords.length === 0) {
     return (
       <div className='flex min-h-[55vh] items-center justify-center px-4'>
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img
-          src='/logo.png'
-          alt='Logo'
-          className='w-32 h-32 sm:w-40 sm:h-40 object-contain drop-shadow-md select-none pointer-events-none opacity-90'
-          onError={(e) => {
-            e.currentTarget.style.display = 'none';
-          }}
-        />
+        <button
+          type='button'
+          onClick={() => router.push('/search')}
+          title='点击进入搜索'
+          aria-label='点击进入搜索'
+          className='group rounded-full p-2 transition-all duration-300 hover:scale-110 active:scale-95 focus:outline-none focus-visible:ring-2 focus-visible:ring-purple-500/50 cursor-pointer'
+        >
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src='/logo.png'
+            alt='Logo'
+            className='w-32 h-32 sm:w-40 sm:h-40 object-contain drop-shadow-md group-hover:drop-shadow-xl select-none opacity-90 group-hover:opacity-100 transition-all duration-300'
+            onError={(e) => {
+              e.currentTarget.style.display = 'none';
+            }}
+          />
+        </button>
       </div>
     );
   }
