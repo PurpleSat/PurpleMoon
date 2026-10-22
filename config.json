@@ -60,11 +60,11 @@
       "api": "https://ikunzyapi.com/api.php/provide/vod",
       "name": "iKun资源"
     },
-    "lziys": {
+    "lzizy": {
       "api": "https://cj.lziapi.com/api.php/provide/vod",
       "name": "量子资源站"
     },
-    "lzizy": {
+    "lziys": {
       "api": "https://cj.lzcaiji.com/api.php/provide/vod",
       "name": "量子影视"
     },
