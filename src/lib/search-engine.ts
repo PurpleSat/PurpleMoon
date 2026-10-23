@@ -17,6 +17,11 @@ const cache = new Map<string, { at: number; data: SearchResult[] }>();
 const FAILURE_COOLDOWN_MS = 45 * 1000;
 const failedUntil = new Map<string, number>();
 
+export function clearSearchCache() {
+  cache.clear();
+  failedUntil.clear();
+}
+
 function isCoolingDown(siteKey: string): boolean {
   const until = failedUntil.get(siteKey);
   if (until === undefined) return false;
@@ -27,14 +32,19 @@ function isCoolingDown(siteKey: string): boolean {
   return true;
 }
 
-function cacheGet(key: string): SearchResult[] | null {
+/**
+ * 读取进程内 5 分钟搜索缓存，并强制使用当前请求上下文的 `siteName` 重写 `source_name`：
+ * - 防止管理员先搜索后，5 分钟内普通用户命中缓存拿到真实资源站名（脱敏绕过）
+ * - 防止普通用户先搜索后，管理员命中缓存拿到「线路 N」或不同分组间「线路 N」序号互串
+ */
+function cacheGet(key: string, siteName: string): SearchResult[] | null {
   const hit = cache.get(key);
   if (!hit) return null;
   if (Date.now() - hit.at > CACHE_TTL_MS) {
     cache.delete(key);
     return null;
   }
-  return hit.data;
+  return hit.data.map((item) => ({ ...item, source_name: siteName }));
 }
 
 function cacheSet(key: string, data: SearchResult[]) {
@@ -43,7 +53,13 @@ function cacheSet(key: string, data: SearchResult[]) {
     const oldest = cache.keys().next().value;
     if (oldest !== undefined) cache.delete(oldest);
   }
-  cache.set(key, { at: Date.now(), data });
+  cache.set(
+    key,
+    {
+      at: Date.now(),
+      data: data.map((item) => ({ ...item })),
+    }
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -113,7 +129,7 @@ export async function runSearch(
       const site = sites[index];
       const key = `${site.key}|${site.api}|${normalizedQuery}`;
 
-      const cached = cacheGet(key);
+      const cached = cacheGet(key, site.name);
       if (cached) {
         perSite[index] = cached;
         if (cached.length) opts.onChunk?.({ source: site.key, results: cached });
