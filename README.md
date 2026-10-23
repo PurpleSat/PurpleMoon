@@ -560,7 +560,7 @@ PurpleMoon 支持标准的苹果 CMS V10 API 格式。
 
 [MIT](LICENSE) © 2026 PurpleMoon & Contributors
 
-本项目基于 [MoonTV]([https://github.com/samqin123/MoonTV]) 二次开发
+本项目基于 [MoonTV](https://github.com/samqin123/MoonTV) 二次开发
 
 ## 致谢
 
