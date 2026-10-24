@@ -120,6 +120,10 @@
 
 #### 1. 构建并运行（最简单）
 
+# 克隆项目
+git clone https://github.com/purplesat/purplemoon.git
+cd purpleoon
+
 ```bash
 # 在项目根目录（含 Dockerfile 的目录）构建镜像，约需几分钟
 docker build -t purplemoon:latest .
