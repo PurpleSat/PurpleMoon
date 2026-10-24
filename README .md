@@ -8,14 +8,14 @@
 
 <div align="center">
 
-![Next.js](https://img.shields.io/badge/Next.js-15-000?logo=nextdotjs)
-![TailwindCSS](https://img.shields.io/badge/TailwindCSS-3-38bdf8?logo=tailwindcss)
-![TypeScript](https://img.shields.io/badge/TypeScript-4.x-3178c6?logo=typescript)
+![Next.js](https://img.shields.io/badge/Next.js-15.5.28-000?logo=nextdotjs)
+![TailwindCSS](https://img.shields.io/badge/TailwindCSS-3.4.19-38bdf8?logo=tailwindcss)
+![TypeScript](https://img.shields.io/badge/TypeScript-4.9.5-3178c6?logo=typescript)
 ![License](https://img.shields.io/badge/License-MIT-green)
 ![Docker Ready](https://img.shields.io/badge/Docker-ready-blue?logo=docker)
 ![HLS](https://img.shields.io/badge/HLS-1.7.3-8A2BE2)
 ![Artplayer](https://img.shields.io/badge/Artplayer-5.4.0-RED)
-![Version](https://img.shields.io/badge/Version-2.6.2-red)
+![Version](https://img.shields.io/badge/Version-2.6.3-red)
 ![Github](https://img.shields.io/badge/github-PurpleSat-8A2BE2?logo=github)
 
 </div>
@@ -161,7 +161,7 @@
 | 你的电脑能 SSH 登录服务器 | Windows 10/11 自带的 PowerShell、macOS/Linux 的终端都可以 |
 | 本项目的压缩包 | 例如 `PurpleMoon-2.6.3.zip` |
 
-> 💡 **在中国大陆的服务器上用域名对外提供网站，域名通常需要先完成 ICP 备案**，否则 80/443 端口可能被服务商拦截。这是服务商和法规要求，与本项目无关；没有备案时可使用境外服务器。
+> 💡 **在国内服务器上用域名对外提供网站，域名通常需要先完成 ICP 备案**，否则 80/443 端口可能被服务商拦截。这是服务商和法规要求，与本项目无关；没有备案时可使用境外服务器。
 
 ---
 
@@ -232,11 +232,11 @@ ls
 
 **应该看到**列表里有 `Dockerfile`、`package.json`、`src`、`config.json` 等。
 
-**方法 B：从你自己的 Git 仓库克隆**
+**方法 B：直接从 Github 仓库克隆**
 
 ```bash
 cd ~
-git clone https://github.com/你的用户名/你的仓库.git PurpleMoon-main
+git clone https://github.com/purplesat/purplemoon.git PurpleMoon-main
 cd PurpleMoon-main
 ls
 ```
@@ -274,7 +274,7 @@ free -h
 
 **4.1 添加解析记录**
 
-登录你的域名服务商（阿里云、腾讯云、Cloudflare、Namecheap 等）的 DNS 管理页面，添加一条记录：
+登录你的域名服务商的 DNS 管理页面，添加一条记录：
 
 | 类型 | 主机记录 / 名称 | 记录值 / 指向 |
 | ---- | --------------- | ------------- |
