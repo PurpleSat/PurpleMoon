@@ -8,6 +8,7 @@ import { getConfig, withConfigConflictRetry } from '@/lib/config';
 import { readLimitedJson } from '@/lib/cookies';
 import { checkCsrf } from '@/lib/csrf-guard';
 import { getStorage } from '@/lib/db';
+import { migrateInviteCodesOnGroupDelete } from '@/lib/invite';
 import { IStorage } from '@/lib/types';
 import {
   LEGACY_GROUP_A,
@@ -138,6 +139,13 @@ export async function POST(request: NextRequest) {
             if (isDefault) gc.DefaultRegisterGroupId = moveTo.id;
           }
           gc.Groups = groups.filter((x) => x.id !== g.id);
+          // 同步迁移绑定到该已删除分组的邀请码，避免产生悬空分组 id
+          const fallbackGroupId =
+            moveTo?.id ??
+            (gc.DefaultRegisterGroupId && gc.DefaultRegisterGroupId !== g.id
+              ? gc.DefaultRegisterGroupId
+              : gc.Groups[0].id);
+          migrateInviteCodesOnGroupDelete(adminConfig, g.id, fallbackGroupId);
         } else if (action === 'setDefaultGroup') {
           if (!groups.some((x) => x.id === body.id)) return bad('分组不存在', 404);
           gc.DefaultRegisterGroupId = body.id;

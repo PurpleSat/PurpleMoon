@@ -3,12 +3,23 @@ import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 
 import { getClientIp, UNKNOWN_IP } from '@/lib/client-ip';
-import { getConfig, persistNewUserGroup } from '@/lib/config';
-import { buildAuthCookieValue, readLimitedJson, setAuthCookies } from '@/lib/cookies';
+import {
+  getConfig,
+  invalidateConfigCache,
+  persistNewUserGroup,
+  withConfigConflictRetry,
+} from '@/lib/config';
+import {
+  buildAuthCookieValue,
+  readLimitedJson,
+  setAuthCookies,
+} from '@/lib/cookies';
 import { checkCsrf } from '@/lib/csrf-guard';
-import { db } from '@/lib/db';
-import { isInviteCodeRequired } from '@/lib/invite';
-import { timingSafeEqual } from '@/lib/password';
+import { db, getStorage } from '@/lib/db';
+import {
+  verifyAndConsumeInviteCode,
+  verifyInviteCodeReadOnly,
+} from '@/lib/invite';
 import { isUsernameTaken } from '@/lib/username';
 
 export const runtime = 'edge';
@@ -79,7 +90,10 @@ export async function POST(req: NextRequest) {
   try {
     const ip = getClientIp(req);
     if (!(await checkRateLimit(ip))) {
-      return NextResponse.json({ error: '请求过于频繁，请 1 分钟后再试' }, { status: 429 });
+      return NextResponse.json(
+        { error: '请求过于频繁，请 1 分钟后再试' },
+        { status: 429 }
+      );
     }
 
     if (STORAGE_TYPE === 'localstorage') {
@@ -89,14 +103,12 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const config = await getConfig();
-    if (!config.UserConfig.AllowRegister) {
-      return NextResponse.json({ error: '当前未开放注册' }, { status: 400 });
-    }
-
     const parsedBody = await readLimitedJson(req, 16 * 1024);
     if (!parsedBody.ok) {
-      return NextResponse.json({ error: parsedBody.error }, { status: parsedBody.status });
+      return NextResponse.json(
+        { error: parsedBody.error },
+        { status: parsedBody.status }
+      );
     }
     const parseResult = registerSchema.safeParse(parsedBody.data);
     if (!parseResult.success) {
@@ -108,25 +120,19 @@ export async function POST(req: NextRequest) {
 
     const { username, password, inviteCode } = parseResult.data;
 
-    // ================= 强制邀请码校验 (Fail Closed) =================
-    const requireInviteCode = isInviteCodeRequired();
-    const validInviteCode = process.env.VALID_INVITE_CODE;
-
-    if (requireInviteCode) {
-      if (!validInviteCode) {
-        console.error('严重的配置错误: 系统开启了邀请注册机制，但未在环境变量中配置 VALID_INVITE_CODE');
-        return NextResponse.json({ error: '系统配置异常：注册通道暂时关闭，请联系管理员' }, { status: 500 });
-      }
-
-      if (!inviteCode || typeof inviteCode !== 'string') {
-        return NextResponse.json({ error: '系统已开启邀请制，必须填写邀请码才可注册' }, { status: 400 });
-      }
-
-      if (!timingSafeEqual(inviteCode, validInviteCode)) {
-        return NextResponse.json({ error: '邀请码错误或已失效' }, { status: 403 });
-      }
+    const config = await getConfig();
+    if (!config.UserConfig.AllowRegister) {
+      return NextResponse.json({ error: '当前未开放注册' }, { status: 400 });
     }
-    // ================================================================
+
+    // 1. 快速只读预检邀请码（拦截空码、错误码、已耗尽码，不触发写锁）
+    const preCheck = verifyInviteCodeReadOnly(config, inviteCode);
+    if (!preCheck.ok) {
+      return NextResponse.json(
+        { error: preCheck.error },
+        { status: preCheck.status }
+      );
+    }
 
     if (
       isUsernameTaken(
@@ -144,10 +150,111 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ error: '用户已存在' }, { status: 400 });
       }
 
-      await db.registerUser(username, password);
-      await persistNewUserGroup(username);
+      let assignedGroup = preCheck.groupId;
+      let consumedCode: string | undefined;
+      const storage = getStorage() as any;
 
-      const response = NextResponse.json({ ok: true });
+      // 2. 若启用了后台邀请码，在乐观并发锁（withConfigConflictRetry）中原子扣减次数并预写入用户分组，
+      // 严防并发抢注突破 maxUses（如默认 10 次）限制，同时消除注册落库与写入分组之间的竞态窗口。
+      if (
+        preCheck.mode === 'config_code' &&
+        storage &&
+        typeof storage.setAdminConfig === 'function'
+      ) {
+        const atomicRes = await withConfigConflictRetry(async () => {
+          invalidateConfigCache();
+          const freshConfig = await getConfig();
+          if (!freshConfig.UserConfig.AllowRegister) {
+            return { ok: false as const, status: 400, error: '当前未开放注册' };
+          }
+          if (
+            isUsernameTaken(
+              username,
+              freshConfig.UserConfig.Users.map((u) => u.username),
+              process.env.USERNAME
+            )
+          ) {
+            return { ok: false as const, status: 400, error: '用户已存在' };
+          }
+
+          const consumeRes = verifyAndConsumeInviteCode(
+            freshConfig,
+            inviteCode
+          );
+          if (!consumeRes.ok) return consumeRes;
+
+          const existingEntry = freshConfig.UserConfig.Users.find(
+            (u) => u.username === username
+          );
+          if (existingEntry) {
+            if (existingEntry.role !== 'owner') {
+              existingEntry.role = 'user';
+              existingEntry.group = consumeRes.groupId;
+              existingEntry.banned = false;
+              delete existingEntry.sessionsValidAfter;
+            }
+          } else {
+            freshConfig.UserConfig.Users.push({
+              username,
+              role: 'user',
+              group: consumeRes.groupId,
+            });
+          }
+
+          await storage.setAdminConfig(freshConfig);
+          invalidateConfigCache();
+          return consumeRes;
+        });
+
+        if (!atomicRes.ok) {
+          return NextResponse.json(
+            { error: atomicRes.error },
+            { status: atomicRes.status }
+          );
+        }
+        assignedGroup = atomicRes.groupId;
+        consumedCode = atomicRes.consumedCode;
+      }
+
+      // 3. 写入底层用户表；若底层写入异常且已扣减邀请码次数，执行补偿回滚
+      try {
+        await db.registerUser(username, password);
+      } catch (regErr) {
+        if (
+          consumedCode &&
+          storage &&
+          typeof storage.setAdminConfig === 'function'
+        ) {
+          try {
+            await withConfigConflictRetry(async () => {
+              invalidateConfigCache();
+              const rollbackConfig = await getConfig();
+              const item = rollbackConfig.InviteConfig?.Codes?.find(
+                (c) => c.code === consumedCode
+              );
+              if (item && item.usedCount > 0) {
+                item.usedCount -= 1;
+              }
+              rollbackConfig.UserConfig.Users =
+                rollbackConfig.UserConfig.Users.filter(
+                  (u) => u.username !== username
+                );
+              await storage.setAdminConfig(rollbackConfig);
+              invalidateConfigCache();
+            });
+          } catch (rollbackErr) {
+            console.error('注册失败后回滚邀请码次数异常:', rollbackErr);
+          }
+        }
+        throw regErr;
+      }
+
+      // 若未走后台邀请码原子预写入分支（例如关闭了邀请码或使用环境变量邀请码），固化分配分组
+      if (!consumedCode) {
+        await persistNewUserGroup(username, assignedGroup);
+      }
+
+      const response = NextResponse.json({ ok: true, group: assignedGroup });
       const cookieValue = await buildAuthCookieValue(username, 'user');
       setAuthCookies(response, req, cookieValue, username, 'user');
 

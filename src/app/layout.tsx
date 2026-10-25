@@ -50,10 +50,11 @@ export default async function RootLayout({
     process.env.ANNOUNCEMENT ||
     'Welcome to PurpleMoon. Please note that all content available on this site is sourced from the Internet.';
   let enableRegister = process.env.NEXT_PUBLIC_ENABLE_REGISTER === 'true';
+  let requireInviteCode = isInviteCodeRequired();
   let imageProxy = process.env.NEXT_PUBLIC_IMAGE_PROXY || '';
 
   // 🛡️ 逻辑修复 (LOG-02)：运行时在所有存储模式（含 d1 / upstash）下均读取最新配置，
-  // 用 try/catch 保护静态构建阶段，确保后台修改开放注册、站点名、公告或图片代理后全局生效。
+  // 用 try/catch 保护静态构建阶段，确保后台修改开放注册、邀请码开关、站点名、公告或图片代理后全局生效。
   if (process.env.NEXT_PHASE !== 'phase-production-build') {
     try {
       const config = await getConfig();
@@ -61,6 +62,7 @@ export default async function RootLayout({
         siteName = config.SiteConfig.SiteName || siteName;
         announcement = config.SiteConfig.Announcement ?? announcement;
         enableRegister = Boolean(config.UserConfig.AllowRegister);
+        requireInviteCode = isInviteCodeRequired(config);
         imageProxy = config.SiteConfig.ImageProxy ?? imageProxy;
       }
     } catch {
@@ -71,7 +73,7 @@ export default async function RootLayout({
   const runtimeConfig = {
     STORAGE_TYPE: process.env.NEXT_PUBLIC_STORAGE_TYPE || 'localstorage',
     ENABLE_REGISTER: enableRegister,
-    REQUIRE_INVITE_CODE: isInviteCodeRequired(),
+    REQUIRE_INVITE_CODE: requireInviteCode,
     IMAGE_PROXY: imageProxy,
   };
 

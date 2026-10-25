@@ -406,8 +406,8 @@ export async function resetConfig() {
 
   const apiSiteEntries = Object.entries(fileConfig.api_site);
 
-  // 重置不应让受限用户悄悄“升级”或使已封禁/已吊销会话复活：
-  // 保留原有的分组配置、每个用户的分组、封禁状态以及 sessionsValidAfter 会话吊销水位线
+  // 重置不应让受限用户悄悄“升级”或使已封禁/已吊销会话复活，也不应丢失邀请码配置：
+  // 保留原有的分组配置、邀请码配置、每个用户的分组、封禁状态以及 sessionsValidAfter 会话吊销水位线
   let prevConfig: AdminConfig | null = null;
   if (storage && typeof (storage as any).getAdminConfig === 'function') {
     try {
@@ -461,6 +461,7 @@ export async function resetConfig() {
       Users: resetUsers as any, // 确保重置时也提取底层数据
     },
     ...(prevConfig?.GroupConfig ? { GroupConfig: prevConfig.GroupConfig } : {}),
+    ...(prevConfig?.InviteConfig ? { InviteConfig: prevConfig.InviteConfig } : {}),
     SourceConfig: apiSiteEntries.map(([key, site]) => ({
       key,
       name: site.name,
@@ -484,6 +485,7 @@ export async function resetConfig() {
   cachedConfig.UserConfig = adminConfig.UserConfig;
   cachedConfig.SourceConfig = adminConfig.SourceConfig;
   cachedConfig.GroupConfig = adminConfig.GroupConfig;
+  cachedConfig.InviteConfig = adminConfig.InviteConfig;
   cachedConfig.configVersion = adminConfig.configVersion;
 }
 

@@ -26,9 +26,19 @@ import { GripVertical } from 'lucide-react';
 import { Suspense, useCallback, useEffect, useState } from 'react';
 import Swal from 'sweetalert2';
 
-import { AdminConfig, AdminConfigResult } from '@/lib/admin.types';
+import {
+  AdminConfig,
+  AdminConfigResult,
+  InviteCodeItem,
+} from '@/lib/admin.types';
 import { getAuthInfoFromBrowserCookie } from '@/lib/auth';
-import { adminMayTakeOverAccount, resolveGroups } from '@/lib/user-groups';
+import { DEFAULT_INVITE_MAX_USES, isInviteCodeExpired } from '@/lib/invite';
+import {
+  adminMayTakeOverAccount,
+  LEGACY_GROUP_A,
+  LEGACY_GROUP_B,
+  resolveGroups,
+} from '@/lib/user-groups';
 
 import PageLayout from '@/components/PageLayout';
 
@@ -102,6 +112,92 @@ const CollapsibleTab = ({
   );
 };
 
+// 邀请码接口请求辅助函数
+const callInviteApi = async (payload: Record<string, unknown>) => {
+  const res = await fetch('/api/admin/invite', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    throw new Error(data.error || `操作失败: ${res.status}`);
+  }
+};
+
+// 生成 8 位随机邀请码（不含易混淆字符）
+function generateRandomInviteCode(length = 8): string {
+  const chars = '23456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz';
+  const bytes = new Uint8Array(length);
+  crypto.getRandomValues(bytes);
+  return Array.from(bytes, (b) => chars[b % chars.length]).join('');
+}
+
+const EXPIRY_PRESET_MS: Record<string, number> = {
+  '1h': 60 * 60 * 1000,
+  '24h': 24 * 60 * 60 * 1000,
+  '7d': 7 * 24 * 60 * 60 * 1000,
+  '30d': 30 * 24 * 60 * 60 * 1000,
+  '90d': 90 * 24 * 60 * 60 * 1000,
+};
+
+function resolveInviteExpiryInput(
+  preset: string,
+  customDateTime: string
+): { ok: true; expiresAt: number | null } | { ok: false; error: string } {
+  if (!preset || preset === 'never') {
+    return { ok: true, expiresAt: null };
+  }
+  if (EXPIRY_PRESET_MS[preset]) {
+    return { ok: true, expiresAt: Date.now() + EXPIRY_PRESET_MS[preset] };
+  }
+  if (preset === 'custom') {
+    if (!customDateTime.trim()) {
+      return { ok: false, error: '请选择具体的自定义过期时间' };
+    }
+    const ts = new Date(customDateTime).getTime();
+    if (!Number.isFinite(ts) || ts <= Date.now()) {
+      return { ok: false, error: '自定义过期时间必须晚于当前时间' };
+    }
+    return { ok: true, expiresAt: Math.floor(ts) };
+  }
+  return { ok: false, error: '无效的有效期选项' };
+}
+
+function formatDateTimeLocal(ts: number): string {
+  const d = new Date(ts);
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(
+    d.getHours()
+  )}:${pad(d.getMinutes())}`;
+}
+
+function formatInviteExpiryDisplay(expiresAt?: number | null): {
+  label: string;
+  hint?: string;
+  expired: boolean;
+} {
+  if (!expiresAt || !Number.isFinite(expiresAt) || expiresAt <= 0) {
+    return { label: '永不过期', expired: false };
+  }
+  const now = Date.now();
+  const label = formatDateTimeLocal(expiresAt);
+  if (now >= expiresAt) {
+    return { label, hint: '已过期', expired: true };
+  }
+  const diffMs = expiresAt - now;
+  const mins = Math.ceil(diffMs / 60000);
+  if (mins < 60) {
+    return { label, hint: `剩 ${mins} 分钟`, expired: false };
+  }
+  const hours = Math.floor(diffMs / 3600000);
+  if (hours < 24) {
+    return { label, hint: `剩 ${hours} 小时`, expired: false };
+  }
+  const days = Math.ceil(diffMs / (24 * 3600000));
+  return { label, hint: `剩 ${days} 天`, expired: false };
+}
+
 // 用户配置组件
 interface UserConfigProps {
   config: AdminConfig | null;
@@ -112,9 +208,12 @@ interface UserConfigProps {
 const UserConfig = ({ config, role, refreshConfig }: UserConfigProps) => {
   const [userSettings, setUserSettings] = useState({
     enableRegistration: false,
+    requireInviteCode: false,
   });
   const [showAddUserForm, setShowAddUserForm] = useState(false);
   const [showChangePasswordForm, setShowChangePasswordForm] = useState(false);
+  const [showAddInviteForm, setShowAddInviteForm] = useState(false);
+  const [inviteBusy, setInviteBusy] = useState(false);
   const [newUser, setNewUser] = useState({
     username: '',
     password: '',
@@ -123,23 +222,42 @@ const UserConfig = ({ config, role, refreshConfig }: UserConfigProps) => {
     username: '',
     password: '',
   });
+  const [newInvite, setNewInvite] = useState({
+    code: '',
+    groupId: LEGACY_GROUP_B,
+    maxUses: DEFAULT_INVITE_MAX_USES,
+    expiryPreset: 'never',
+    customExpiry: '',
+    note: '',
+  });
 
   // 当前登录用户名
   const currentUsername = getAuthInfoFromBrowserCookie()?.username || null;
 
-  // 检测存储类型是否为 d1
-  const isD1Storage =
-    typeof window !== 'undefined' &&
-    (window as any).RUNTIME_CONFIG?.STORAGE_TYPE === 'd1';
-  const isUpstashStorage =
-    typeof window !== 'undefined' &&
-    (window as any).RUNTIME_CONFIG?.STORAGE_TYPE === 'upstash';
-
   useEffect(() => {
     if (config?.UserConfig) {
+      const runtimeRequireInvite =
+        typeof window !== 'undefined'
+          ? Boolean((window as any).RUNTIME_CONFIG?.REQUIRE_INVITE_CODE)
+          : false;
+      const effectiveRequireInvite =
+        typeof config.InviteConfig?.RequireInviteCode === 'boolean'
+          ? config.InviteConfig.RequireInviteCode
+          : runtimeRequireInvite;
+
       setUserSettings({
         enableRegistration: config.UserConfig.AllowRegister,
+        requireInviteCode: effectiveRequireInvite,
       });
+
+      const rg = resolveGroups(config);
+      if (rg.configured && rg.groups.length > 0) {
+        setNewInvite((prev) =>
+          rg.groups.some((g) => g.id === prev.groupId)
+            ? prev
+            : { ...prev, groupId: rg.defaultId }
+        );
+      }
     }
   }, [config]);
 
@@ -163,11 +281,254 @@ const UserConfig = ({ config, role, refreshConfig }: UserConfigProps) => {
         throw new Error(data.error || `操作失败: ${res.status}`);
       }
 
+      if (typeof window !== 'undefined' && (window as any).RUNTIME_CONFIG) {
+        (window as any).RUNTIME_CONFIG.ENABLE_REGISTER = value;
+      }
       await refreshConfig();
     } catch (err) {
       showError(err instanceof Error ? err.message : '操作失败');
       // revert toggle UI
       setUserSettings((prev) => ({ ...prev, enableRegistration: !value }));
+    }
+  };
+
+  // 切换是否强制要求邀请码注册（仅站长）
+  const toggleRequireInviteCode = async (value: boolean) => {
+    if (role !== 'owner') return;
+    try {
+      setUserSettings((prev) => ({ ...prev, requireInviteCode: value }));
+      await callInviteApi({
+        action: 'setRequireInviteCode',
+        requireInviteCode: value,
+      });
+      if (typeof window !== 'undefined' && (window as any).RUNTIME_CONFIG) {
+        (window as any).RUNTIME_CONFIG.REQUIRE_INVITE_CODE = value;
+      }
+      await refreshConfig();
+    } catch (err) {
+      showError(err instanceof Error ? err.message : '操作失败');
+      setUserSettings((prev) => ({ ...prev, requireInviteCode: !value }));
+    }
+  };
+
+  // 新增邀请码（仅站长）
+  const handleCreateInviteCode = async () => {
+    const code = newInvite.code.trim();
+    if (!code) return;
+    const expiryRes = resolveInviteExpiryInput(
+      newInvite.expiryPreset,
+      newInvite.customExpiry
+    );
+    if (!expiryRes.ok) {
+      showError(expiryRes.error);
+      return;
+    }
+
+    setInviteBusy(true);
+    try {
+      await callInviteApi({
+        action: 'createCode',
+        code,
+        groupId: newInvite.groupId,
+        maxUses: Number(newInvite.maxUses) || DEFAULT_INVITE_MAX_USES,
+        expiresAt: expiryRes.expiresAt,
+        note: newInvite.note.trim(),
+      });
+      showSuccess(`邀请码 ${code} 已创建`);
+      setNewInvite((prev) => ({
+        ...prev,
+        code: '',
+        maxUses: DEFAULT_INVITE_MAX_USES,
+        expiryPreset: 'never',
+        customExpiry: '',
+        note: '',
+      }));
+      setShowAddInviteForm(false);
+      await refreshConfig();
+    } catch (err) {
+      showError(err instanceof Error ? err.message : '创建邀请码失败');
+    } finally {
+      setInviteBusy(false);
+    }
+  };
+
+  // 修改邀请码绑定分组
+  const handleUpdateInviteGroup = async (code: string, groupId: string) => {
+    setInviteBusy(true);
+    try {
+      await callInviteApi({
+        action: 'updateCode',
+        code,
+        groupId,
+      });
+      showSuccess('已更新邀请码分组');
+      await refreshConfig();
+    } catch (err) {
+      showError(err instanceof Error ? err.message : '更新失败');
+      await refreshConfig();
+    } finally {
+      setInviteBusy(false);
+    }
+  };
+
+  // 修改邀请码最大可用次数
+  const handleEditInviteMaxUses = async (item: InviteCodeItem) => {
+    const { isConfirmed, value } = await Swal.fire({
+      title: `设置邀请码「${item.code}」最大可用次数`,
+      input: 'number',
+      inputValue: String(item.maxUses ?? DEFAULT_INVITE_MAX_USES),
+      inputAttributes: {
+        min: '1',
+        max: '100000',
+        step: '1',
+      },
+      showCancelButton: true,
+      confirmButtonText: '保存',
+      cancelButtonText: '取消',
+      inputValidator: (v) => {
+        const n = Number(v);
+        if (!Number.isInteger(n) || n < 1 || n > 100000) {
+          return '请输入 1 ~ 100000 之间的整数';
+        }
+        return undefined;
+      },
+    });
+    if (!isConfirmed) return;
+    setInviteBusy(true);
+    try {
+      await callInviteApi({
+        action: 'updateCode',
+        code: item.code,
+        maxUses: Number(value),
+      });
+      showSuccess('可用次数已更新');
+      await refreshConfig();
+    } catch (err) {
+      showError(err instanceof Error ? err.message : '更新失败');
+    } finally {
+      setInviteBusy(false);
+    }
+  };
+
+  // 修改邀请码过期时间
+  const handleEditInviteExpiry = async (item: InviteCodeItem) => {
+    const { isConfirmed, value } = await Swal.fire({
+      title: `设置邀请码「${item.code}」有效期`,
+      input: 'select',
+      inputOptions: {
+        never: '永不过期',
+        '1h': '从现在起 1 小时后过期',
+        '24h': '从现在起 24 小时（1 天）后过期',
+        '7d': '从现在起 7 天后过期',
+        '30d': '从现在起 30 天后过期',
+        '90d': '从现在起 90 天后过期',
+        custom: '自定义日期时间…',
+      },
+      inputValue: item.expiresAt ? '7d' : 'never',
+      showCancelButton: true,
+      confirmButtonText: '下一步 / 保存',
+      cancelButtonText: '取消',
+    });
+    if (!isConfirmed) return;
+
+    let targetExpiresAt: number | null = null;
+    if (value === 'custom') {
+      const defaultStr = formatDateTimeLocal(
+        item.expiresAt && item.expiresAt > Date.now()
+          ? item.expiresAt
+          : Date.now() + 7 * 24 * 3600 * 1000
+      ).replace(' ', 'T');
+      const customModal = await Swal.fire({
+        title: `输入「${item.code}」到期时间`,
+        html: `<input id="swal-invite-expiry" type="datetime-local" class="swal2-input" value="${defaultStr}">`,
+        focusConfirm: false,
+        showCancelButton: true,
+        confirmButtonText: '保存',
+        cancelButtonText: '取消',
+        preConfirm: () => {
+          const el = document.getElementById(
+            'swal-invite-expiry'
+          ) as HTMLInputElement | null;
+          const raw = el?.value || '';
+          const r = resolveInviteExpiryInput('custom', raw);
+          if (!r.ok) {
+            Swal.showValidationMessage(r.error);
+            return null;
+          }
+          return r.expiresAt;
+        },
+      });
+      if (!customModal.isConfirmed) return;
+      targetExpiresAt = customModal.value as number;
+    } else {
+      const r = resolveInviteExpiryInput(String(value), '');
+      if (!r.ok) {
+        showError(r.error);
+        return;
+      }
+      targetExpiresAt = r.expiresAt;
+    }
+
+    setInviteBusy(true);
+    try {
+      await callInviteApi({
+        action: 'updateCode',
+        code: item.code,
+        expiresAt: targetExpiresAt,
+      });
+      showSuccess(
+        targetExpiresAt ? '邀请码过期时间已更新' : '已设为永不过期'
+      );
+      await refreshConfig();
+    } catch (err) {
+      showError(err instanceof Error ? err.message : '更新失败');
+    } finally {
+      setInviteBusy(false);
+    }
+  };
+
+  // 重置邀请码已用次数
+  const handleResetInviteUsedCount = async (code: string) => {
+    setInviteBusy(true);
+    try {
+      await callInviteApi({
+        action: 'updateCode',
+        code,
+        resetUsedCount: true,
+      });
+      showSuccess(`邀请码「${code}」已用次数已清零`);
+      await refreshConfig();
+    } catch (err) {
+      showError(err instanceof Error ? err.message : '重置失败');
+    } finally {
+      setInviteBusy(false);
+    }
+  };
+
+  // 删除邀请码
+  const handleDeleteInviteCode = async (code: string) => {
+    const { isConfirmed } = await Swal.fire({
+      title: `确认删除邀请码「${code}」？`,
+      text: '删除后该邀请码将立即失效（已注册用户的分组不受影响）',
+      icon: 'warning',
+      showCancelButton: true,
+      confirmButtonText: '确认删除',
+      cancelButtonText: '取消',
+      confirmButtonColor: '#dc2626',
+    });
+    if (!isConfirmed) return;
+    setInviteBusy(true);
+    try {
+      await callInviteApi({
+        action: 'deleteCode',
+        code,
+      });
+      showSuccess('邀请码已删除');
+      await refreshConfig();
+    } catch (err) {
+      showError(err instanceof Error ? err.message : '删除失败');
+    } finally {
+      setInviteBusy(false);
     }
   };
 
@@ -289,6 +650,17 @@ const UserConfig = ({ config, role, refreshConfig }: UserConfigProps) => {
     );
   }
 
+  const rg = resolveGroups(config);
+  const availableInviteGroups = rg.configured
+    ? rg.groups
+    : [
+        { id: LEGACY_GROUP_A, name: 'A 组（全部资源站）', allSources: true, sourceKeys: [] },
+        { id: LEGACY_GROUP_B, name: 'B 组（默认注册分组）', allSources: false, sourceKeys: [] },
+      ];
+  const inviteCodes: InviteCodeItem[] = Array.isArray(config.InviteConfig?.Codes)
+    ? config.InviteConfig!.Codes
+    : [];
+
   return (
     <div className='space-y-6'>
       {/* 用户统计 */}
@@ -307,43 +679,26 @@ const UserConfig = ({ config, role, refreshConfig }: UserConfigProps) => {
       </div>
 
       {/* 注册设置 */}
-      <div>
-        <h4 className='text-sm font-medium text-gray-700 dark:text-gray-300 mb-3'>
+      <div className='space-y-4'>
+        <h4 className='text-sm font-medium text-gray-700 dark:text-gray-300'>
           注册设置
         </h4>
         <div className='flex items-center justify-between'>
-          <label
-            className={`text-gray-700 dark:text-gray-300 ${
-              isD1Storage || isUpstashStorage ? 'opacity-50' : ''
-            }`}
-          >
-            允许新用户注册
-            {isD1Storage && (
-              <span className='ml-2 text-xs text-gray-500 dark:text-gray-400'>
-                (D1 环境下不可修改)
-              </span>
-            )}
-            {isUpstashStorage && (
-              <span className='ml-2 text-xs text-gray-500 dark:text-gray-400'>
-                (Upstash 环境下不可修改)
-              </span>
-            )}
-          </label>
+          <div>
+            <div className='text-gray-700 dark:text-gray-300'>
+              允许新用户注册
+            </div>
+            <div className='text-xs text-gray-500 dark:text-gray-400'>
+              开启后，登录页将显示注册（Sign up）入口
+            </div>
+          </div>
           <button
-            onClick={() =>
-              !isD1Storage &&
-              !isUpstashStorage &&
-              toggleAllowRegister(!userSettings.enableRegistration)
-            }
-            disabled={isD1Storage || isUpstashStorage}
+            type='button'
+            onClick={() => toggleAllowRegister(!userSettings.enableRegistration)}
             className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2 ${
               userSettings.enableRegistration
                 ? 'bg-green-600'
                 : 'bg-gray-200 dark:bg-gray-700'
-            } ${
-              isD1Storage || isUpstashStorage
-                ? 'opacity-50 cursor-not-allowed'
-                : ''
             }`}
           >
             <span
@@ -355,7 +710,395 @@ const UserConfig = ({ config, role, refreshConfig }: UserConfigProps) => {
             />
           </button>
         </div>
+
+        {/* 邀请码注册开关（仅站长可控制） */}
+        {role === 'owner' && (
+          <div className='flex items-center justify-between pt-2 border-t border-gray-100 dark:border-gray-700/60'>
+            <div>
+              <div className='text-gray-700 dark:text-gray-300'>
+                强制要求邀请码注册
+              </div>
+              <div className='text-xs text-gray-500 dark:text-gray-400'>
+                开启后，新用户必须填写下方未过期且有剩余次数的邀请码方可完成注册，并自动进入该邀请码绑定的分组
+              </div>
+            </div>
+            <button
+              type='button'
+              onClick={() =>
+                toggleRequireInviteCode(!userSettings.requireInviteCode)
+              }
+              className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2 ${
+                userSettings.requireInviteCode
+                  ? 'bg-green-600'
+                  : 'bg-gray-200 dark:bg-gray-700'
+              }`}
+            >
+              <span
+                className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                  userSettings.requireInviteCode
+                    ? 'translate-x-6'
+                    : 'translate-x-1'
+                }`}
+              />
+            </button>
+          </div>
+        )}
       </div>
+
+      {/* 邀请码管理（仅站长可见与操作） */}
+      {role === 'owner' && (
+        <div className='p-4 rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-50/50 dark:bg-gray-900/40 space-y-4'>
+          <div className='flex flex-wrap items-center justify-between gap-2'>
+            <div>
+              <h4 className='text-sm font-medium text-gray-900 dark:text-gray-100 flex items-center gap-2'>
+                邀请码管理
+                <span className='px-2 py-0.5 text-xs rounded-full bg-blue-100 dark:bg-blue-900/30 text-blue-800 dark:text-blue-300'>
+                  共 {inviteCodes.length} 个
+                </span>
+              </h4>
+              <p className='text-xs text-gray-500 dark:text-gray-400 mt-0.5'>
+                默认可使用 {DEFAULT_INVITE_MAX_USES} 次（可自由修改），支持设置过期时间与绑定分组（如用 111111 注册进 A 组，用 22222 注册进 B 组）
+              </p>
+            </div>
+            <button
+              type='button'
+              onClick={() => setShowAddInviteForm(!showAddInviteForm)}
+              className='px-3 py-1.5 bg-green-600 hover:bg-green-700 text-white text-sm rounded-lg transition-colors'
+            >
+              {showAddInviteForm ? '取消' : '新增邀请码'}
+            </button>
+          </div>
+
+          {showAddInviteForm && (
+            <div className='p-4 bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 space-y-3'>
+              <div className='grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3'>
+                <div>
+                  <label className='block text-xs text-gray-500 dark:text-gray-400 mb-1'>
+                    邀请码（支持字母/数字/下划线/连字符）
+                  </label>
+                  <div className='flex gap-1.5'>
+                    <input
+                      type='text'
+                      placeholder='如 111111 或 22222'
+                      maxLength={64}
+                      value={newInvite.code}
+                      onChange={(e) =>
+                        setNewInvite((prev) => ({
+                          ...prev,
+                          code: e.target.value,
+                        }))
+                      }
+                      className='flex-1 min-w-0 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-900 text-sm text-gray-900 dark:text-gray-100'
+                    />
+                    <button
+                      type='button'
+                      onClick={() =>
+                        setNewInvite((prev) => ({
+                          ...prev,
+                          code: generateRandomInviteCode(8),
+                        }))
+                      }
+                      className='px-2.5 py-2 text-xs bg-gray-100 hover:bg-gray-200 dark:bg-gray-700 dark:hover:bg-gray-600 text-gray-700 dark:text-gray-200 rounded-lg whitespace-nowrap'
+                    >
+                      随机生成
+                    </button>
+                  </div>
+                </div>
+
+                <div>
+                  <label className='block text-xs text-gray-500 dark:text-gray-400 mb-1'>
+                    注册后自动归入分组
+                  </label>
+                  <select
+                    value={newInvite.groupId}
+                    onChange={(e) =>
+                      setNewInvite((prev) => ({
+                        ...prev,
+                        groupId: e.target.value,
+                      }))
+                    }
+                    className='w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-900 text-sm text-gray-900 dark:text-gray-100'
+                  >
+                    {availableInviteGroups.map((g) => (
+                      <option key={g.id} value={g.id}>
+                        {g.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className='block text-xs text-gray-500 dark:text-gray-400 mb-1'>
+                    最大可使用次数（默认 {DEFAULT_INVITE_MAX_USES} 次）
+                  </label>
+                  <input
+                    type='number'
+                    min={1}
+                    max={100000}
+                    value={newInvite.maxUses}
+                    onChange={(e) =>
+                      setNewInvite((prev) => ({
+                        ...prev,
+                        maxUses: Number(e.target.value),
+                      }))
+                    }
+                    className='w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-900 text-sm text-gray-900 dark:text-gray-100'
+                  />
+                </div>
+
+                <div>
+                  <label className='block text-xs text-gray-500 dark:text-gray-400 mb-1'>
+                    过期时间设置
+                  </label>
+                  <div className='space-y-1.5'>
+                    <select
+                      value={newInvite.expiryPreset}
+                      onChange={(e) =>
+                        setNewInvite((prev) => ({
+                          ...prev,
+                          expiryPreset: e.target.value,
+                        }))
+                      }
+                      className='w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-900 text-sm text-gray-900 dark:text-gray-100'
+                    >
+                      <option value='never'>永不过期</option>
+                      <option value='1h'>1 小时后过期</option>
+                      <option value='24h'>24 小时（1 天）后过期</option>
+                      <option value='7d'>7 天后过期</option>
+                      <option value='30d'>30 天后过期</option>
+                      <option value='90d'>90 天后过期</option>
+                      <option value='custom'>自定义到期时间…</option>
+                    </select>
+                    {newInvite.expiryPreset === 'custom' && (
+                      <input
+                        type='datetime-local'
+                        value={newInvite.customExpiry}
+                        onChange={(e) =>
+                          setNewInvite((prev) => ({
+                            ...prev,
+                            customExpiry: e.target.value,
+                          }))
+                        }
+                        className='w-full px-3 py-1.5 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-900 text-xs text-gray-900 dark:text-gray-100'
+                      />
+                    )}
+                  </div>
+                </div>
+
+                <div>
+                  <label className='block text-xs text-gray-500 dark:text-gray-400 mb-1'>
+                    备注（选填）
+                  </label>
+                  <input
+                    type='text'
+                    placeholder='如：A组亲友码'
+                    maxLength={50}
+                    value={newInvite.note}
+                    onChange={(e) =>
+                      setNewInvite((prev) => ({
+                        ...prev,
+                        note: e.target.value,
+                      }))
+                    }
+                    className='w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-900 text-sm text-gray-900 dark:text-gray-100'
+                  />
+                </div>
+              </div>
+
+              <div className='flex justify-end'>
+                <button
+                  type='button'
+                  onClick={handleCreateInviteCode}
+                  disabled={inviteBusy || !newInvite.code.trim()}
+                  className='px-4 py-2 bg-green-600 hover:bg-green-700 disabled:bg-gray-400 text-white text-sm rounded-lg transition-colors'
+                >
+                  创建邀请码
+                </button>
+              </div>
+            </div>
+          )}
+
+          {inviteCodes.length === 0 ? (
+            <div className='text-xs text-gray-500 dark:text-gray-400 py-3 text-center border border-dashed border-gray-200 dark:border-gray-700 rounded-lg'>
+              暂未在后台创建邀请码。点击右上角「新增邀请码」即可添加并设置分组、可用次数和过期时间。
+            </div>
+          ) : (
+            <div className='border border-gray-200 dark:border-gray-700 rounded-lg overflow-x-auto bg-white dark:bg-gray-800'>
+              <table className='min-w-full divide-y divide-gray-200 dark:divide-gray-700'>
+                <thead className='bg-gray-50 dark:bg-gray-900'>
+                  <tr>
+                    <th className='px-4 py-2.5 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase'>
+                      邀请码
+                    </th>
+                    <th className='px-4 py-2.5 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase'>
+                      分配分组
+                    </th>
+                    <th className='px-4 py-2.5 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase'>
+                      已用 / 可用次数
+                    </th>
+                    <th className='px-4 py-2.5 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase'>
+                      过期时间
+                    </th>
+                    <th className='px-4 py-2.5 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase'>
+                      状态
+                    </th>
+                    <th className='px-4 py-2.5 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase'>
+                      备注
+                    </th>
+                    <th className='px-4 py-2.5 text-right text-xs font-medium text-gray-500 dark:text-gray-400 uppercase'>
+                      操作
+                    </th>
+                  </tr>
+                </thead>
+                <tbody className='divide-y divide-gray-200 dark:divide-gray-700'>
+                  {inviteCodes.map((item) => {
+                    const expired = isInviteCodeExpired(item);
+                    const exhausted =
+                      (item.usedCount ?? 0) >=
+                      (item.maxUses ?? DEFAULT_INVITE_MAX_USES);
+                    const expiryInfo = formatInviteExpiryDisplay(
+                      item.expiresAt
+                    );
+                    return (
+                      <tr
+                        key={item.code}
+                        className='hover:bg-gray-50 dark:hover:bg-gray-800/70 transition-colors'
+                      >
+                        <td className='px-4 py-3 whitespace-nowrap text-sm font-mono font-semibold text-gray-900 dark:text-gray-100'>
+                          {item.code}
+                        </td>
+                        <td className='px-4 py-3 whitespace-nowrap text-sm'>
+                          <select
+                            disabled={inviteBusy}
+                            value={
+                              availableInviteGroups.some(
+                                (g) => g.id === item.groupId
+                              )
+                                ? item.groupId
+                                : availableInviteGroups[0]?.id ?? ''
+                            }
+                            onChange={(e) =>
+                              e.target.value &&
+                              handleUpdateInviteGroup(item.code, e.target.value)
+                            }
+                            className='px-2 py-1 text-xs rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100'
+                          >
+                            {availableInviteGroups.map((g) => (
+                              <option key={g.id} value={g.id}>
+                                {g.name}
+                              </option>
+                            ))}
+                          </select>
+                        </td>
+                        <td className='px-4 py-3 whitespace-nowrap text-sm text-gray-700 dark:text-gray-300'>
+                          <span className='font-semibold'>{item.usedCount ?? 0}</span>
+                          {' / '}
+                          <span>{item.maxUses ?? DEFAULT_INVITE_MAX_USES}</span>
+                          <span className='ml-1.5 text-xs text-gray-400'>
+                            (剩余{' '}
+                            {Math.max(
+                              0,
+                              (item.maxUses ?? DEFAULT_INVITE_MAX_USES) -
+                                (item.usedCount ?? 0)
+                            )}{' '}
+                            次)
+                          </span>
+                        </td>
+                        <td className='px-4 py-3 whitespace-nowrap text-xs text-gray-700 dark:text-gray-300'>
+                          <div>{expiryInfo.label}</div>
+                          {expiryInfo.hint && (
+                            <div
+                              className={`text-[11px] ${
+                                expiryInfo.expired
+                                  ? 'text-red-600 dark:text-red-400 font-medium'
+                                  : 'text-gray-400 dark:text-gray-500'
+                              }`}
+                            >
+                              {expiryInfo.hint}
+                            </div>
+                          )}
+                        </td>
+                        <td className='px-4 py-3 whitespace-nowrap'>
+                          <span
+                            className={`px-2 py-0.5 text-xs rounded-full ${
+                              !expired && !exhausted
+                                ? 'bg-green-100 dark:bg-green-900/20 text-green-800 dark:text-green-300'
+                                : 'bg-red-100 dark:bg-red-900/20 text-red-800 dark:text-red-300'
+                            }`}
+                          >
+                            {expired
+                              ? '已过期'
+                              : exhausted
+                              ? '已用尽'
+                              : '可用'}
+                          </span>
+                        </td>
+                        <td className='px-4 py-3 whitespace-nowrap text-xs text-gray-500 dark:text-gray-400 max-w-[10rem] truncate'>
+                          {item.note || '-'}
+                        </td>
+                        <td className='px-4 py-3 whitespace-nowrap text-right text-xs font-medium space-x-1.5'>
+                          <button
+                            type='button'
+                            onClick={() => {
+                              if (navigator?.clipboard) {
+                                navigator.clipboard
+                                  .writeText(item.code)
+                                  .then(() =>
+                                    showSuccess(`已复制邀请码：${item.code}`)
+                                  )
+                                  .catch(() => undefined);
+                              }
+                            }}
+                            className='inline-flex items-center px-2.5 py-1 rounded-full bg-gray-100 text-gray-800 hover:bg-gray-200 dark:bg-gray-700 dark:text-gray-200 dark:hover:bg-gray-600 transition-colors'
+                          >
+                            复制
+                          </button>
+                          <button
+                            type='button'
+                            disabled={inviteBusy}
+                            onClick={() => handleEditInviteMaxUses(item)}
+                            className='inline-flex items-center px-2.5 py-1 rounded-full bg-blue-100 text-blue-800 hover:bg-blue-200 dark:bg-blue-900/40 dark:text-blue-200 dark:hover:bg-blue-900/60 transition-colors'
+                          >
+                            设次数
+                          </button>
+                          <button
+                            type='button'
+                            disabled={inviteBusy}
+                            onClick={() => handleEditInviteExpiry(item)}
+                            className='inline-flex items-center px-2.5 py-1 rounded-full bg-purple-100 text-purple-800 hover:bg-purple-200 dark:bg-purple-900/40 dark:text-purple-200 dark:hover:bg-purple-900/60 transition-colors'
+                          >
+                            设有效期
+                          </button>
+                          {(item.usedCount ?? 0) > 0 && (
+                            <button
+                              type='button'
+                              disabled={inviteBusy}
+                              onClick={() =>
+                                handleResetInviteUsedCount(item.code)
+                              }
+                              className='inline-flex items-center px-2.5 py-1 rounded-full bg-amber-100 text-amber-800 hover:bg-amber-200 dark:bg-amber-900/40 dark:text-amber-200 dark:hover:bg-amber-900/60 transition-colors'
+                            >
+                              清零已用
+                            </button>
+                          )}
+                          <button
+                            type='button'
+                            disabled={inviteBusy}
+                            onClick={() => handleDeleteInviteCode(item.code)}
+                            className='inline-flex items-center px-2.5 py-1 rounded-full bg-red-600 text-white hover:bg-red-700 transition-colors'
+                          >
+                            删除
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* 用户列表 */}
       <div>
@@ -572,7 +1315,6 @@ const UserConfig = ({ config, role, refreshConfig }: UserConfigProps) => {
                         </td>
                         <td className='px-6 py-4 whitespace-nowrap'>
                           {(() => {
-                            const rg = resolveGroups(config);
                             const badge = (text: string, cls: string) => (
                               <span className={`px-2 py-1 text-xs rounded-full ${cls}`}>
                                 {text}

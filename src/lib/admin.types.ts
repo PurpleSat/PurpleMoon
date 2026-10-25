@@ -10,6 +10,24 @@ export interface UserGroupDef {
   sourceKeys: string[];
 }
 
+/** 单个邀请码配置项 */
+export interface InviteCodeItem {
+  /** 邀请码字符串（唯一） */
+  code: string;
+  /** 使用该邀请码注册后自动归入的分组 id（如 'A'、'B' 或自定义分组 id） */
+  groupId: UserGroup;
+  /** 最大可使用次数（默认 10 次） */
+  maxUses: number;
+  /** 已使用次数 */
+  usedCount: number;
+  /** 创建时间戳（毫秒） */
+  createdAt?: number;
+  /** 过期时间戳（毫秒）；缺省、null 或 0 表示永不过期 */
+  expiresAt?: number | null;
+  /** 备注说明（选填） */
+  note?: string;
+}
+
 export interface AdminConfig {
   configVersion?: number;
   SiteConfig: {
@@ -43,6 +61,15 @@ export interface AdminConfig {
     DefaultRegisterGroup?: 'A' | 'B';
     /** @deprecated 旧格式，仅用于迁移 */
     GroupBSourceKeys?: string[];
+  };
+  /**
+   * 邀请码注册配置（仅站长可查看与管理）。
+   * - RequireInviteCode：是否强制要求邀请码才可注册
+   * - Codes：后台创建的邀请码列表（支持绑定分组、限制可用次数默认 10 次、设置过期时间）
+   */
+  InviteConfig?: {
+    RequireInviteCode: boolean;
+    Codes: InviteCodeItem[];
   };
   SourceConfig: {
     key: string;

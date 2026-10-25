@@ -34,9 +34,25 @@ function LoginPageClient() {
   useEffect(() => {
     if (typeof window !== 'undefined') {
       const storageType = (window as any).RUNTIME_CONFIG?.STORAGE_TYPE;
-      setShouldAskUsername(storageType && storageType !== 'localstorage');
+      setShouldAskUsername(Boolean(storageType && storageType !== 'localstorage'));
       setEnableRegister(Boolean((window as any).RUNTIME_CONFIG?.ENABLE_REGISTER));
       setRequireInviteCode(Boolean((window as any).RUNTIME_CONFIG?.REQUIRE_INVITE_CODE));
+
+      // 动态同步服务端最新注册开关与邀请码开关状态（后台修改后无需重启容器即时生效）
+      fetch('/api/server-config', { cache: 'no-store' })
+        .then((r) => (r.ok ? r.json() : null))
+        .then((data) => {
+          if (!data) return;
+          if (typeof data.AllowRegister === 'boolean') {
+            setEnableRegister(data.AllowRegister);
+          }
+          if (typeof data.RequireInviteCode === 'boolean') {
+            setRequireInviteCode(data.RequireInviteCode);
+          }
+        })
+        .catch(() => {
+          // 忽略网络错误，沿用 window.RUNTIME_CONFIG
+        });
     }
   }, []);
 
@@ -146,10 +162,10 @@ function LoginPageClient() {
           
           {/* 极简标题 */}
           <div className="mb-10 text-center">
-            <h1 className={`text-3xl sm:text-4xl font-black text-gray-900 dark:text-white tracking-tight ${isRegisterMode ? 'mb-2' : ''}`}>
+            <h1 className={`text-3xl sm:text-4xl font-black text-gray-900 dark:text-white tracking-tight ${isRegisterMode && requireInviteCode ? 'mb-2' : ''}`}>
               {isRegisterMode ? 'Sign up' : 'Sign in'}
             </h1>
-            {isRegisterMode && (
+            {isRegisterMode && requireInviteCode && (
               <div className="flex flex-col items-center gap-1.5 mt-3">
                 <p className="text-gray-500 dark:text-gray-400 text-sm font-medium">
                   Registration by invitation code only
