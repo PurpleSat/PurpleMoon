@@ -690,9 +690,6 @@ const UserConfig = ({ config, role, refreshConfig }: UserConfigProps) => {
             <div className='text-gray-700 dark:text-gray-300'>
               允许新用户注册
             </div>
-            <div className='text-xs text-gray-500 dark:text-gray-400'>
-              开启后，登录页将显示注册（Sign up）入口
-            </div>
           </div>
           <button
             type='button'
@@ -718,10 +715,7 @@ const UserConfig = ({ config, role, refreshConfig }: UserConfigProps) => {
           <div className='flex items-center justify-between pt-2 border-t border-gray-100 dark:border-gray-700/60'>
             <div>
               <div className='text-gray-700 dark:text-gray-300'>
-                强制要求邀请码注册
-              </div>
-              <div className='text-xs text-gray-500 dark:text-gray-400'>
-                开启后，新用户必须填写下方未过期且有剩余次数的邀请码方可完成注册，并自动进入该邀请码绑定的分组
+                开启邀请码注册
               </div>
             </div>
             <button
@@ -759,7 +753,7 @@ const UserConfig = ({ config, role, refreshConfig }: UserConfigProps) => {
                 </span>
               </h4>
               <p className='text-xs text-gray-500 dark:text-gray-400 mt-0.5'>
-                默认可使用 {DEFAULT_INVITE_MAX_USES} 次（可自由修改），支持设置过期时间与绑定分组（如用 111111 注册进 A 组，用 22222 注册进 B 组）
+                默认可使用 {DEFAULT_INVITE_MAX_USES} 次
               </p>
             </div>
             <button
@@ -781,7 +775,7 @@ const UserConfig = ({ config, role, refreshConfig }: UserConfigProps) => {
                   <div className='flex gap-1.5'>
                     <input
                       type='text'
-                      placeholder='如 111111 或 22222'
+                      placeholder='输入新的邀请码'
                       maxLength={64}
                       value={newInvite.code}
                       onChange={(e) =>
