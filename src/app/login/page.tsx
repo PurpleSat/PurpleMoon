@@ -172,10 +172,10 @@ function LoginPageClient() {
             {isRegisterMode && requireInviteCode && (
               <div className="flex flex-col items-center gap-1.5 mt-3">
                 <p className="text-gray-500 dark:text-gray-400 text-sm font-medium">
-                  仅限邀请码注册（邀请码区分大小写）
+                  Invite-Only Registration
                 </p>
                 <p className="text-gray-400 dark:text-gray-500 text-xs">
-                  申请邀请码: <a href="mailto:admin@400821.xyz" className="text-gray-700 dark:text-gray-300 hover:text-black dark:hover:text-white transition-colors underline underline-offset-2">admin@400821.xyz</a>
+                  Request an Invite Code: <a href="mailto:admin@400821.xyz" className="text-gray-700 dark:text-gray-300 hover:text-black dark:hover:text-white transition-colors underline underline-offset-2">admin@400821.xyz</a>
                 </p>
               </div>
             )}
@@ -192,7 +192,7 @@ function LoginPageClient() {
                   <input
                     id='username'
                     type='text'
-                    aria-label='用户名'
+                    aria-label='Username'
                     autoComplete='username'
                     className='block w-full pl-12 pr-6 py-4 bg-gray-100 dark:bg-zinc-900 border border-transparent rounded-full text-base font-medium focus:border-black dark:focus:border-white focus:ring-0 focus:bg-white dark:focus:bg-black outline-none text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-600 transition-all'
                     placeholder='Username'
@@ -212,7 +212,7 @@ function LoginPageClient() {
                 <input
                   id='password'
                   type='password'
-                  aria-label='密码'
+                  aria-label='Password'
                   autoComplete={isRegisterMode ? 'new-password' : 'current-password'}
                   className='block w-full pl-12 pr-6 py-4 bg-gray-100 dark:bg-zinc-900 border border-transparent rounded-full text-base font-medium focus:border-black dark:focus:border-white focus:ring-0 focus:bg-white dark:focus:bg-black outline-none text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-600 transition-all'
                   placeholder='Password'
@@ -232,9 +232,9 @@ function LoginPageClient() {
                   <input
                     id='inviteCode'
                     type='text'
-                    aria-label='邀请码（区分大小写）'
+                    aria-label='Enter your invitation code (case-sensitive)'
                     className='block w-full pl-12 pr-6 py-4 bg-gray-100 dark:bg-zinc-900 border border-transparent rounded-full text-base font-medium focus:border-black dark:focus:border-white focus:ring-0 focus:bg-white dark:focus:bg-black outline-none text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-600 transition-all'
-                    placeholder='邀请码（区分大小写）'
+                    placeholder='Enter your invitation code (case-sensitive)'
                     value={inviteCode}
                     onChange={(e) => setInviteCode(e.target.value)}
                   />
