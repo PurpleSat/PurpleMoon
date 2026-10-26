@@ -232,9 +232,9 @@ function LoginPageClient() {
                   <input
                     id='inviteCode'
                     type='text'
-                    aria-label='Enter your invitation code (case-sensitive)'
+                    aria-label='Invitation Code (case-sensitive)'
                     className='block w-full pl-12 pr-6 py-4 bg-gray-100 dark:bg-zinc-900 border border-transparent rounded-full text-base font-medium focus:border-black dark:focus:border-white focus:ring-0 focus:bg-white dark:focus:bg-black outline-none text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-600 transition-all'
-                    placeholder='Enter your invitation code (case-sensitive)'
+                    placeholder='Invitation code (case-sensitive)'
                     value={inviteCode}
                     onChange={(e) => setInviteCode(e.target.value)}
                   />
