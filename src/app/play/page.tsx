@@ -275,9 +275,10 @@ function PlayPageClient() {
 
   const hasSkippedIntroRef = useRef(false);
   const hasSkippedOutroRef = useRef(false);
-  // 记录通过 HLS startPosition 直接跳过片头的标记与上次尝试 seek 片头的时间戳（防止重复 seek 或被重置）
-  const introSkippedByStartPosRef = useRef(false);
+  // 记录上次尝试 seek 跳过片头的时间戳（节流防重入）
   const lastIntroSkipAttemptRef = useRef<number>(0);
+  // 标记新流正在挂载/切换中，屏蔽旧集残留的 timeupdate 事件污染新集状态
+  const isLoadingNewStreamRef = useRef(false);
   // 防止跳过片尾与 video:ended 同时触发导致连跳两集
   const isSkipControllerTriggeredRef = useRef(false);
   const videoEndedHandledRef = useRef(false);
@@ -360,7 +361,6 @@ function PlayPageClient() {
   useEffect(() => {
     hasSkippedIntroRef.current = false;
     hasSkippedOutroRef.current = false;
-    introSkippedByStartPosRef.current = false;
     lastIntroSkipAttemptRef.current = 0;
     videoEndedHandledRef.current = false;
     const timer = setTimeout(() => {
@@ -1006,6 +1006,142 @@ function PlayPageClient() {
     }
   }
 
+  // 直接在现有的 <video> 元素上挂载/切换流（不经过 Artplayer 内部会在 canplay 时强制重置 currentTime = 0 的 switchUrl）
+  const attachStreamToVideo = (
+    video: HTMLVideoElement,
+    url: string,
+    art: any
+  ) => {
+    if (!video || !url) return;
+    isLoadingNewStreamRef.current = true;
+
+    if (video.hls) {
+      try {
+        video.hls.stopLoad();
+        video.hls.detachMedia();
+        video.hls.destroy();
+      } catch {
+        // ignore
+      }
+      video.hls = null;
+    }
+    if (art?.hls) {
+      try {
+        art.hls.stopLoad();
+        art.hls.detachMedia();
+        art.hls.destroy();
+      } catch {
+        // ignore
+      }
+      art.hls = null;
+    }
+
+    const streamType = getArtPlayerType(url);
+    const isMobile = isMobileDevice();
+
+    // 换集时先将进度归零并重置片头跳过标记，防止上一集的播放时间戳残留触发误判
+    if (isEpisodeChangingRef.current) {
+      hasSkippedIntroRef.current = false;
+      hasSkippedOutroRef.current = false;
+      lastIntroSkipAttemptRef.current = 0;
+      try {
+        video.currentTime = 0;
+      } catch {
+        // ignore
+      }
+    }
+
+    // 仅在手动换源且有待恢复进度时启用 HLS startPosition 直达目标分片；
+    // 片头跳过统一交由流就绪后的 canplay / timeupdate 跳转，兼容去广告及含时间戳跳变的 M3U8 流
+    const startPos =
+      isManualSourceSwitchRef.current &&
+      resumeTimeRef.current &&
+      resumeTimeRef.current > 1
+        ? Math.floor(resumeTimeRef.current)
+        : -1;
+
+    if (streamType === 'm3u8' && Hls && Hls.isSupported()) {
+      let mediaErrorRecoveryCount = 0;
+      const hls = new Hls({
+        debug: false,
+        enableWorker: !isIOSGlobal,
+        preferManagedMediaSource: true,
+        lowLatencyMode: false,
+        startPosition: startPos,
+        maxBufferLength: isMobile ? 30 : 60,
+        maxMaxBufferLength: isMobile ? 60 : 120,
+        backBufferLength: isMobile ? 15 : 30,
+        maxBufferSize: isMobile ? 60 * 1000 * 1000 : 100 * 1000 * 1000,
+        fragLoadingTimeOut: 20000,
+        manifestLoadingTimeOut: 15000,
+        levelLoadingTimeOut: 15000,
+        loader: blockAdEnabledRef.current
+          ? CustomHlsJsLoader
+          : Hls.DefaultConfig.loader,
+      });
+
+      hls.loadSource(url);
+      hls.attachMedia(video);
+      video.hls = hls;
+      if (art) art.hls = hls;
+
+      ensureVideoSource(video, url);
+
+      hls.on(Hls.Events.MANIFEST_PARSED, () => {
+        isLoadingNewStreamRef.current = false;
+        if (shouldAutoPlayAfterSwitchRef.current) {
+          video.play().catch(() => {
+            // ignore autoplay restriction if any, video:canplay will retry
+          });
+        }
+      });
+
+      hls.on(Hls.Events.ERROR, function (_event: any, data: any) {
+        if (!data.fatal) {
+          if (
+            data.details === Hls.ErrorDetails.FRAG_PARSING_ERROR ||
+            data.details === Hls.ErrorDetails.BUFFER_APPEND_ERROR
+          ) {
+            console.debug('忽略非致命 HLS 分片/缓冲警告:', data.details);
+          }
+          return;
+        }
+
+        switch (data.type) {
+          case Hls.ErrorTypes.NETWORK_ERROR:
+            hls.startLoad();
+            break;
+          case Hls.ErrorTypes.MEDIA_ERROR:
+            mediaErrorRecoveryCount++;
+            if (mediaErrorRecoveryCount === 1) {
+              hls.recoverMediaError();
+            } else if (mediaErrorRecoveryCount === 2) {
+              hls.swapAudioCodec();
+              hls.recoverMediaError();
+            } else {
+              hls.recoverMediaError();
+            }
+            break;
+          default:
+            isLoadingNewStreamRef.current = false;
+            hls.destroy();
+            setIsVideoLoading(false);
+            break;
+        }
+      });
+    } else {
+      video.src = url;
+      ensureVideoSource(video, url);
+      video.load();
+      isLoadingNewStreamRef.current = false;
+      if (shouldAutoPlayAfterSwitchRef.current) {
+        video.play().catch(() => {
+          // ignore
+        });
+      }
+    }
+  };
+
   useEffect(() => {
     updateVideoUrl(detail, currentEpisodeIndex);
   }, [detail, currentEpisodeIndex]);
@@ -1175,7 +1311,7 @@ function PlayPageClient() {
         detailData = await preferBestSource(sourcesInfo);
       }
 
-      // 在播放器挂载前预先并行读取历史进度与跳过片头片尾配置，彻底消除异步竞态导致片头跳过失效
+      // 在播放器挂载前预先并行读取历史进度与跳过片头片尾配置
       const storageKey = generateStorageKey(detailData.source, detailData.id);
       const [recordsResult, skipResult] = await Promise.allSettled([
         getAllPlayRecords(),
@@ -1203,7 +1339,16 @@ function PlayPageClient() {
           if (targetIdx < detailData.episodes.length) {
             initialEpIdx = targetIdx;
           }
-          resumeTimeRef.current = record.play_time;
+          // 若开启了跳过片头且历史进度仍在片头区间内，则不恢复片头内的秒数，直接让跳过片头生效
+          if (
+            resolvedSkipConfig.enable &&
+            resolvedSkipConfig.intro_time > 0 &&
+            record.play_time <= resolvedSkipConfig.intro_time + 2
+          ) {
+            resumeTimeRef.current = null;
+          } else {
+            resumeTimeRef.current = record.play_time;
+          }
         }
       }
 
@@ -1270,7 +1415,15 @@ function PlayPageClient() {
           if (targetIdx !== currentEpisodeIndexRef.current) {
             setCurrentEpisodeIndex(targetIdx);
           }
-          resumeTimeRef.current = record.play_time;
+          if (
+            skipConfigRef.current.enable &&
+            skipConfigRef.current.intro_time > 0 &&
+            record.play_time <= skipConfigRef.current.intro_time + 2
+          ) {
+            resumeTimeRef.current = null;
+          } else {
+            resumeTimeRef.current = record.play_time;
+          }
         }
       } catch (_err) {
         console.debug('读取历史进度失败');
@@ -1299,6 +1452,23 @@ function PlayPageClient() {
       }
     };
     initSkipConfig();
+  }, [currentSource, currentId]);
+
+  // 订阅云端跳过片头片尾配置异步刷新事件，防止缓存未命中时丢失配置
+  useEffect(() => {
+    if (!currentSource || !currentId) return;
+    const unsubscribe = subscribeToDataUpdates(
+      'skipConfigsUpdated',
+      (configs: Record<string, any>) => {
+        const key = generateStorageKey(currentSource, currentId);
+        const updated = configs?.[key];
+        if (updated) {
+          skipConfigRef.current = updated;
+          setSkipConfig(updated);
+        }
+      }
+    );
+    return unsubscribe;
   }, [currentSource, currentId]);
 
   // 同步当前集数与标题到全屏顶部标题栏（手机横屏全屏自动连播下一集时实时刷新集数显示）
@@ -1331,6 +1501,7 @@ function PlayPageClient() {
     try {
       setVideoLoadingStage('sourceChanging');
       setIsVideoLoading(true);
+      isLoadingNewStreamRef.current = true;
       isEpisodeChangingRef.current = false;
       isManualSourceSwitchRef.current = true;
       shouldAutoPlayAfterSwitchRef.current = true;
@@ -1344,6 +1515,7 @@ function PlayPageClient() {
         (s) => s.source === newSource && s.id === newId
       );
       if (!newDetail) {
+        isLoadingNewStreamRef.current = false;
         setIsVideoLoading(false);
         setError('未找到匹配结果');
         return;
@@ -1402,7 +1574,9 @@ function PlayPageClient() {
       setCurrentId(newId);
       setDetail(newDetail);
       setCurrentEpisodeIndex(targetIndex);
+      updateVideoUrl(newDetail, targetIndex);
     } catch (err) {
+      isLoadingNewStreamRef.current = false;
       setIsVideoLoading(false);
       setError(err instanceof Error ? err.message : '换源失败');
     }
@@ -1426,18 +1600,44 @@ function PlayPageClient() {
 
   const handleEpisodeChange = (episodeNumber: number) => {
     if (episodeNumber >= 0 && episodeNumber < totalEpisodes) {
+      // 若点击的是当前正在播放的集数，重置片头标记并从头（或片头跳过点）重新播放
+      if (episodeNumber === currentEpisodeIndexRef.current) {
+        hasSkippedIntroRef.current = false;
+        hasSkippedOutroRef.current = false;
+        lastIntroSkipAttemptRef.current = 0;
+        resumeTimeRef.current = null;
+        if (artPlayerRef.current) {
+          const introTime =
+            skipConfigRef.current.enable && skipConfigRef.current.intro_time > 0
+              ? skipConfigRef.current.intro_time
+              : 0;
+          artPlayerRef.current.currentTime = introTime;
+          if (introTime > 0) {
+            artPlayerRef.current.notice.show = `已自动跳过片头 (${formatTime(
+              introTime
+            )})`;
+          }
+          if (artPlayerRef.current.paused) {
+            artPlayerRef.current.play().catch(() => {});
+          }
+        }
+        return;
+      }
+
       if (artPlayerRef.current && !artPlayerRef.current.paused) {
         saveCurrentPlayProgress();
       }
+      isLoadingNewStreamRef.current = true;
       isEpisodeChangingRef.current = true;
       isManualSourceSwitchRef.current = false;
       shouldAutoPlayAfterSwitchRef.current = true;
       hasSkippedIntroRef.current = false;
       hasSkippedOutroRef.current = false;
-      introSkippedByStartPosRef.current = false;
       lastIntroSkipAttemptRef.current = 0;
       resumeTimeRef.current = null;
+      currentEpisodeIndexRef.current = episodeNumber;
       setCurrentEpisodeIndex(episodeNumber);
+      updateVideoUrl(detailRef.current, episodeNumber);
       syncEpisodeIndexToUrl(episodeNumber);
     }
   };
@@ -1450,15 +1650,17 @@ function PlayPageClient() {
         saveCurrentPlayProgress();
       }
       const nextIdx = idx - 1;
+      isLoadingNewStreamRef.current = true;
       isEpisodeChangingRef.current = true;
       isManualSourceSwitchRef.current = false;
       shouldAutoPlayAfterSwitchRef.current = true;
       hasSkippedIntroRef.current = false;
       hasSkippedOutroRef.current = false;
-      introSkippedByStartPosRef.current = false;
       lastIntroSkipAttemptRef.current = 0;
       resumeTimeRef.current = null;
+      currentEpisodeIndexRef.current = nextIdx;
       setCurrentEpisodeIndex(nextIdx);
+      updateVideoUrl(d, nextIdx);
       syncEpisodeIndexToUrl(nextIdx);
     }
   };
@@ -1471,15 +1673,17 @@ function PlayPageClient() {
         saveCurrentPlayProgress();
       }
       const nextIdx = idx + 1;
+      isLoadingNewStreamRef.current = true;
       isEpisodeChangingRef.current = true;
       isManualSourceSwitchRef.current = false;
       shouldAutoPlayAfterSwitchRef.current = true;
       hasSkippedIntroRef.current = false;
       hasSkippedOutroRef.current = false;
-      introSkippedByStartPosRef.current = false;
       lastIntroSkipAttemptRef.current = 0;
       resumeTimeRef.current = null;
+      currentEpisodeIndexRef.current = nextIdx;
       setCurrentEpisodeIndex(nextIdx);
+      updateVideoUrl(d, nextIdx);
       syncEpisodeIndexToUrl(nextIdx);
     }
   };
@@ -1689,64 +1893,44 @@ function PlayPageClient() {
       return;
     }
 
-    // 核心改进：如果播放器实例已存在，直接复用当前实例原位切换 URL，
-    // 绝不销毁重建 DOM，从而在手机端重力感应横屏全屏（fullscreen / fullscreenWeb）时
-    // 自动跳过片尾或连播下一集无需退出全屏或横屏状态！
-    // 同时统一使用 switchUrl 配合 HLS startPosition，禁止在 switchUrl.then 中重置 currentTime = 0，
-    // 彻底避免“跳到片头时间后点播放又回退到 0m0s”以及“switchQuality 重复 seek 导致换源卡顿”。
+    // 核心改进：如果播放器实例已存在，直接复用当前实例的 <video> 挂载新流，
+    // 不调用 Artplayer 内部会在 video:canplay 时将 currentTime 强制清零的 switchUrl，
+    // 既保证手机端横屏全屏自动跳过片尾连播下一集不退出全屏，又彻底解决片头跳过被重置为 0m0s 的问题！
     if (artPlayerRef.current && !loading) {
       if (isEpisodeChangingRef.current) {
         setIsVideoLoading(false);
       }
 
+      const art = artPlayerRef.current;
       const newType = getArtPlayerType(videoUrl);
-      if (artPlayerRef.current.option) {
-        artPlayerRef.current.option.type = newType;
+      if (art.option) {
+        art.option.type = newType;
+        art.option.url = videoUrl;
       }
 
+      art.title = `${videoTitle} - 第${currentEpisodeIndex + 1}集`;
+      art.poster = videoCover;
+
       const currentPlaybackRate = sanitizePlaybackRate(
-        lastPlaybackRateRef.current || artPlayerRef.current.playbackRate || 1.0
+        lastPlaybackRateRef.current || art.playbackRate || 1.0
       );
 
       isSourceSwitchingRef.current = true;
 
-      artPlayerRef.current
-        .switchUrl(videoUrl)
-        .then(() => {
-          isEpisodeChangingRef.current = false;
-          if (artPlayerRef.current) {
-            artPlayerRef.current.title = `${videoTitle} - 第${
-              currentEpisodeIndex + 1
-            }集`;
-            artPlayerRef.current.poster = videoCover;
-            if (artPlayerRef.current.video) {
-              ensureVideoSource(
-                artPlayerRef.current.video as HTMLVideoElement,
-                videoUrl
-              );
-            }
-            if (Math.abs(currentPlaybackRate - 1.0) > 0.01) {
-              artPlayerRef.current.playbackRate = currentPlaybackRate;
-            }
-            if (artPlayerRef.current.paused) {
-              artPlayerRef.current.play().catch(() => {
-                // ignore autoplay restriction if any, video:canplay will retry
-              });
-            }
-          }
-          setTimeout(() => {
-            isSourceSwitchingRef.current = false;
-          }, 250);
-        })
-        .catch((err: any) => {
-          console.warn('switchUrl 切换异常，回退到 switch:', err);
-          isEpisodeChangingRef.current = false;
-          isSourceSwitchingRef.current = false;
-          setIsVideoLoading(false);
-          if (artPlayerRef.current) {
-            artPlayerRef.current.switch = videoUrl;
-          }
-        });
+      const videoEl = (art.video || art.template?.$video) as
+        | HTMLVideoElement
+        | undefined;
+      if (videoEl) {
+        attachStreamToVideo(videoEl, videoUrl, art);
+        if (Math.abs(currentPlaybackRate - 1.0) > 0.01) {
+          art.playbackRate = currentPlaybackRate;
+        }
+      }
+
+      isEpisodeChangingRef.current = false;
+      setTimeout(() => {
+        isSourceSwitchingRef.current = false;
+      }, 300);
       return;
     }
 
@@ -1757,7 +1941,6 @@ function PlayPageClient() {
       Artplayer.USE_RAF = false;
       Artplayer.FULLSCREEN_WEB_IN_BODY = true;
 
-      const isMobile = isMobileDevice();
       const savedFit =
         typeof window !== 'undefined'
           ? localStorage.getItem('video_object_fit') || 'contain'
@@ -1856,118 +2039,7 @@ function PlayPageClient() {
         ],
         customType: {
           m3u8: function (video: HTMLVideoElement, url: string, art: any) {
-            if (!Hls) return;
-            if (video.hls) {
-              try {
-                video.hls.stopLoad();
-                video.hls.detachMedia();
-                video.hls.destroy();
-              } catch {
-                // ignore
-              }
-            }
-            if (art?.hls && art.hls !== video.hls) {
-              try {
-                art.hls.stopLoad();
-                art.hls.detachMedia();
-                art.hls.destroy();
-              } catch {
-                // ignore
-              }
-            }
-
-            // 计算 HLS 初始加载位置（startPosition）：
-            // 1. 手动换源时直接从换源前记录的秒数开始请求分片，避免先加载 0m0s 再二次 seek 导致卡顿；
-            // 2. 开启跳过片头且无大于片头时间的历史记录时，直接从 intro_time 开始请求分片，一步到位跳过片头！
-            const resumePos =
-              resumeTimeRef.current && resumeTimeRef.current > 1
-                ? resumeTimeRef.current
-                : 0;
-            const introPos =
-              skipConfigRef.current.enable &&
-              skipConfigRef.current.intro_time > 0 &&
-              !hasSkippedIntroRef.current
-                ? skipConfigRef.current.intro_time
-                : 0;
-
-            let startPos = -1;
-            if (isManualSourceSwitchRef.current && resumePos > 0) {
-              startPos = Math.floor(resumePos);
-            } else if (introPos > 0 && resumePos < introPos) {
-              startPos = Math.floor(introPos);
-              resumeTimeRef.current = null;
-              introSkippedByStartPosRef.current = true;
-            } else if (resumePos > 0) {
-              startPos = Math.floor(resumePos);
-            }
-
-            if (Hls.isSupported()) {
-              let mediaErrorRecoveryCount = 0;
-              const hls = new Hls({
-                debug: false,
-                enableWorker: !isIOSGlobal,
-                preferManagedMediaSource: true,
-                lowLatencyMode: false,
-                startPosition: startPos,
-                maxBufferLength: isMobile ? 30 : 60,
-                maxMaxBufferLength: isMobile ? 60 : 120,
-                backBufferLength: isMobile ? 15 : 30,
-                maxBufferSize: isMobile ? 60 * 1000 * 1000 : 100 * 1000 * 1000,
-                fragLoadingTimeOut: 20000,
-                manifestLoadingTimeOut: 15000,
-                levelLoadingTimeOut: 15000,
-                loader: blockAdEnabledRef.current
-                  ? CustomHlsJsLoader
-                  : Hls.DefaultConfig.loader,
-              });
-
-              hls.loadSource(url);
-              hls.attachMedia(video);
-              video.hls = hls;
-              if (art) art.hls = hls;
-
-              ensureVideoSource(video, url);
-
-              hls.on(Hls.Events.ERROR, function (_event: any, data: any) {
-                // 容忍非致命的分片解析或时间戳附加误差
-                if (!data.fatal) {
-                  if (
-                    data.details === Hls.ErrorDetails.FRAG_PARSING_ERROR ||
-                    data.details === Hls.ErrorDetails.BUFFER_APPEND_ERROR
-                  ) {
-                    console.debug(
-                      '忽略非致命 HLS 分片/缓冲警告:',
-                      data.details
-                    );
-                  }
-                  return;
-                }
-
-                switch (data.type) {
-                  case Hls.ErrorTypes.NETWORK_ERROR:
-                    hls.startLoad();
-                    break;
-                  case Hls.ErrorTypes.MEDIA_ERROR:
-                    mediaErrorRecoveryCount++;
-                    if (mediaErrorRecoveryCount === 1) {
-                      hls.recoverMediaError();
-                    } else if (mediaErrorRecoveryCount === 2) {
-                      hls.swapAudioCodec();
-                      hls.recoverMediaError();
-                    } else {
-                      hls.recoverMediaError();
-                    }
-                    break;
-                  default:
-                    hls.destroy();
-                    setIsVideoLoading(false);
-                    break;
-                }
-              });
-            } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
-              video.src = url;
-              ensureVideoSource(video, url);
-            }
+            attachStreamToVideo(video, url, art);
           },
         },
         icons: {
@@ -2325,10 +2397,12 @@ function PlayPageClient() {
       });
 
       artPlayerRef.current.on('video:loadedmetadata', () => {
+        isLoadingNewStreamRef.current = false;
         detectAndApplyResolution();
       });
 
       artPlayerRef.current.on('video:canplay', () => {
+        isLoadingNewStreamRef.current = false;
         const player = artPlayerRef.current;
         if (player) {
           const duration = player.duration || 0;
@@ -2356,15 +2430,12 @@ function PlayPageClient() {
             const introTime = skipConfigRef.current.intro_time;
             if (duration === 0 || duration > introTime + 5) {
               const cur = player.currentTime || 0;
-              if (cur >= introTime - 1) {
-                hasSkippedIntroRef.current = true;
-                introSkippedByStartPosRef.current = false;
+              if (cur < introTime) {
+                lastIntroSkipAttemptRef.current = Date.now();
+                player.currentTime = introTime;
                 player.notice.show = `已自动跳过片头 (${formatTime(
                   introTime
                 )})`;
-              } else if (!player.paused) {
-                lastIntroSkipAttemptRef.current = Date.now();
-                player.currentTime = introTime;
               }
             }
           }
@@ -2408,6 +2479,7 @@ function PlayPageClient() {
       });
 
       artPlayerRef.current.on('video:timeupdate', () => {
+        if (isLoadingNewStreamRef.current) return;
         const player = artPlayerRef.current;
         if (!player) return;
 
@@ -2427,7 +2499,7 @@ function PlayPageClient() {
             remainingOutro > 0 &&
             duration > remainingOutro &&
             currentTime >= duration - remainingOutro;
-          // 若片头尚未跳过完成（仍在片头区间等待跳过），不把 0s 进度写入历史记录
+          // 若片头尚未跳过完成（仍在片头区间等待跳过），不把片头内的秒数写入历史记录
           const isWaitingIntroSkip =
             skipConfigRef.current.enable &&
             introTime > 0 &&
@@ -2442,30 +2514,32 @@ function PlayPageClient() {
         if (!skipConfigRef.current.enable) return;
         if (resumeTimeRef.current && resumeTimeRef.current > 0) return;
 
-        // 跳过片头逻辑：仅在播放状态下执行，且必须等 currentTime 真正到达 introTime 后才锁定 hasSkippedIntroRef = true
+        // 跳过片头逻辑：
+        // 1. 当 currentTime < introTime 且视频已就绪未处于 seeking 时，执行跳转到 introTime；
+        // 2. 只有当视频不处于 seeking 且正在播放（!player.paused）、真实播放进度已越过 introTime 后，才将 hasSkippedIntroRef 锁定为 true！
         if (introTime > 0 && !hasSkippedIntroRef.current) {
-          if (currentTime >= introTime - 0.5) {
-            hasSkippedIntroRef.current = true;
-            if (
-              introSkippedByStartPosRef.current ||
-              lastIntroSkipAttemptRef.current > 0
-            ) {
-              player.notice.show = `已自动跳过片头 (${formatTime(introTime)})`;
-              introSkippedByStartPosRef.current = false;
-              lastIntroSkipAttemptRef.current = 0;
-            }
-          } else if (!player.paused) {
+          if (currentTime < introTime) {
             if (
               player.video &&
               !player.video.seeking &&
-              player.video.readyState >= 2 &&
+              player.video.readyState >= 1 &&
               (duration === 0 || duration > introTime + 5)
             ) {
-              if (now - lastIntroSkipAttemptRef.current > 1200) {
+              if (now - lastIntroSkipAttemptRef.current > 800) {
                 lastIntroSkipAttemptRef.current = now;
                 player.currentTime = introTime;
+                player.notice.show = `已自动跳过片头 (${formatTime(
+                  introTime
+                )})`;
               }
             }
+          } else if (
+            currentTime >= introTime &&
+            player.video &&
+            !player.video.seeking &&
+            !player.paused
+          ) {
+            hasSkippedIntroRef.current = true;
           }
         }
 
@@ -2498,6 +2572,7 @@ function PlayPageClient() {
       });
 
       artPlayerRef.current.on('error', (_err: any) => {
+        isLoadingNewStreamRef.current = false;
         setIsVideoLoading(false);
         if (artPlayerRef.current?.currentTime > 0) return;
       });
@@ -2544,6 +2619,7 @@ function PlayPageClient() {
         });
       }
     } catch (_err) {
+      isLoadingNewStreamRef.current = false;
       setIsVideoLoading(false);
       setError('播放器初始化失败');
     }
