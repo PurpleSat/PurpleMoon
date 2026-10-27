@@ -275,12 +275,16 @@ function PlayPageClient() {
 
   const hasSkippedIntroRef = useRef(false);
   const hasSkippedOutroRef = useRef(false);
+  // 记录通过 HLS startPosition 直接跳过片头的标记与上次尝试 seek 片头的时间戳（防止重复 seek 或被重置）
+  const introSkippedByStartPosRef = useRef(false);
+  const lastIntroSkipAttemptRef = useRef<number>(0);
   // 防止跳过片尾与 video:ended 同时触发导致连跳两集
   const isSkipControllerTriggeredRef = useRef(false);
   const videoEndedHandledRef = useRef(false);
-  // 区分换集（switchUrl 并重置进度）与换源（switchQuality 保持进度）
+  // 区分换集与手动换源
   const isEpisodeChangingRef = useRef(false);
-  // 标记换集后是否需要确保自动播放
+  const isManualSourceSwitchRef = useRef(false);
+  // 标记换集/换源后是否需要确保自动播放
   const shouldAutoPlayAfterSwitchRef = useRef(false);
   // 标记正在切换源/集，防止浏览器重置倍速覆盖用户设置
   const isSourceSwitchingRef = useRef(false);
@@ -356,6 +360,8 @@ function PlayPageClient() {
   useEffect(() => {
     hasSkippedIntroRef.current = false;
     hasSkippedOutroRef.current = false;
+    introSkippedByStartPosRef.current = false;
+    lastIntroSkipAttemptRef.current = 0;
     videoEndedHandledRef.current = false;
     const timer = setTimeout(() => {
       isSkipControllerTriggeredRef.current = false;
@@ -369,6 +375,7 @@ function PlayPageClient() {
 
   const resumeTimeRef = useRef<number | null>(null);
   const historyRestoredKeyRef = useRef<string | null>(null);
+  const skipConfigLoadedKeyRef = useRef<string | null>(null);
   const lastVolumeRef = useRef<number>(0.7);
   const lastPlaybackRateRef = useRef<number>(loadPlaybackRate());
 
@@ -893,6 +900,7 @@ function PlayPageClient() {
 
     try {
       setSkipConfig(newConfig);
+      skipConfigRef.current = newConfig;
 
       if (!newConfig.enable && !newConfig.intro_time && !newConfig.outro_time) {
         await deleteSkipConfig(currentSourceRef.current, currentIdRef.current);
@@ -1167,6 +1175,38 @@ function PlayPageClient() {
         detailData = await preferBestSource(sourcesInfo);
       }
 
+      // 在播放器挂载前预先并行读取历史进度与跳过片头片尾配置，彻底消除异步竞态导致片头跳过失效
+      const storageKey = generateStorageKey(detailData.source, detailData.id);
+      const [recordsResult, skipResult] = await Promise.allSettled([
+        getAllPlayRecords(),
+        getSkipConfig(detailData.source, detailData.id),
+      ]);
+
+      let resolvedSkipConfig = { enable: false, intro_time: 0, outro_time: 0 };
+      if (skipResult.status === 'fulfilled' && skipResult.value) {
+        resolvedSkipConfig = skipResult.value;
+      }
+      skipConfigLoadedKeyRef.current = storageKey;
+      skipConfigRef.current = resolvedSkipConfig;
+      setSkipConfig(resolvedSkipConfig);
+
+      let initialEpIdx = currentEpisodeIndexRef.current;
+      if (initialEpIdx >= detailData.episodes.length) {
+        initialEpIdx = 0;
+      }
+
+      if (recordsResult.status === 'fulfilled' && recordsResult.value) {
+        historyRestoredKeyRef.current = storageKey;
+        const record = recordsResult.value[storageKey];
+        if (record) {
+          const targetIdx = Math.max(0, record.index - 1);
+          if (targetIdx < detailData.episodes.length) {
+            initialEpIdx = targetIdx;
+          }
+          resumeTimeRef.current = record.play_time;
+        }
+      }
+
       setNeedPrefer(false);
       setCurrentSource(detailData.source);
       setCurrentId(detailData.id);
@@ -1175,22 +1215,20 @@ function PlayPageClient() {
       setVideoCover(detailData.poster);
       setVideoDoubanId(detailData.douban_id || 0);
       setDetail(detailData);
-
-      if (currentEpisodeIndexRef.current >= detailData.episodes.length) {
-        setCurrentEpisodeIndex(0);
-      }
+      setCurrentEpisodeIndex(initialEpIdx);
 
       const newUrl = new URL(window.location.href);
       newUrl.searchParams.set('source', detailData.source);
       newUrl.searchParams.set('id', detailData.id);
       newUrl.searchParams.set('year', detailData.year);
       newUrl.searchParams.set('title', detailData.title);
+      newUrl.searchParams.set('index', String(initialEpIdx + 1));
       newUrl.searchParams.delete('prefer');
       window.history.replaceState({}, '', newUrl.toString());
 
       setLoadingStage('ready');
       setLoadingMessage('🔅 准备就绪，即将开始播放...');
-      setTimeout(() => setLoading(false), 600);
+      setTimeout(() => setLoading(false), 300);
     };
 
     initAll();
@@ -1244,13 +1282,18 @@ function PlayPageClient() {
   useEffect(() => {
     const initSkipConfig = async () => {
       if (!currentSource || !currentId) return;
+      const key = generateStorageKey(currentSource, currentId);
+      if (skipConfigLoadedKeyRef.current === key) return;
+      skipConfigLoadedKeyRef.current = key;
       try {
         const config = await getSkipConfig(currentSource, currentId);
-        if (config) {
-          setSkipConfig(config);
-        } else {
-          setSkipConfig({ enable: false, intro_time: 0, outro_time: 0 });
-        }
+        const resolved = config || {
+          enable: false,
+          intro_time: 0,
+          outro_time: 0,
+        };
+        skipConfigRef.current = resolved;
+        setSkipConfig(resolved);
       } catch (_err) {
         console.debug('读取云端跳过配置失败');
       }
@@ -1289,24 +1332,13 @@ function PlayPageClient() {
       setVideoLoadingStage('sourceChanging');
       setIsVideoLoading(true);
       isEpisodeChangingRef.current = false;
+      isManualSourceSwitchRef.current = true;
+      shouldAutoPlayAfterSwitchRef.current = true;
 
       const currentPlayTime = artPlayerRef.current?.currentTime || 0;
-
-      if (currentSourceRef.current && currentIdRef.current) {
-        try {
-          await deletePlayRecord(
-            currentSourceRef.current,
-            currentIdRef.current
-          );
-          await deleteSkipConfig(
-            currentSourceRef.current,
-            currentIdRef.current
-          );
-          await saveSkipConfig(newSource, newId, skipConfigRef.current);
-        } catch (_err) {
-          console.debug('清除旧源数据记录失败');
-        }
-      }
+      const oldSource = currentSourceRef.current;
+      const oldId = currentIdRef.current;
+      const currentSkipCfg = skipConfigRef.current;
 
       const newDetail = availableSources.find(
         (s) => s.source === newSource && s.id === newId
@@ -1324,11 +1356,11 @@ function PlayPageClient() {
 
       if (targetIndex !== currentEpisodeIndex) {
         resumeTimeRef.current = 0;
-      } else if (
-        (!resumeTimeRef.current || resumeTimeRef.current === 0) &&
-        currentPlayTime > 1
-      ) {
+        hasSkippedIntroRef.current = false;
+      } else if (currentPlayTime > 1) {
         resumeTimeRef.current = currentPlayTime;
+        // 换源时保持当前实际播放进度，避免触发片头跳过导致进度突变
+        hasSkippedIntroRef.current = true;
         try {
           sessionStorage.setItem(
             `temp_progress_${newSource}_${newId}_${targetIndex}`,
@@ -1339,8 +1371,21 @@ function PlayPageClient() {
         }
       }
 
-      // 标记新源由换源逻辑接管进度，不再被 initFromHistory 覆盖
-      historyRestoredKeyRef.current = generateStorageKey(newSource, newId);
+      // 标记新源由换源逻辑接管进度与跳过配置，避免 initFromHistory / initSkipConfig 重复请求和重渲染导致卡顿
+      const newStorageKey = generateStorageKey(newSource, newId);
+      historyRestoredKeyRef.current = newStorageKey;
+      skipConfigLoadedKeyRef.current = newStorageKey;
+
+      // 后台异步清理旧源记录并迁移跳过配置，不阻塞视频流切换
+      if (oldSource && oldId) {
+        Promise.allSettled([
+          deletePlayRecord(oldSource, oldId),
+          deleteSkipConfig(oldSource, oldId),
+          saveSkipConfig(newSource, newId, currentSkipCfg),
+        ]).catch(() => {
+          console.debug('后台迁移源记录失败');
+        });
+      }
 
       const newUrl = new URL(window.location.href);
       newUrl.searchParams.set('source', newSource);
@@ -1385,7 +1430,12 @@ function PlayPageClient() {
         saveCurrentPlayProgress();
       }
       isEpisodeChangingRef.current = true;
+      isManualSourceSwitchRef.current = false;
       shouldAutoPlayAfterSwitchRef.current = true;
+      hasSkippedIntroRef.current = false;
+      hasSkippedOutroRef.current = false;
+      introSkippedByStartPosRef.current = false;
+      lastIntroSkipAttemptRef.current = 0;
       resumeTimeRef.current = null;
       setCurrentEpisodeIndex(episodeNumber);
       syncEpisodeIndexToUrl(episodeNumber);
@@ -1401,7 +1451,12 @@ function PlayPageClient() {
       }
       const nextIdx = idx - 1;
       isEpisodeChangingRef.current = true;
+      isManualSourceSwitchRef.current = false;
       shouldAutoPlayAfterSwitchRef.current = true;
+      hasSkippedIntroRef.current = false;
+      hasSkippedOutroRef.current = false;
+      introSkippedByStartPosRef.current = false;
+      lastIntroSkipAttemptRef.current = 0;
       resumeTimeRef.current = null;
       setCurrentEpisodeIndex(nextIdx);
       syncEpisodeIndexToUrl(nextIdx);
@@ -1417,7 +1472,12 @@ function PlayPageClient() {
       }
       const nextIdx = idx + 1;
       isEpisodeChangingRef.current = true;
+      isManualSourceSwitchRef.current = false;
       shouldAutoPlayAfterSwitchRef.current = true;
+      hasSkippedIntroRef.current = false;
+      hasSkippedOutroRef.current = false;
+      introSkippedByStartPosRef.current = false;
+      lastIntroSkipAttemptRef.current = 0;
       resumeTimeRef.current = null;
       setCurrentEpisodeIndex(nextIdx);
       syncEpisodeIndexToUrl(nextIdx);
@@ -1629,11 +1689,15 @@ function PlayPageClient() {
       return;
     }
 
-    // 核心改进：如果播放器实例已存在，直接复用当前实例切换 URL，
+    // 核心改进：如果播放器实例已存在，直接复用当前实例原位切换 URL，
     // 绝不销毁重建 DOM，从而在手机端重力感应横屏全屏（fullscreen / fullscreenWeb）时
     // 自动跳过片尾或连播下一集无需退出全屏或横屏状态！
+    // 同时统一使用 switchUrl 配合 HLS startPosition，禁止在 switchUrl.then 中重置 currentTime = 0，
+    // 彻底避免“跳到片头时间后点播放又回退到 0m0s”以及“switchQuality 重复 seek 导致换源卡顿”。
     if (artPlayerRef.current && !loading) {
-      setIsVideoLoading(false);
+      if (isEpisodeChangingRef.current) {
+        setIsVideoLoading(false);
+      }
 
       const newType = getArtPlayerType(videoUrl);
       if (artPlayerRef.current.option) {
@@ -1646,81 +1710,43 @@ function PlayPageClient() {
 
       isSourceSwitchingRef.current = true;
 
-      if (isEpisodeChangingRef.current) {
-        artPlayerRef.current
-          .switchUrl(videoUrl)
-          .then(() => {
-            isEpisodeChangingRef.current = false;
-            if (artPlayerRef.current) {
-              artPlayerRef.current.currentTime = 0;
-              artPlayerRef.current.title = `${videoTitle} - 第${
-                currentEpisodeIndex + 1
-              }集`;
-              artPlayerRef.current.poster = videoCover;
-              if (artPlayerRef.current.video) {
-                ensureVideoSource(
-                  artPlayerRef.current.video as HTMLVideoElement,
-                  videoUrl
-                );
-              }
-              if (Math.abs(currentPlaybackRate - 1.0) > 0.01) {
-                artPlayerRef.current.playbackRate = currentPlaybackRate;
-              }
-              if (artPlayerRef.current.paused) {
-                artPlayerRef.current.play().catch(() => {
-                  // ignore autoplay restriction if any, video:canplay will retry
-                });
-              }
+      artPlayerRef.current
+        .switchUrl(videoUrl)
+        .then(() => {
+          isEpisodeChangingRef.current = false;
+          if (artPlayerRef.current) {
+            artPlayerRef.current.title = `${videoTitle} - 第${
+              currentEpisodeIndex + 1
+            }集`;
+            artPlayerRef.current.poster = videoCover;
+            if (artPlayerRef.current.video) {
+              ensureVideoSource(
+                artPlayerRef.current.video as HTMLVideoElement,
+                videoUrl
+              );
             }
-            setTimeout(() => {
-              isSourceSwitchingRef.current = false;
-            }, 250);
-          })
-          .catch((err: any) => {
-            console.warn('switchUrl 切换异常，回退到 switch:', err);
-            isEpisodeChangingRef.current = false;
+            if (Math.abs(currentPlaybackRate - 1.0) > 0.01) {
+              artPlayerRef.current.playbackRate = currentPlaybackRate;
+            }
+            if (artPlayerRef.current.paused) {
+              artPlayerRef.current.play().catch(() => {
+                // ignore autoplay restriction if any, video:canplay will retry
+              });
+            }
+          }
+          setTimeout(() => {
             isSourceSwitchingRef.current = false;
-            if (artPlayerRef.current) {
-              artPlayerRef.current.switch = videoUrl;
-              artPlayerRef.current.currentTime = 0;
-            }
-          });
-      } else {
-        artPlayerRef.current
-          .switchQuality(videoUrl)
-          .then(() => {
-            if (artPlayerRef.current) {
-              artPlayerRef.current.title = `${videoTitle} - 第${
-                currentEpisodeIndex + 1
-              }集`;
-              artPlayerRef.current.poster = videoCover;
-              if (artPlayerRef.current.video) {
-                ensureVideoSource(
-                  artPlayerRef.current.video as HTMLVideoElement,
-                  videoUrl
-                );
-              }
-              if (Math.abs(currentPlaybackRate - 1.0) > 0.01) {
-                artPlayerRef.current.playbackRate = currentPlaybackRate;
-              }
-              if (artPlayerRef.current.paused) {
-                artPlayerRef.current.play().catch(() => {
-                  // ignore
-                });
-              }
-            }
-            setTimeout(() => {
-              isSourceSwitchingRef.current = false;
-            }, 250);
-          })
-          .catch((err: any) => {
-            console.warn('switchQuality 切换异常，回退到 switchUrl:', err);
-            isSourceSwitchingRef.current = false;
-            if (artPlayerRef.current) {
-              artPlayerRef.current.switchUrl(videoUrl);
-            }
-          });
-      }
+          }, 250);
+        })
+        .catch((err: any) => {
+          console.warn('switchUrl 切换异常，回退到 switch:', err);
+          isEpisodeChangingRef.current = false;
+          isSourceSwitchingRef.current = false;
+          setIsVideoLoading(false);
+          if (artPlayerRef.current) {
+            artPlayerRef.current.switch = videoUrl;
+          }
+        });
       return;
     }
 
@@ -1833,6 +1859,8 @@ function PlayPageClient() {
             if (!Hls) return;
             if (video.hls) {
               try {
+                video.hls.stopLoad();
+                video.hls.detachMedia();
                 video.hls.destroy();
               } catch {
                 // ignore
@@ -1840,10 +1868,37 @@ function PlayPageClient() {
             }
             if (art?.hls && art.hls !== video.hls) {
               try {
+                art.hls.stopLoad();
+                art.hls.detachMedia();
                 art.hls.destroy();
               } catch {
                 // ignore
               }
+            }
+
+            // 计算 HLS 初始加载位置（startPosition）：
+            // 1. 手动换源时直接从换源前记录的秒数开始请求分片，避免先加载 0m0s 再二次 seek 导致卡顿；
+            // 2. 开启跳过片头且无大于片头时间的历史记录时，直接从 intro_time 开始请求分片，一步到位跳过片头！
+            const resumePos =
+              resumeTimeRef.current && resumeTimeRef.current > 1
+                ? resumeTimeRef.current
+                : 0;
+            const introPos =
+              skipConfigRef.current.enable &&
+              skipConfigRef.current.intro_time > 0 &&
+              !hasSkippedIntroRef.current
+                ? skipConfigRef.current.intro_time
+                : 0;
+
+            let startPos = -1;
+            if (isManualSourceSwitchRef.current && resumePos > 0) {
+              startPos = Math.floor(resumePos);
+            } else if (introPos > 0 && resumePos < introPos) {
+              startPos = Math.floor(introPos);
+              resumeTimeRef.current = null;
+              introSkippedByStartPosRef.current = true;
+            } else if (resumePos > 0) {
+              startPos = Math.floor(resumePos);
             }
 
             if (Hls.isSupported()) {
@@ -1853,6 +1908,7 @@ function PlayPageClient() {
                 enableWorker: !isIOSGlobal,
                 preferManagedMediaSource: true,
                 lowLatencyMode: false,
+                startPosition: startPos,
                 maxBufferLength: isMobile ? 30 : 60,
                 maxMaxBufferLength: isMobile ? 60 : 120,
                 backBufferLength: isMobile ? 15 : 30,
@@ -2014,6 +2070,7 @@ function PlayPageClient() {
             onClick: function () {
               const currentTime = artPlayerRef.current?.currentTime || 0;
               if (currentTime > 0) {
+                hasSkippedIntroRef.current = true;
                 handleSkipConfigChange({
                   ...skipConfigRef.current,
                   intro_time: currentTime,
@@ -2139,7 +2196,7 @@ function PlayPageClient() {
         }, 3000);
       };
 
-      // 检测并更新真实视频分辨率
+      // 检测并更新真实视频分辨率（仅当分辨率变化时更新 state，避免 canplay 时触发无谓重渲染导致卡顿）
       const detectAndApplyResolution = () => {
         const videoEl = artPlayerRef.current?.video as
           | HTMLVideoElement
@@ -2150,15 +2207,20 @@ function PlayPageClient() {
           videoEl.videoHeight
         );
         if (label) {
-          setDetectedResolution(label);
-          detectedResolutionRef.current = label;
+          if (detectedResolutionRef.current !== label) {
+            detectedResolutionRef.current = label;
+            setDetectedResolution(label);
+          }
           showResolutionBadgeTemporarily();
 
           if (currentSourceRef.current && currentIdRef.current) {
             const sourceKey = `${currentSourceRef.current}-${currentIdRef.current}`;
             setPrecomputedVideoInfo((prev) => {
+              const existing = prev.get(sourceKey);
+              if (existing && existing.quality === label) {
+                return prev;
+              }
               const next = new Map(prev);
-              const existing = next.get(sourceKey);
               next.set(sourceKey, {
                 quality: label,
                 loadSpeed: existing?.loadSpeed || '未知',
@@ -2267,19 +2329,46 @@ function PlayPageClient() {
       });
 
       artPlayerRef.current.on('video:canplay', () => {
-        if (resumeTimeRef.current && resumeTimeRef.current > 0) {
-          try {
-            const duration = artPlayerRef.current.duration || 0;
-            let target = resumeTimeRef.current;
-            if (duration && target >= duration - 2) {
-              target = Math.max(0, duration - 5);
+        const player = artPlayerRef.current;
+        if (player) {
+          const duration = player.duration || 0;
+
+          if (resumeTimeRef.current && resumeTimeRef.current > 0) {
+            try {
+              let target = resumeTimeRef.current;
+              if (duration && target >= duration - 2) {
+                target = Math.max(0, duration - 5);
+              }
+              // 若 HLS startPosition 已经将播放位置定位在目标时间附近，不再发起冗余 seek，消除换源加载后的二次缓冲卡顿
+              if (Math.abs((player.currentTime || 0) - target) > 2.5) {
+                player.currentTime = target;
+              }
+            } catch (_err) {
+              console.debug('恢复播放进度失败');
             }
-            artPlayerRef.current.currentTime = target;
-          } catch (_err) {
-            console.debug('恢复播放进度失败');
+            resumeTimeRef.current = null;
+            isManualSourceSwitchRef.current = false;
+          } else if (
+            skipConfigRef.current.enable &&
+            skipConfigRef.current.intro_time > 0 &&
+            !hasSkippedIntroRef.current
+          ) {
+            const introTime = skipConfigRef.current.intro_time;
+            if (duration === 0 || duration > introTime + 5) {
+              const cur = player.currentTime || 0;
+              if (cur >= introTime - 1) {
+                hasSkippedIntroRef.current = true;
+                introSkippedByStartPosRef.current = false;
+                player.notice.show = `已自动跳过片头 (${formatTime(
+                  introTime
+                )})`;
+              } else if (!player.paused) {
+                lastIntroSkipAttemptRef.current = Date.now();
+                player.currentTime = introTime;
+              }
+            }
           }
         }
-        resumeTimeRef.current = null;
 
         setTimeout(() => {
           if (
@@ -2303,7 +2392,7 @@ function PlayPageClient() {
           if (vEl && vEl.style.objectFit !== currentFit) {
             vEl.style.objectFit = currentFit;
           }
-          // 若是自动跳过片尾或选集触发的切换，确保在新集可播放时自动开始播放
+          // 若是自动跳过片尾、选集或换源触发的切换，确保在新流可播放时自动开始播放
           if (shouldAutoPlayAfterSwitchRef.current && artPlayerRef.current) {
             shouldAutoPlayAfterSwitchRef.current = false;
             if (artPlayerRef.current.paused) {
@@ -2338,7 +2427,13 @@ function PlayPageClient() {
             remainingOutro > 0 &&
             duration > remainingOutro &&
             currentTime >= duration - remainingOutro;
-          if (!isInOutroZone) {
+          // 若片头尚未跳过完成（仍在片头区间等待跳过），不把 0s 进度写入历史记录
+          const isWaitingIntroSkip =
+            skipConfigRef.current.enable &&
+            introTime > 0 &&
+            !hasSkippedIntroRef.current &&
+            currentTime < introTime;
+          if (!isInOutroZone && !isWaitingIntroSkip) {
             saveCurrentPlayProgress();
             lastSaveTimeRef.current = now;
           }
@@ -2347,19 +2442,30 @@ function PlayPageClient() {
         if (!skipConfigRef.current.enable) return;
         if (resumeTimeRef.current && resumeTimeRef.current > 0) return;
 
-        if (introTime > 0) {
-          if (currentTime < introTime && !hasSkippedIntroRef.current) {
+        // 跳过片头逻辑：仅在播放状态下执行，且必须等 currentTime 真正到达 introTime 后才锁定 hasSkippedIntroRef = true
+        if (introTime > 0 && !hasSkippedIntroRef.current) {
+          if (currentTime >= introTime - 0.5) {
+            hasSkippedIntroRef.current = true;
+            if (
+              introSkippedByStartPosRef.current ||
+              lastIntroSkipAttemptRef.current > 0
+            ) {
+              player.notice.show = `已自动跳过片头 (${formatTime(introTime)})`;
+              introSkippedByStartPosRef.current = false;
+              lastIntroSkipAttemptRef.current = 0;
+            }
+          } else if (!player.paused) {
             if (
               player.video &&
               !player.video.seeking &&
-              player.video.readyState >= 1
+              player.video.readyState >= 2 &&
+              (duration === 0 || duration > introTime + 5)
             ) {
-              hasSkippedIntroRef.current = true;
-              player.currentTime = introTime;
-              player.notice.show = `已自动跳过片头 (${formatTime(introTime)})`;
+              if (now - lastIntroSkipAttemptRef.current > 1200) {
+                lastIntroSkipAttemptRef.current = now;
+                player.currentTime = introTime;
+              }
             }
-          } else if (currentTime >= introTime && !hasSkippedIntroRef.current) {
-            hasSkippedIntroRef.current = true;
           }
         }
 

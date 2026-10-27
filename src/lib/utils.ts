@@ -116,20 +116,43 @@ export async function getVideoResolutionFromM3u8(
           pingTime = performance.now() - pingStart; // 记录到失败为止的时间
         });
 
-      // 固定使用hls.js加载
-      const hls = new Hls();
+      // 限制后台测速 HLS 实例的缓冲大小，避免抢占主播放器带宽与解码器资源
+      const hls = new Hls({
+        enableWorker: true,
+        maxBufferLength: 3,
+        maxMaxBufferLength: 5,
+        maxBufferSize: 2 * 1000 * 1000,
+      });
+
+      let cleaned = false;
+      const cleanup = () => {
+        if (cleaned) return;
+        cleaned = true;
+        try {
+          hls.stopLoad();
+          hls.detachMedia();
+          hls.destroy();
+        } catch {
+          // ignore
+        }
+        try {
+          video.removeAttribute('src');
+          video.load();
+          video.remove();
+        } catch {
+          // ignore
+        }
+      };
 
       // 设置超时处理
       const timeout = setTimeout(() => {
-        hls.destroy();
-        video.remove();
+        cleanup();
         reject(new Error('Timeout loading video metadata'));
       }, 4000);
 
       video.onerror = () => {
         clearTimeout(timeout);
-        hls.destroy();
-        video.remove();
+        cleanup();
         reject(new Error('Failed to load video metadata'));
       };
 
@@ -147,10 +170,8 @@ export async function getVideoResolutionFromM3u8(
         ) {
           clearTimeout(timeout);
           const width = video.videoWidth;
+          cleanup();
           if (width && width > 0) {
-            hls.destroy();
-            video.remove();
-
             // 根据视频宽度判断视频质量等级，使用经典分辨率的宽度作为分割点
             const quality =
               width >= 3840
@@ -172,8 +193,6 @@ export async function getVideoResolutionFromM3u8(
             });
           } else {
             // webkit 无法获取尺寸，直接返回
-            hls.destroy();
-            video.remove();
             resolve({
               quality: '未知',
               loadSpeed: actualLoadSpeed,
@@ -188,8 +207,8 @@ export async function getVideoResolutionFromM3u8(
         fragmentStartTime = performance.now();
       });
 
-      // 监听片段加载完成，只需首个分片即可计算速度
-      hls.on(Hls.Events.FRAG_LOADED, (event: any, data: any) => {
+      // 监听片段加载完成，只需首个分片即可计算速度并立即停止后续分片下载
+      hls.on(Hls.Events.FRAG_LOADED, (_event: any, data: any) => {
         if (
           fragmentStartTime > 0 &&
           data &&
@@ -201,8 +220,6 @@ export async function getVideoResolutionFromM3u8(
 
           if (loadTime > 0 && size > 0) {
             const speedKBps = size / 1024 / (loadTime / 1000);
-
-            // 立即计算速度，无需等待更多分片
             const avgSpeedKBps = speedKBps;
 
             if (avgSpeedKBps >= 1024) {
@@ -211,6 +228,11 @@ export async function getVideoResolutionFromM3u8(
               actualLoadSpeed = `${avgSpeedKBps.toFixed(1)} KB/s`;
             }
             hasSpeedCalculated = true;
+            try {
+              hls.stopLoad();
+            } catch {
+              // ignore
+            }
             checkAndResolve(); // 尝试返回结果
           }
         }
@@ -220,12 +242,11 @@ export async function getVideoResolutionFromM3u8(
       hls.attachMedia(video);
 
       // 监听hls.js错误
-      hls.on(Hls.Events.ERROR, (event: any, data: any) => {
+      hls.on(Hls.Events.ERROR, (_event: any, data: any) => {
         console.error('HLS错误:', data);
         if (data.fatal) {
           clearTimeout(timeout);
-          hls.destroy();
-          video.remove();
+          cleanup();
           reject(new Error(`HLS播放失败: ${data.type}`));
         }
       });

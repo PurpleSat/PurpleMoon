@@ -188,8 +188,21 @@ const EpisodeSelector: React.FC<EpisodeSelectorProps> = ({
     return true;
   });
 
-  // 当切换到换源tab并且有源数据时，异步获取视频信息 - 移除 attemptedSources 依赖避免循环触发
+  const isSwitchingSourceRef = useRef(false);
+  const switchPauseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   useEffect(() => {
+    return () => {
+      if (switchPauseTimerRef.current) {
+        clearTimeout(switchPauseTimerRef.current);
+      }
+    };
+  }, []);
+
+  // 当切换到换源tab并且有源数据时，异步小批量获取视频信息，避免大并发测速抢占主播放器带宽导致换源卡顿
+  useEffect(() => {
+    let cancelled = false;
+
     const fetchVideoInfosInBatches = async () => {
       if (
         !optimizationEnabled || // 若关闭测速则直接退出
@@ -206,16 +219,23 @@ const EpisodeSelector: React.FC<EpisodeSelectorProps> = ({
 
       if (pendingSources.length === 0) return;
 
-      const batchSize = Math.ceil(pendingSources.length / 2);
+      const batchSize = 2;
 
       for (let start = 0; start < pendingSources.length; start += batchSize) {
+        if (cancelled) break;
+        while (isSwitchingSourceRef.current && !cancelled) {
+          await new Promise((r) => setTimeout(r, 300));
+        }
+        if (cancelled) break;
         const batch = pendingSources.slice(start, start + batchSize);
         await Promise.all(batch.map(getVideoInfo));
       }
     };
 
     fetchVideoInfosInBatches();
-    // 依赖项保持与之前一致
+    return () => {
+      cancelled = true;
+    };
   }, [activeTab, availableSources, getVideoInfo, optimizationEnabled]);
 
   // 升序分页标签
@@ -337,6 +357,13 @@ const EpisodeSelector: React.FC<EpisodeSelectorProps> = ({
 
   const handleSourceClick = useCallback(
     (source: SearchResult) => {
+      isSwitchingSourceRef.current = true;
+      if (switchPauseTimerRef.current) {
+        clearTimeout(switchPauseTimerRef.current);
+      }
+      switchPauseTimerRef.current = setTimeout(() => {
+        isSwitchingSourceRef.current = false;
+      }, 3500);
       onSourceChange?.(source.source, source.id, source.title);
     },
     [onSourceChange]
