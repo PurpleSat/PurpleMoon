@@ -2,6 +2,28 @@
 
 import Hls from 'hls.js';
 
+export interface VideoSourceTestResult {
+  quality: string; // 如720p、1080p等
+  loadSpeed: string; // 自动转换为KB/s或MB/s
+  pingTime: number; // 网络延迟（毫秒）
+  hasError?: boolean;
+}
+
+/**
+ * 根据视频 URL 推断 Artplayer 播放类型
+ */
+export function getArtPlayerType(url: string): string {
+  if (!url) return 'm3u8';
+  const cleanUrl = url.split('?')[0].split('#')[0].toLowerCase();
+  if (cleanUrl.endsWith('.mp4')) return 'mp4';
+  if (cleanUrl.endsWith('.flv')) return 'flv';
+  if (cleanUrl.endsWith('.webm')) return 'webm';
+  if (cleanUrl.endsWith('.ogg')) return 'ogg';
+  if (cleanUrl.endsWith('.mkv')) return 'mkv';
+  if (cleanUrl.includes('.m3u8')) return 'm3u8';
+  return 'm3u8';
+}
+
 function sanitizeImageProxyUrl(url: string | null | undefined): string | null {
   if (!url) return null;
   const trimmed = url.trim();
@@ -71,11 +93,9 @@ export function cleanHtmlTags(text: string): string {
  * @param m3u8Url m3u8播放列表的URL
  * @returns Promise<{quality: string, loadSpeed: string, pingTime: number}> 视频质量等级和网络信息
  */
-export async function getVideoResolutionFromM3u8(m3u8Url: string): Promise<{
-  quality: string; // 如720p、1080p等
-  loadSpeed: string; // 自动转换为KB/s或MB/s
-  pingTime: number; // 网络延迟（毫秒）
-}> {
+export async function getVideoResolutionFromM3u8(
+  m3u8Url: string
+): Promise<VideoSourceTestResult> {
   try {
     // 直接使用m3u8 URL作为视频源，避免CORS问题
     return new Promise((resolve, reject) => {
@@ -152,6 +172,8 @@ export async function getVideoResolutionFromM3u8(m3u8Url: string): Promise<{
             });
           } else {
             // webkit 无法获取尺寸，直接返回
+            hls.destroy();
+            video.remove();
             resolve({
               quality: '未知',
               loadSpeed: actualLoadSpeed,
@@ -229,8 +251,10 @@ export async function getVideoResolutionFromM3u8(m3u8Url: string): Promise<{
  * @param fallback 默认回跳地址（必须是安全的相对路径，默认 '/'）
  * @returns 安全的同源相对路径
  */
-// 【核心修复】：移除了 fallback 的显式 : string 声明
-export function getSafeRedirectUrl(url: string | null | undefined, fallback = '/'): string {
+export function getSafeRedirectUrl(
+  url: string | null | undefined,
+  fallback = '/'
+): string {
   if (!url || typeof url !== 'string') return fallback;
 
   // 1. 拒绝任何控制字符（含 TAB/CR/LF）和反斜杠：
