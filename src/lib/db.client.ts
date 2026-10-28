@@ -92,6 +92,10 @@ const SEARCH_HISTORY_LIMIT = 20;
 // ---- 缓存管理器 ----
 class HybridCacheManager {
   private static instance: HybridCacheManager;
+  private memoryStore = new Map<
+    string,
+    { raw: string; parsed: UserCacheStore }
+  >();
 
   static getInstance(): HybridCacheManager {
     if (!HybridCacheManager.instance) {
@@ -116,7 +120,7 @@ class HybridCacheManager {
   }
 
   /**
-   * 获取用户缓存数据
+   * 获取用户缓存数据（带内存级反序列化镜像，避免高频重复 JSON.parse）
    */
   private getUserCache(username: string): UserCacheStore {
     if (typeof window === 'undefined') return {};
@@ -124,7 +128,17 @@ class HybridCacheManager {
     try {
       const cacheKey = this.getUserCacheKey(username);
       const cached = localStorage.getItem(cacheKey);
-      return cached ? JSON.parse(cached) : {};
+      if (!cached) {
+        this.memoryStore.delete(cacheKey);
+        return {};
+      }
+      const mem = this.memoryStore.get(cacheKey);
+      if (mem && mem.raw === cached) {
+        return mem.parsed;
+      }
+      const parsed = JSON.parse(cached) as UserCacheStore;
+      this.memoryStore.set(cacheKey, { raw: cached, parsed });
+      return parsed;
     } catch (error) {
       console.warn('获取用户缓存失败:', error);
       return {};
@@ -139,14 +153,15 @@ class HybridCacheManager {
 
     try {
       let serialized = JSON.stringify(cache);
-      if (serialized.length > 15 * 1024 * 1024) {
-        console.warn('缓存过大，清理旧数据');
+      if (serialized.length > 3.5 * 1024 * 1024) {
+        console.warn('缓存接近浏览器 localStorage 配额上限，清理旧数据');
         this.cleanOldCache(cache);
         serialized = JSON.stringify(cache);
       }
 
       const cacheKey = this.getUserCacheKey(username);
       localStorage.setItem(cacheKey, serialized);
+      this.memoryStore.set(cacheKey, { raw: serialized, parsed: cache });
     } catch (error) {
       console.warn('保存用户缓存失败:', error);
       if (
@@ -156,7 +171,9 @@ class HybridCacheManager {
         this.clearAllCache();
         try {
           const cacheKey = this.getUserCacheKey(username);
-          localStorage.setItem(cacheKey, JSON.stringify(cache));
+          const serialized = JSON.stringify(cache);
+          localStorage.setItem(cacheKey, serialized);
+          this.memoryStore.set(cacheKey, { raw: serialized, parsed: cache });
         } catch (retryError) {
           console.error('重试保存缓存仍然失败:', retryError);
         }
@@ -184,6 +201,7 @@ class HybridCacheManager {
    * 清理所有缓存
    */
   private clearAllCache(): void {
+    this.memoryStore.clear();
     const keys = Object.keys(localStorage);
     keys.forEach((key) => {
       if (key.startsWith('moontv_cache_')) {
@@ -339,6 +357,7 @@ class HybridCacheManager {
 
     try {
       const cacheKey = this.getUserCacheKey(targetUsername);
+      this.memoryStore.delete(cacheKey);
       localStorage.removeItem(cacheKey);
     } catch (error) {
       console.warn('清除用户缓存失败:', error);
@@ -375,7 +394,10 @@ class HybridCacheManager {
         }
       }
 
-      keysToRemove.forEach((key) => localStorage.removeItem(key));
+      keysToRemove.forEach((key) => {
+        this.memoryStore.delete(key);
+        localStorage.removeItem(key);
+      });
     } catch (error) {
       console.warn('清除过期缓存失败:', error);
     }

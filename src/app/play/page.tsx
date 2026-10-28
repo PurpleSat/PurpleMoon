@@ -630,6 +630,8 @@ function PlayPageClient() {
     if (newUrl !== videoUrl) {
       setVideoUrl(newUrl);
     } else {
+      isLoadingNewStreamRef.current = false;
+      isEpisodeChangingRef.current = false;
       setIsVideoLoading(false);
     }
   };
@@ -1008,18 +1010,8 @@ function PlayPageClient() {
         const allRawResults: SearchResult[] = [];
         const seenKeys = new Set<string>();
 
-        for (let i = 0; i < searchQueries.length; i++) {
-          const q = searchQueries[i];
-          if (!q) continue;
-          const response = await fetch(
-            `/api/search?q=${encodeURIComponent(q)}`
-          );
-          if (!response.ok) {
-            if (i === 0) throw new Error('搜索失败');
-            continue;
-          }
-          const data = await response.json();
-          const list = Array.isArray(data.results) ? data.results : [];
+        const appendResults = (list: unknown) => {
+          if (!Array.isArray(list)) return;
           for (const item of list) {
             const key = `${item.source}-${item.id}`;
             if (!seenKeys.has(key)) {
@@ -1027,14 +1019,43 @@ function PlayPageClient() {
               allRawResults.push(item);
             }
           }
-          // 如果首个主查询已经命中精确标题，无需继续发额外变体请求
-          const targetNorm = videoTitleRef.current
-            .replaceAll(' ', '')
-            .toLowerCase();
-          const hasExactInFirst = allRawResults.some(
-            (r) => r.title.replaceAll(' ', '').toLowerCase() === targetNorm
+        };
+
+        const primaryQuery = searchQueries[0];
+        if (primaryQuery) {
+          const response = await fetch(
+            `/api/search?q=${encodeURIComponent(primaryQuery)}`
           );
-          if (hasExactInFirst) break;
+          if (!response.ok) {
+            throw new Error('搜索失败');
+          }
+          const data = await response.json();
+          appendResults(data.results);
+        }
+
+        const targetNorm = (videoTitleRef.current || query)
+          .replaceAll(' ', '')
+          .toLowerCase();
+        const hasExactInFirst = allRawResults.some(
+          (r) => r.title.replaceAll(' ', '').toLowerCase() === targetNorm
+        );
+
+        // 若首个主查询未命中精确标题，最多取 2 个高优先级变体并发补偿查询，避免串行等待与触发频控
+        if (!hasExactInFirst && searchQueries.length > 1) {
+          const extraQueries = searchQueries.slice(1, 3).filter(Boolean);
+          const extraResponses = await Promise.allSettled(
+            extraQueries.map(async (q) => {
+              const res = await fetch(`/api/search?q=${encodeURIComponent(q)}`);
+              if (!res.ok) return [];
+              const d = await res.json();
+              return Array.isArray(d.results) ? d.results : [];
+            })
+          );
+          for (const settled of extraResponses) {
+            if (settled.status === 'fulfilled') {
+              appendResults(settled.value);
+            }
+          }
         }
 
         const targetTitleNorm = (videoTitleRef.current || query)
@@ -1841,7 +1862,7 @@ function PlayPageClient() {
         layers: [
           {
             name: 'fullscreen-title',
-            html: `<div class="fullscreen-title-text" style="padding: 8px 14px; border-radius: 8px; background: rgba(0, 0, 0, 0.72); color: #ffffff; font-size: 14px; font-weight: 600; max-width: 70vw; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${initialFullTitle}</div>`,
+            html: `<div class="fullscreen-title-text" style="padding: 8px 14px; border-radius: 8px; background: rgba(0, 0, 0, 0.72); color: #ffffff; font-size: 14px; font-weight: 600; max-width: 70vw; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;"></div>`,
             style: {
               position: 'absolute',
               top: '16px',
@@ -2174,6 +2195,13 @@ function PlayPageClient() {
 
       artPlayerRef.current.on('ready', () => {
         setError(null);
+        const rootEl = getPlayerRoot();
+        const initTitleEl = rootEl?.querySelector(
+          '.art-layer-fullscreen-title .fullscreen-title-text'
+        ) as HTMLElement | null;
+        if (initTitleEl) {
+          initTitleEl.textContent = initialFullTitle;
+        }
         const vEl = artPlayerRef.current?.video as HTMLVideoElement | undefined;
         if (vEl && savedFit) {
           vEl.style.objectFit = savedFit;
@@ -2488,7 +2516,7 @@ function PlayPageClient() {
                   {loadingStage === 'searching' && '🔍'}
                   {loadingStage === 'preferring' && '⚡'}
                   {loadingStage === 'fetching' && '🎬'}
-                  {loadingStage === 'ready' && '✨'}
+                  {loadingStage === 'ready' && '🔅'}
                 </div>
                 <div className='absolute -inset-2 bg-gradient-to-r from-green-500 to-emerald-600 rounded-2xl opacity-20 animate-spin'></div>
               </div>
@@ -2706,7 +2734,7 @@ function PlayPageClient() {
                     <div className='text-center max-w-md mx-auto px-6'>
                       <div className='relative mb-8'>
                         <div className='relative mx-auto w-24 h-24 bg-gradient-to-r from-green-500 to-emerald-600 rounded-2xl shadow-2xl flex items-center justify-center transform hover:scale-105 transition-transform duration-300'>
-                          <div className='text-white text-4xl'>🎰</div>
+                          <div className='text-white text-4xl'>🎬</div>
                           <div className='absolute -inset-2 bg-gradient-to-r from-green-500 to-emerald-600 rounded-2xl opacity-20 animate-spin'></div>
                         </div>
                         <div className='absolute top-0 left-0 w-full h-full pointer-events-none'>

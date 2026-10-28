@@ -76,6 +76,8 @@ function ParserPageClient() {
                 src={activeIframeSrc}
                 className="w-full h-full border-0"
                 allowFullScreen
+                referrerPolicy="no-referrer"
+                sandbox="allow-scripts allow-same-origin allow-forms allow-presentation"
                 scrolling="no"
               />
             )}

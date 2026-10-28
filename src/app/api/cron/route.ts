@@ -10,6 +10,10 @@ import { parseRecordKey } from '@/lib/validation';
 
 export const runtime = 'edge';
 
+// 软截止时间（24秒），确保在 Serverless / Edge / 容器 30 秒超时限制前安全退出并返回成功状态
+const CRON_SOFT_DEADLINE_MS = 24000;
+const CRON_DETAIL_CONCURRENCY = 4;
+
 export async function GET(request: NextRequest) {
   const authHeader = request.headers.get('authorization');
   const cronSecret = process.env.CRON_SECRET;
@@ -56,6 +60,9 @@ async function refreshRecordAndFavorites() {
     return;
   }
 
+  const deadline = Date.now() + CRON_SOFT_DEADLINE_MS;
+  const isTimeUp = () => Date.now() >= deadline;
+
   try {
     const users = await db.getAllUsers();
     if (process.env.USERNAME && !users.includes(process.env.USERNAME)) {
@@ -70,7 +77,7 @@ async function refreshRecordAndFavorites() {
     ): Promise<SearchResult | null> => {
       const key = `${source}+${id}`;
       let promise = detailCache.get(key);
-      if (!promise) {
+      if (!promise && !isTimeUp()) {
         promise = fetchVideoDetail({
           source,
           id,
@@ -85,56 +92,68 @@ async function refreshRecordAndFavorites() {
             console.error(`获取视频详情失败 (${source}+${id}):`, err);
             return null;
           });
+        detailCache.set(key, promise);
       }
-      return promise;
+      return promise ? await promise : null;
     };
 
     for (const user of users) {
+      if (isTimeUp()) {
+        console.warn('Cron 达到软截止时间，提前安全结束剩余用户刷新');
+        break;
+      }
       console.log(`开始处理用户: ${user}`);
 
       try {
         const playRecords = await db.getAllPlayRecords(user);
-        const totalRecords = Object.keys(playRecords).length;
+        const recordEntries = Object.entries(playRecords);
+        const totalRecords = recordEntries.length;
         let processedRecords = 0;
 
-        for (const [key, record] of Object.entries(playRecords)) {
-          try {
-            const parsedKey = parseRecordKey(key);
-            if (!parsedKey) {
-              console.warn(`跳过无效的播放记录键: ${key}`);
-              continue;
-            }
-            const { source, id } = parsedKey;
+        for (let start = 0; start < recordEntries.length; start += CRON_DETAIL_CONCURRENCY) {
+          if (isTimeUp()) break;
+          const batch = recordEntries.slice(start, start + CRON_DETAIL_CONCURRENCY);
+          await Promise.all(
+            batch.map(async ([key, record]) => {
+              try {
+                const parsedKey = parseRecordKey(key);
+                if (!parsedKey) {
+                  console.warn(`跳过无效的播放记录键: ${key}`);
+                  return;
+                }
+                const { source, id } = parsedKey;
 
-            const detail = await getDetail(source, id, record.title);
-            if (!detail) {
-              console.warn(`跳过无法获取详情的播放记录: ${key}`);
-              continue;
-            }
+                const detail = await getDetail(source, id, record.title);
+                if (!detail) {
+                  console.warn(`跳过无法获取详情的播放记录: ${key}`);
+                  return;
+                }
 
-            const episodeCount = detail.episodes?.length || 0;
-            if (episodeCount > 0 && episodeCount !== record.total_episodes) {
-              await db.savePlayRecord(user, source, id, {
-                title: detail.title || record.title,
-                source_name: record.source_name,
-                cover: detail.poster || record.cover,
-                index: record.index,
-                total_episodes: episodeCount,
-                play_time: record.play_time,
-                year: detail.year || record.year,
-                total_time: record.total_time,
-                save_time: record.save_time,
-                search_title: record.search_title,
-              });
-              console.log(
-                `更新播放记录: ${record.title} (${record.total_episodes} -> ${episodeCount})`
-              );
-            }
+                const episodeCount = detail.episodes?.length || 0;
+                if (episodeCount > 0 && episodeCount !== record.total_episodes) {
+                  await db.savePlayRecord(user, source, id, {
+                    title: detail.title || record.title,
+                    source_name: record.source_name,
+                    cover: detail.poster || record.cover,
+                    index: record.index,
+                    total_episodes: episodeCount,
+                    play_time: record.play_time,
+                    year: detail.year || record.year,
+                    total_time: record.total_time,
+                    save_time: record.save_time,
+                    search_title: record.search_title,
+                  });
+                  console.log(
+                    `更新播放记录: ${record.title} (${record.total_episodes} -> ${episodeCount})`
+                  );
+                }
 
-            processedRecords++;
-          } catch (err) {
-            console.error(`处理播放记录失败 (${key}):`, err);
-          }
+                processedRecords++;
+              } catch (err) {
+                console.error(`处理播放记录失败 (${key}):`, err);
+              }
+            })
+          );
         }
 
         console.log(`播放记录处理完成: ${processedRecords}/${totalRecords}`);
@@ -142,46 +161,55 @@ async function refreshRecordAndFavorites() {
         console.error(`获取用户播放记录失败 (${user}):`, err);
       }
 
+      if (isTimeUp()) break;
+
       try {
         const favorites = await db.getAllFavorites(user);
-        const totalFavorites = Object.keys(favorites).length;
+        const favEntries = Object.entries(favorites);
+        const totalFavorites = favEntries.length;
         let processedFavorites = 0;
 
-        for (const [key, fav] of Object.entries(favorites)) {
-          try {
-            const parsedKey = parseRecordKey(key);
-            if (!parsedKey) {
-              console.warn(`跳过无效的收藏键: ${key}`);
-              continue;
-            }
-            const { source, id } = parsedKey;
+        for (let start = 0; start < favEntries.length; start += CRON_DETAIL_CONCURRENCY) {
+          if (isTimeUp()) break;
+          const batch = favEntries.slice(start, start + CRON_DETAIL_CONCURRENCY);
+          await Promise.all(
+            batch.map(async ([key, fav]) => {
+              try {
+                const parsedKey = parseRecordKey(key);
+                if (!parsedKey) {
+                  console.warn(`跳过无效的收藏键: ${key}`);
+                  return;
+                }
+                const { source, id } = parsedKey;
 
-            const favDetail = await getDetail(source, id, fav.title);
-            if (!favDetail) {
-              console.warn(`跳过无法获取详情的收藏: ${key}`);
-              continue;
-            }
+                const favDetail = await getDetail(source, id, fav.title);
+                if (!favDetail) {
+                  console.warn(`跳过无法获取详情的收藏: ${key}`);
+                  return;
+                }
 
-            const favEpisodeCount = favDetail.episodes?.length || 0;
-            if (favEpisodeCount > 0 && favEpisodeCount !== fav.total_episodes) {
-              await db.saveFavorite(user, source, id, {
-                title: favDetail.title || fav.title,
-                source_name: fav.source_name,
-                cover: favDetail.poster || fav.cover,
-                year: favDetail.year || fav.year,
-                total_episodes: favEpisodeCount,
-                save_time: fav.save_time,
-                search_title: fav.search_title,
-              });
-              console.log(
-                `更新收藏: ${fav.title} (${fav.total_episodes} -> ${favEpisodeCount})`
-              );
-            }
+                const favEpisodeCount = favDetail.episodes?.length || 0;
+                if (favEpisodeCount > 0 && favEpisodeCount !== fav.total_episodes) {
+                  await db.saveFavorite(user, source, id, {
+                    title: favDetail.title || fav.title,
+                    source_name: fav.source_name,
+                    cover: favDetail.poster || fav.cover,
+                    year: favDetail.year || fav.year,
+                    total_episodes: favEpisodeCount,
+                    save_time: fav.save_time,
+                    search_title: fav.search_title,
+                  });
+                  console.log(
+                    `更新收藏: ${fav.title} (${fav.total_episodes} -> ${favEpisodeCount})`
+                  );
+                }
 
-            processedFavorites++;
-          } catch (err) {
-            console.error(`处理收藏失败 (${key}):`, err);
-          }
+                processedFavorites++;
+              } catch (err) {
+                console.error(`处理收藏失败 (${key}):`, err);
+              }
+            })
+          );
         }
 
         console.log(`收藏处理完成: ${processedFavorites}/${totalFavorites}`);

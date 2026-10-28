@@ -20,6 +20,24 @@ const REGION_MAP: Record<string, string> = {
   'es': '西班牙', 'th': '泰国', 'hi': '印度', 'ru': '俄罗斯'
 };
 
+const TMDB_FETCH_TIMEOUT_MS = 5000;
+
+async function fetchTmdbPage(url: string, options: RequestInit): Promise<any> {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), TMDB_FETCH_TIMEOUT_MS);
+  try {
+    const res = await fetch(url, {
+      ...options,
+      signal: controller.signal,
+    });
+    return res.ok ? await res.json() : { results: [] };
+  } catch {
+    return { results: [] };
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
 export async function GET(req: NextRequest) {
   const ip = getClientIp(req);
   if (!checkSearchRateLimit(ip, 30, 60000)) {
@@ -34,7 +52,7 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: '未配置 TMDB_API_KEY 或 TMDB_API_TOKEN' }, { status: 500 });
     }
 
-    const fetchOptions = {
+    const fetchOptions: RequestInit & { next?: { revalidate: number } } = {
       headers: {
         accept: 'application/json',
         ...(apiToken ? { Authorization: `Bearer ${apiToken}` } : {})
@@ -49,20 +67,26 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: 'TMDB_BASE_URL 配置不安全' }, { status: 500 });
     }
 
-    const pagesToFetch = [1, 2, 3, 4, 5];
+    const pagesToFetch = [1, 2, 3];
 
-    const moviePromises = pagesToFetch.map(page =>
-      fetch(`${baseUrl}/movie/upcoming?language=zh-CN&page=${page}${authParam}`, fetchOptions)
-        .then(res => res.ok ? res.json() : { results: [] })
+    const moviePromises = pagesToFetch.map((page) =>
+      fetchTmdbPage(
+        `${baseUrl}/movie/upcoming?language=zh-CN&page=${page}${authParam}`,
+        fetchOptions
+      )
     );
 
-    const tvPromises = pagesToFetch.map(page =>
-      fetch(`${baseUrl}/tv/on_the_air?language=zh-CN&page=${page}${authParam}`, fetchOptions)
-        .then(res => res.ok ? res.json() : { results: [] })
+    const tvPromises = pagesToFetch.map((page) =>
+      fetchTmdbPage(
+        `${baseUrl}/tv/on_the_air?language=zh-CN&page=${page}${authParam}`,
+        fetchOptions
+      )
     );
 
-    const moviesDataArray = await Promise.all(moviePromises);
-    const tvDataArray = await Promise.all(tvPromises);
+    const [moviesDataArray, tvDataArray] = await Promise.all([
+      Promise.all(moviePromises),
+      Promise.all(tvPromises),
+    ]);
 
     const moviesResults = moviesDataArray.flatMap(data => data.results || []);
     const tvResults = tvDataArray.flatMap(data => data.results || []);
