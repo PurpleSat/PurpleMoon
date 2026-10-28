@@ -83,15 +83,6 @@ const loadPlaybackRate = (): number => {
 };
 
 // 检测 iOS / iPadOS 设备
-const isIOS13Plus = (() => {
-  if (typeof navigator === 'undefined') return false;
-  const ua = navigator.userAgent;
-  const isIOS = /iPad|iPhone|iPod/.test(ua);
-  const isIPadOS =
-    navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1;
-  return isIOS || isIPadOS;
-})();
-
 const isIOSGlobal = (() => {
   if (typeof navigator === 'undefined') return false;
   return (
@@ -456,183 +447,82 @@ function PlayPageClient() {
     );
   }, []);
 
-  // iOS13+ 零 HLS 优选策略：仅使用 HEAD 请求测速，不创建任何隐藏 video/HLS 实例，避免抢占硬件解码器
-  const iosZeroHlsPreference = async (
-    sources: SearchResult[]
-  ): Promise<SearchResult> => {
-    const validSources = sources.filter(
-      (s) => s.episodes && s.episodes.length > 0
-    );
-    if (validSources.length === 0) return sources[0];
-    if (validSources.length === 1) return validSources[0];
-
-    const sourcesToTest = validSources.slice(0, 3);
-    const results = await Promise.all(
-      sourcesToTest.map(async (source) => {
-        try {
-          const episodeUrl = source.episodes[0];
-          const start = performance.now();
-          const controller = new AbortController();
-          const timeoutId = setTimeout(() => controller.abort(), 1500);
-
-          await fetch(episodeUrl, {
-            method: 'HEAD',
-            mode: 'no-cors',
-            signal: controller.signal,
-          });
-          clearTimeout(timeoutId);
-          const pingTime = Math.round(performance.now() - start);
-          return { source, pingTime, success: true };
-        } catch {
-          return { source, pingTime: 9999, success: false };
-        }
-      })
-    );
-
-    const successful = results.filter((r) => r.success);
-    if (successful.length === 0) return validSources[0];
-    successful.sort((a, b) => a.pingTime - b.pingTime);
-    return successful[0].source;
-  };
-
-  // 移动端轻量优选策略：仅测速延迟，不创建多个并发 HLS 实例消耗移动端内存与流量
-  const lightweightPreference = async (
-    sources: SearchResult[]
-  ): Promise<SearchResult> => {
-    const validSources = sources.filter(
-      (s) => s.episodes && s.episodes.length > 0
-    );
-    if (validSources.length === 0) return sources[0];
-
-    const sourcesToTest = validSources.slice(0, 6);
-    setSpeedTestProgress({ completed: 0, total: sourcesToTest.length });
-
-    let completedCount = 0;
-    const results = await Promise.all(
-      sourcesToTest.map(async (source) => {
-        try {
-          const episodeUrl =
-            source.episodes.length > 1
-              ? source.episodes[1]
-              : source.episodes[0];
-          const start = performance.now();
-          const controller = new AbortController();
-          const timeoutId = setTimeout(() => controller.abort(), 2000);
-
-          await fetch(episodeUrl, {
-            method: 'HEAD',
-            mode: 'no-cors',
-            signal: controller.signal,
-          });
-          clearTimeout(timeoutId);
-          const pingTime = Math.round(performance.now() - start);
-          completedCount++;
-          setSpeedTestProgress({
-            completed: completedCount,
-            total: sourcesToTest.length,
-          });
-          return {
-            source,
-            testResult: {
-              quality: '未知',
-              loadSpeed: '未知',
-              pingTime,
-            },
-          };
-        } catch {
-          completedCount++;
-          setSpeedTestProgress({
-            completed: completedCount,
-            total: sourcesToTest.length,
-          });
-          return null;
-        }
-      })
-    );
-
-    const successful = results.filter(Boolean) as Array<{
-      source: SearchResult;
-      testResult: VideoSourceTestResult;
-    }>;
-
-    if (successful.length === 0) return validSources[0];
-    successful.sort((a, b) => a.testResult.pingTime - b.testResult.pingTime);
-    return successful[0].source;
-  };
-
-  // 桌面端完整并发测速优选（含高清高速源提前结束优化）
+  // 轻量级并发可用性探测与优选（不创建隐藏 <video>/Hls、不下载 .ts 视频分片，优先保障起播与换源速度）
   const preferBestSource = async (
     sources: SearchResult[]
   ): Promise<SearchResult> => {
     if (sources.length === 1) return sources[0];
 
-    if (isIOS13Plus) {
-      return await iosZeroHlsPreference(sources);
-    }
-
-    if (isMobileDevice()) {
-      return await lightweightPreference(sources);
-    }
-
+    const isMobile = isMobileDevice();
+    const candidateSources = isMobile ? sources.slice(0, 6) : sources;
     const MAX_CONCURRENT_TEST = 4;
+
     const allResults: Array<{
       source: SearchResult;
       testResult: VideoSourceTestResult;
-    } | null> = new Array(sources.length).fill(null);
+    } | null> = new Array(candidateSources.length).fill(null);
 
-    setSpeedTestProgress({ completed: 0, total: sources.length });
+    const newVideoInfoMap = new Map<string, VideoSourceTestResult>();
+
+    setSpeedTestProgress({ completed: 0, total: candidateSources.length });
     let completedCount = 0;
     let shouldStopEarly = false;
-    let highQualityCount = 0;
+    let fastValidCount = 0;
 
     const testOne = async (index: number) => {
       if (shouldStopEarly) return;
-      const source = sources[index];
+      const source = candidateSources[index];
+      const sourceKey = `${source.source}-${source.id}`;
       try {
-        if (!source.episodes || source.episodes.length === 0) return;
+        if (!source.episodes || source.episodes.length === 0) {
+          newVideoInfoMap.set(sourceKey, {
+            quality: '不可用',
+            loadSpeed: '不可用',
+            pingTime: 0,
+            hasError: true,
+          });
+          return;
+        }
         const episodeUrl =
           source.episodes.length > 1 ? source.episodes[1] : source.episodes[0];
         const testResult = await getVideoResolutionFromM3u8(episodeUrl);
         allResults[index] = { source, testResult };
+        newVideoInfoMap.set(sourceKey, testResult);
 
-        const qualityUpper = testResult.quality.toUpperCase();
-        const isHighRes = qualityUpper === '4K' || qualityUpper === '2K';
-        const speedKBps = resultSpeed(testResult.loadSpeed);
-        if (isHighRes && speedKBps >= 1536) {
-          highQualityCount++;
-          if (highQualityCount >= 2) {
+        if (testResult.pingTime > 0 && testResult.pingTime <= 600) {
+          fastValidCount++;
+          if (fastValidCount >= 2) {
             shouldStopEarly = true;
           }
         }
       } catch (_error) {
         allResults[index] = null;
+        newVideoInfoMap.set(sourceKey, {
+          quality: '不可用',
+          loadSpeed: '不可用',
+          pingTime: 0,
+          hasError: true,
+        });
       } finally {
         completedCount++;
         setSpeedTestProgress({
           completed: completedCount,
-          total: sources.length,
+          total: candidateSources.length,
         });
       }
     };
 
     let cursor = 0;
     const workers = Array.from(
-      { length: Math.min(MAX_CONCURRENT_TEST, sources.length) },
+      { length: Math.min(MAX_CONCURRENT_TEST, candidateSources.length) },
       async () => {
-        while (cursor < sources.length && !shouldStopEarly) {
+        while (cursor < candidateSources.length && !shouldStopEarly) {
           const current = cursor++;
           await testOne(current);
         }
       }
     );
     await Promise.all(workers);
-
-    const newVideoInfoMap = new Map<string, VideoSourceTestResult>();
-    allResults.forEach((result, index) => {
-      const source = sources[index];
-      const sourceKey = `${source.source}-${source.id}`;
-      if (result) newVideoInfoMap.set(sourceKey, result.testResult);
-    });
 
     const successfulResults = allResults.filter(Boolean) as Array<{
       source: SearchResult;
@@ -643,12 +533,6 @@ function PlayPageClient() {
 
     if (successfulResults.length === 0) return sources[0];
 
-    const validSpeeds = successfulResults
-      .map((result) => resultSpeed(result.testResult.loadSpeed))
-      .filter((speed) => speed > 0);
-
-    const maxSpeed = validSpeeds.length > 0 ? Math.max(...validSpeeds) : 1024;
-
     const validPings = successfulResults
       .map((result) => result.testResult.pingTime)
       .filter((ping) => ping > 0);
@@ -658,12 +542,7 @@ function PlayPageClient() {
 
     const resultsWithScore = successfulResults.map((result) => ({
       ...result,
-      score: calculateSourceScore(
-        result.testResult,
-        maxSpeed,
-        minPing,
-        maxPing
-      ),
+      score: calculateSourceScore(result.testResult, minPing, maxPing),
     }));
 
     resultsWithScore.sort((a, b) => b.score - a.score);
@@ -672,7 +551,6 @@ function PlayPageClient() {
 
   const calculateSourceScore = (
     testResult: VideoSourceTestResult,
-    maxSpeed: number,
     minPing: number,
     maxPing: number
   ): number => {
@@ -688,23 +566,17 @@ function PlayPageClient() {
           return 75;
         case '720P':
           return 60;
+        case '可用':
+          return 70;
         case '480P':
           return 40;
         case 'SD':
           return 20;
         default:
-          return 0;
+          return 50;
       }
     })();
-    score += qualityScore * 0.4;
-
-    const speedScore = (() => {
-      const speedVal = resultSpeed(testResult.loadSpeed);
-      if (speedVal <= 0) return 30;
-      const speedRatio = speedVal / maxSpeed;
-      return Math.min(100, Math.max(0, speedRatio * 100));
-    })();
-    score += speedScore * 0.4;
+    score += qualityScore * 0.3;
 
     const pingScore = (() => {
       const ping = testResult.pingTime;
@@ -713,18 +585,10 @@ function PlayPageClient() {
       const pingRatio = (maxPing - ping) / (maxPing - minPing);
       return Math.min(100, Math.max(0, pingRatio * 100));
     })();
-    score += pingScore * 0.2;
+    score += pingScore * 0.7;
 
     return Math.round(score * 100) / 100;
   };
-
-  function resultSpeed(speedStr: string): number {
-    if (!speedStr || speedStr === '未知' || speedStr === '测量中...') return 0;
-    const match = speedStr.match(/^([\d.]+)\s*(KB\/s|MB\/s)$/i);
-    if (!match) return 0;
-    const value = parseFloat(match[1]);
-    return match[2].toUpperCase() === 'MB/S' ? value * 1024 : value;
-  }
 
   // 根据视频宽高计算分辨率标签（同时兼容横屏和竖屏视频）
   const getResolutionLabel = (width: number, height: number): string => {
@@ -1065,13 +929,17 @@ function PlayPageClient() {
       const hls = new Hls({
         debug: false,
         enableWorker: !isIOSGlobal,
-        preferManagedMediaSource: true,
         lowLatencyMode: false,
         startPosition: startPos,
         maxBufferLength: isMobile ? 30 : 60,
         maxMaxBufferLength: isMobile ? 60 : 120,
-        backBufferLength: isMobile ? 15 : 30,
+        backBufferLength: isMobile ? 60 : 90,
         maxBufferSize: isMobile ? 60 * 1000 * 1000 : 100 * 1000 * 1000,
+        // 消除 10s 分片边界因音视频帧微差或移除 DISCONTINUITY 触发的 0.2s 跳帧/停顿感
+        maxBufferHole: 0.5,
+        maxAudioFramesDrift: 4,
+        stretchShortVideoTrack: true,
+        maxFragLookUpTolerance: 0.25,
         fragLoadingTimeOut: 20000,
         manifestLoadingTimeOut: 15000,
         levelLoadingTimeOut: 15000,
@@ -2250,7 +2118,7 @@ function PlayPageClient() {
         }
       };
 
-      // 显示并在 3 秒后自动隐藏分辨率徽章
+      // 显示并在 3 秒后自动隐藏分辨率徽章（不在 mousemove 中重复覆写 innerHTML，避免高频 DOM 重排）
       const showResolutionBadgeTemporarily = () => {
         const playerRoot = getPlayerRoot();
         if (!playerRoot || !detectedResolutionRef.current) return;
@@ -2259,9 +2127,6 @@ function PlayPageClient() {
         ) as HTMLElement | null;
         if (!badgeLayer) return;
 
-        badgeLayer.innerHTML = buildResolutionBadgeHtml(
-          detectedResolutionRef.current
-        );
         badgeLayer.style.opacity = '1';
 
         if (badgeHideTimerRef.current) clearTimeout(badgeHideTimerRef.current);
@@ -2270,7 +2135,7 @@ function PlayPageClient() {
         }, 3000);
       };
 
-      // 检测并更新真实视频分辨率（仅当分辨率变化时更新 state，避免 canplay 时触发无谓重渲染导致卡顿）
+      // 检测并更新真实视频分辨率（仅当分辨率变化时更新 DOM 与 state，避免无谓重渲染）
       const detectAndApplyResolution = () => {
         const videoEl = artPlayerRef.current?.video as
           | HTMLVideoElement
@@ -2281,9 +2146,16 @@ function PlayPageClient() {
           videoEl.videoHeight
         );
         if (label) {
-          if (detectedResolutionRef.current !== label) {
+          const playerRoot = getPlayerRoot();
+          const badgeLayer = playerRoot?.querySelector(
+            '.art-layer-resolution-badge'
+          ) as HTMLElement | null;
+          if (detectedResolutionRef.current !== label || (badgeLayer && !badgeLayer.innerHTML)) {
             detectedResolutionRef.current = label;
             setDetectedResolution(label);
+            if (badgeLayer) {
+              badgeLayer.innerHTML = buildResolutionBadgeHtml(label);
+            }
           }
           showResolutionBadgeTemporarily();
 
@@ -2291,13 +2163,21 @@ function PlayPageClient() {
             const sourceKey = `${currentSourceRef.current}-${currentIdRef.current}`;
             setPrecomputedVideoInfo((prev) => {
               const existing = prev.get(sourceKey);
-              if (existing && existing.quality === label) {
+              if (
+                existing &&
+                existing.quality === label &&
+                existing.loadSpeed &&
+                existing.loadSpeed !== '未知'
+              ) {
                 return prev;
               }
               const next = new Map(prev);
               next.set(sourceKey, {
                 quality: label,
-                loadSpeed: existing?.loadSpeed || '未知',
+                loadSpeed:
+                  existing?.loadSpeed && existing.loadSpeed !== '未知'
+                    ? existing.loadSpeed
+                    : '可用',
                 pingTime: existing?.pingTime || 0,
               });
               return next;
@@ -2315,6 +2195,9 @@ function PlayPageClient() {
       });
 
       artPlayerRef.current.on('control', (state: boolean) => {
+        if (state) {
+          showResolutionBadgeTemporarily();
+        }
         const playerRoot = getPlayerRoot();
         if (!playerRoot) return;
         const isFull =
@@ -2494,7 +2377,7 @@ function PlayPageClient() {
 
         const now = Date.now();
         const interval =
-          process.env.NEXT_PUBLIC_STORAGE_TYPE === 'upstash' ? 20000 : 5000;
+          process.env.NEXT_PUBLIC_STORAGE_TYPE === 'upstash' ? 20000 : 15000;
         if (now - lastSaveTimeRef.current > interval) {
           const isInOutroZone =
             skipConfigRef.current.enable &&
@@ -2604,15 +2487,12 @@ function PlayPageClient() {
         );
       }
 
-      // 绑定用户交互显示分辨率徽章（绑定在 $player 上，兼容网页全屏挂载到 body 的情况）
+      // 绑定轻触/点击唤醒分辨率徽章（控制栏唤醒已由 art.on('control') 处理，移除高频 mousemove 避免重排）
       const playerEl = getPlayerRoot();
       if (playerEl) {
         const handleUserInteract = () => {
           showResolutionBadgeTemporarily();
         };
-        playerEl.addEventListener('mousemove', handleUserInteract, {
-          passive: true,
-        });
         playerEl.addEventListener('touchstart', handleUserInteract, {
           passive: true,
         });

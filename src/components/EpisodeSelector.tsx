@@ -128,13 +128,23 @@ const EpisodeSelector: React.FC<EpisodeSelectorProps> = ({
 
     try {
       const info = await getVideoResolutionFromM3u8(episodeUrl);
-      setVideoInfoMap((prev) => new Map(prev).set(sourceKey, info));
-    } catch (error) {
-      // 失败时保存错误状态
+      setVideoInfoMap((prev) => {
+        const existing = prev.get(sourceKey);
+        const keepExistingRes =
+          existing &&
+          existing.quality &&
+          !['未知', '可用', '错误', '不可用'].includes(existing.quality);
+        return new Map(prev).set(sourceKey, {
+          ...info,
+          quality: keepExistingRes ? existing.quality : info.quality,
+        });
+      });
+    } catch (_error) {
+      // 失败时保存不可用状态
       setVideoInfoMap((prev) =>
         new Map(prev).set(sourceKey, {
-          quality: '错误',
-          loadSpeed: '未知',
+          quality: '不可用',
+          loadSpeed: '不可用',
           pingTime: 0,
           hasError: true,
         })
@@ -157,16 +167,16 @@ const EpisodeSelector: React.FC<EpisodeSelectorProps> = ({
       setAttemptedSources((prev) => {
         const newSet = new Set(prev);
         precomputedVideoInfo.forEach((info, key) => {
-          if (!info.hasError) {
+          if (!info.hasError && info.pingTime > 0) {
             newSet.add(key);
           }
         });
         return newSet;
       });
 
-      // 同步更新 ref，确保 getVideoInfo 能立即看到更新
+      // 同步更新 ref，确保仅当已有有效延迟数据时才跳过检测
       precomputedVideoInfo.forEach((info, key) => {
-        if (!info.hasError) {
+        if (!info.hasError && info.pingTime > 0) {
           attemptedSourcesRef.current.add(key);
         }
       });
@@ -612,17 +622,19 @@ const EpisodeSelector: React.FC<EpisodeSelectorProps> = ({
                                 if (videoInfo.hasError) {
                                   return (
                                     <div className='bg-gray-500/10 dark:bg-gray-400/20 text-red-600 dark:text-red-400 px-1.5 py-0 rounded text-xs flex-shrink-0 min-w-[50px] text-center'>
-                                      检测失败
+                                      不可用
                                     </div>
                                   );
                                 } else {
-                                  // 根据分辨率设置不同颜色：2K、4K为紫色，1080p、720p为绿色，其他为黄色
+                                  const qUpper = videoInfo.quality.toUpperCase();
                                   const isUltraHigh = ['4K', '2K'].includes(
-                                    videoInfo.quality
+                                    qUpper
                                   );
-                                  const isHigh = ['1080p', '720p'].includes(
-                                    videoInfo.quality
-                                  );
+                                  const isHigh = [
+                                    '1080P',
+                                    '720P',
+                                    '可用',
+                                  ].includes(qUpper);
                                   const textColorClasses = isUltraHigh
                                     ? 'text-purple-600 dark:text-purple-400'
                                     : isHigh
@@ -662,24 +674,39 @@ const EpisodeSelector: React.FC<EpisodeSelectorProps> = ({
                               const videoInfo = videoInfoMap.get(sourceKey);
                               if (videoInfo) {
                                 if (!videoInfo.hasError) {
+                                  const statusText =
+                                    videoInfo.loadSpeed &&
+                                    videoInfo.loadSpeed !== '未知'
+                                      ? videoInfo.loadSpeed
+                                      : '可用';
                                   return (
                                     <div className='flex items-end gap-3 text-xs'>
                                       <div className='text-green-600 dark:text-green-400 font-medium text-xs'>
-                                        {videoInfo.loadSpeed}
+                                        {statusText}
                                       </div>
-                                      <div className='text-orange-600 dark:text-orange-400 font-medium text-xs'>
-                                        {videoInfo.pingTime}ms
-                                      </div>
+                                      {videoInfo.pingTime > 0 && (
+                                        <div className='text-orange-600 dark:text-orange-400 font-medium text-xs'>
+                                          {videoInfo.pingTime}ms
+                                        </div>
+                                      )}
                                     </div>
                                   );
                                 } else {
                                   return (
                                     <div className='text-red-500/90 dark:text-red-400 font-medium text-xs'>
-                                      无测速数据
+                                      源不可用
                                     </div>
-                                  ); // 占位div
+                                  );
                                 }
                               }
+                              if (optimizationEnabled) {
+                                return (
+                                  <div className='text-gray-400 dark:text-gray-500 font-medium text-xs'>
+                                    检测中...
+                                  </div>
+                                );
+                              }
+                              return null;
                             })()}
                           </div>
                         </div>
