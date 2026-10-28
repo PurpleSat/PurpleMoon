@@ -164,7 +164,36 @@
 > 💡 **在国内服务器上用域名对外提供网站，域名通常需要先完成 ICP 备案**，否则 80/443 端口可能被服务商拦截。这是服务商和法规要求，与本项目无关；没有备案时可使用境外服务器。
 
 ---
+#### Docker 和 Docker Compose安装步骤
 
+1.更新软件包并安装必要软件
+
+```bash
+sudo apt update
+sudo apt install apt-transport-https curl
+```
+2.导入 Docker 官方 GPG 密钥
+```bash
+curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+```
+3.添加 Docker 官方仓库
+```bash
+echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu $(. /etc/os-release && echo "$VERSION_CODENAME") stable" | sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
+```
+4.更新软件包
+```bash
+sudo apt update
+```
+5.安装 Docker
+```bash
+sudo apt install docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+```
+6.安装官方推荐的 Docker Compose V2 CLI 插件
+```bash
+sudo apt-get update
+sudo apt-get install -y docker-compose-plugin
+docker compose version 
+```
 #### 1. 检查 Docker 和 Docker Compose 是否可用
 
 登录服务器后，依次执行：
