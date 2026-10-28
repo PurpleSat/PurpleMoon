@@ -618,37 +618,33 @@ const EpisodeSelector: React.FC<EpisodeSelectorProps> = ({
                               const sourceKey = `${source.source}-${source.id}`;
                               const videoInfo = videoInfoMap.get(sourceKey);
 
-                              if (videoInfo && videoInfo.quality !== '未知') {
-                                if (videoInfo.hasError) {
-                                  return (
-                                    <div className='bg-gray-500/10 dark:bg-gray-400/20 text-red-600 dark:text-red-400 px-1.5 py-0 rounded text-xs flex-shrink-0 min-w-[50px] text-center'>
-                                      不可用
-                                    </div>
-                                  );
-                                } else {
-                                  const qUpper = videoInfo.quality.toUpperCase();
-                                  const isUltraHigh = ['4K', '2K'].includes(
-                                    qUpper
-                                  );
-                                  const isHigh = [
-                                    '1080P',
-                                    '720P',
-                                    '可用',
-                                  ].includes(qUpper);
-                                  const textColorClasses = isUltraHigh
-                                    ? 'text-purple-600 dark:text-purple-400'
-                                    : isHigh
-                                      ? 'text-green-600 dark:text-green-400'
-                                      : 'text-yellow-600 dark:text-yellow-400';
+                              if (
+                                videoInfo &&
+                                !videoInfo.hasError &&
+                                !['未知', '可用', '不可用', '错误'].includes(
+                                  videoInfo.quality
+                                )
+                              ) {
+                                const qUpper = videoInfo.quality.toUpperCase();
+                                const isUltraHigh = ['4K', '2K'].includes(
+                                  qUpper
+                                );
+                                const isHigh = ['1080P', '720P'].includes(
+                                  qUpper
+                                );
+                                const textColorClasses = isUltraHigh
+                                  ? 'text-purple-600 dark:text-purple-400'
+                                  : isHigh
+                                    ? 'text-green-600 dark:text-green-400'
+                                    : 'text-yellow-600 dark:text-yellow-400';
 
-                                  return (
-                                    <div
-                                      className={`bg-gray-500/10 dark:bg-gray-400/20 ${textColorClasses} px-1.5 py-0 rounded text-xs flex-shrink-0 min-w-[50px] text-center`}
-                                    >
-                                      {videoInfo.quality}
-                                    </div>
-                                  );
-                                }
+                                return (
+                                  <div
+                                    className={`bg-gray-500/10 dark:bg-gray-400/20 ${textColorClasses} px-1.5 py-0 rounded text-xs flex-shrink-0 min-w-[50px] text-center`}
+                                  >
+                                    {videoInfo.quality}
+                                  </div>
+                                );
                               }
 
                               return null;
@@ -667,25 +663,22 @@ const EpisodeSelector: React.FC<EpisodeSelectorProps> = ({
                             )}
                           </div>
 
-                          {/* 网络信息 - 底部 */}
-                          <div className='flex items-end h-6'>
+                          {/* 网络信息 - 底部（可用显示绿点，不可用显示红点） */}
+                          <div className='flex items-center h-6'>
                             {(() => {
                               const sourceKey = `${source.source}-${source.id}`;
                               const videoInfo = videoInfoMap.get(sourceKey);
                               if (videoInfo) {
                                 if (!videoInfo.hasError) {
-                                  const statusText =
-                                    videoInfo.loadSpeed &&
-                                    videoInfo.loadSpeed !== '未知'
-                                      ? videoInfo.loadSpeed
-                                      : '可用';
                                   return (
-                                    <div className='flex items-end gap-3 text-xs'>
-                                      <div className='text-green-600 dark:text-green-400 font-medium text-xs'>
-                                        {statusText}
-                                      </div>
+                                    <div className='flex items-center gap-2 text-xs'>
+                                      <span
+                                        className='inline-block w-2.5 h-2.5 rounded-full bg-green-500 shadow-sm shadow-green-500/50'
+                                        title='可用'
+                                        aria-label='可用'
+                                      />
                                       {videoInfo.pingTime > 0 && (
-                                        <div className='text-orange-600 dark:text-orange-400 font-medium text-xs'>
+                                        <div className='text-orange-600 dark:text-orange-400 font-medium text-xs leading-none'>
                                           {videoInfo.pingTime}ms
                                         </div>
                                       )}
@@ -693,8 +686,12 @@ const EpisodeSelector: React.FC<EpisodeSelectorProps> = ({
                                   );
                                 } else {
                                   return (
-                                    <div className='text-red-500/90 dark:text-red-400 font-medium text-xs'>
-                                      源不可用
+                                    <div className='flex items-center text-xs'>
+                                      <span
+                                        className='inline-block w-2.5 h-2.5 rounded-full bg-red-500 shadow-sm shadow-red-500/50'
+                                        title='不可用'
+                                        aria-label='不可用'
+                                      />
                                     </div>
                                   );
                                 }
