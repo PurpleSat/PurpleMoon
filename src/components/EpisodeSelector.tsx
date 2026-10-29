@@ -541,9 +541,16 @@ const EpisodeSelector: React.FC<EpisodeSelectorProps> = ({
       {activeTab === 'sources' && (
         <div className='flex flex-col h-full mt-4'>
           {sourceSearchLoading && (
-            <div className='flex items-center justify-center py-8'>
-              <div className='animate-spin rounded-full h-8 w-8 border-b-2 border-green-500'></div>
-              <span className='ml-2 text-sm text-gray-600 dark:text-gray-300'>
+            <div className='flex flex-col items-center justify-center py-8 gap-3'>
+              <img
+                src='/logo.png'
+                alt='Logo'
+                className='w-14 h-14 object-contain drop-shadow-md select-none animate-pulse'
+                onError={(e) => {
+                  e.currentTarget.style.display = 'none';
+                }}
+              />
+              <span className='text-sm text-gray-600 dark:text-gray-300 animate-pulse'>
                 搜索中...
               </span>
             </div>
@@ -565,7 +572,14 @@ const EpisodeSelector: React.FC<EpisodeSelectorProps> = ({
             availableSources.length === 0 && (
               <div className='flex items-center justify-center py-8'>
                 <div className='text-center'>
-                  <div className='text-gray-400 text-2xl mb-2'>📺</div>
+                  <img
+                    src='/logo.png'
+                    alt='Logo'
+                    className='w-14 h-14 mx-auto mb-2 object-contain opacity-60 select-none'
+                    onError={(e) => {
+                      e.currentTarget.style.display = 'none';
+                    }}
+                  />
                   <p className='text-sm text-gray-600 dark:text-gray-300'>
                     暂无可用的换源
                   </p>

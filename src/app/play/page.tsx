@@ -2511,14 +2511,15 @@ function PlayPageClient() {
         <div className='flex items-center justify-center min-h-screen bg-transparent'>
           <div className='text-center max-w-md mx-auto px-6'>
             <div className='relative mb-8'>
-              <div className='relative mx-auto w-24 h-24 bg-gradient-to-r from-green-500 to-emerald-600 rounded-2xl shadow-2xl flex items-center justify-center transform hover:scale-105 transition-transform duration-300'>
-                <div className='text-white text-4xl'>
-                  {loadingStage === 'searching' && '🔍'}
-                  {loadingStage === 'preferring' && '⚡'}
-                  {loadingStage === 'fetching' && '🎬'}
-                  {loadingStage === 'ready' && '🔅'}
-                </div>
-                <div className='absolute -inset-2 bg-gradient-to-r from-green-500 to-emerald-600 rounded-2xl opacity-20 animate-spin'></div>
+              <div className='relative mx-auto w-28 h-28 flex items-center justify-center transform hover:scale-105 transition-transform duration-300'>
+                <img
+                  src='/logo.png'
+                  alt='Logo'
+                  className='w-full h-full object-contain drop-shadow-2xl select-none animate-pulse'
+                  onError={(e) => {
+                    e.currentTarget.style.display = 'none';
+                  }}
+                />
               </div>
               <div className='absolute top-0 left-0 w-full h-full pointer-events-none'>
                 <div className='absolute top-2 left-2 w-2 h-2 bg-green-400 rounded-full animate-bounce'></div>
@@ -2732,10 +2733,16 @@ function PlayPageClient() {
                 {isVideoLoading && (
                   <div className='absolute inset-0 bg-black/85 backdrop-blur-sm rounded-xl flex items-center justify-center z-[500] transition-all duration-300'>
                     <div className='text-center max-w-md mx-auto px-6'>
-                      <div className='relative mb-8'>
-                        <div className='relative mx-auto w-24 h-24 bg-gradient-to-r from-green-500 to-emerald-600 rounded-2xl shadow-2xl flex items-center justify-center transform hover:scale-105 transition-transform duration-300'>
-                          <div className='text-white text-4xl'>🎬</div>
-                          <div className='absolute -inset-2 bg-gradient-to-r from-green-500 to-emerald-600 rounded-2xl opacity-20 animate-spin'></div>
+                      <div className='relative mb-6'>
+                        <div className='relative mx-auto w-28 h-28 flex items-center justify-center transform hover:scale-105 transition-transform duration-300'>
+                          <img
+                            src='/logo.png'
+                            alt='Logo'
+                            className='w-full h-full object-contain drop-shadow-2xl select-none animate-pulse'
+                            onError={(e) => {
+                              e.currentTarget.style.display = 'none';
+                            }}
+                          />
                         </div>
                         <div className='absolute top-0 left-0 w-full h-full pointer-events-none'>
                           <div className='absolute top-2 left-2 w-2 h-2 bg-green-400 rounded-full animate-bounce'></div>
@@ -2905,7 +2912,17 @@ const FavoriteIcon = ({ filled }: { filled: boolean }) => {
 
 export default function PlayPage() {
   return (
-    <Suspense fallback={<div>Loading...</div>}>
+    <Suspense
+      fallback={
+        <div className='flex items-center justify-center min-h-screen bg-transparent'>
+          <img
+            src='/logo.png'
+            alt='Logo'
+            className='w-24 h-24 object-contain drop-shadow-2xl select-none animate-pulse'
+          />
+        </div>
+      }
+    >
       <PlayPageClient />
     </Suspense>
   );
