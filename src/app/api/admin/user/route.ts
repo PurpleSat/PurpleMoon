@@ -5,6 +5,7 @@ import { z } from 'zod';
 
 import { getVerifiedAuthUser } from '@/lib/auth-server';
 import { getConfig, withConfigConflictRetry } from '@/lib/config';
+import { UserExistsError } from '@/lib/config-errors';
 import { buildAuthCookieValue, readLimitedJson, setAuthCookies } from '@/lib/cookies';
 import { checkCsrf } from '@/lib/csrf-guard';
 import { getStorage } from '@/lib/db';
@@ -196,7 +197,17 @@ export async function POST(request: NextRequest) {
               );
             }
             if (!registeredInThisRequest) {
-              await storage.registerUser(targetUsername!, targetPassword);
+              try {
+                await storage.registerUser(targetUsername!, targetPassword);
+              } catch (regErr) {
+                if (regErr instanceof UserExistsError) {
+                  return NextResponse.json(
+                    { error: '用户已存在' },
+                    { status: 400 }
+                  );
+                }
+                throw regErr;
+              }
               registeredInThisRequest = true;
             }
             const defaultGroup = getDefaultRegisterGroup(adminConfig);

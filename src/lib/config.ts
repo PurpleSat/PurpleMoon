@@ -106,6 +106,8 @@ async function refreshCachedConfigFromStorage() {
       lastStorageSync = Date.now();
     } catch (e) {
       console.error('刷新管理员配置缓存失败，沿用旧缓存:', e);
+      // 存储不可用时按 TTL 退避：沿用旧缓存，隔一个 TTL 再试，避免每个请求都等一次命令超时
+      lastStorageSync = Date.now();
     }
   })().finally(() => {
     refreshConfigPromise = null;

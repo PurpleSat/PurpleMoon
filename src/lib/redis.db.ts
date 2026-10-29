@@ -3,7 +3,7 @@
 import { createClient, RedisClientType } from 'redis';
 
 import { AdminConfig } from './admin.types';
-import { ConfigConflictError } from './config-errors';
+import { ConfigConflictError, UserExistsError } from './config-errors';
 import { hashPassword, verifyPassword, verifyPasswordDummy } from './password';
 import { Favorite, IStorage, Memo, PlayRecord, SkipConfig } from './types';
 
@@ -57,7 +57,26 @@ export class RedisStorage implements IStorage {
    */
   private async scanKeys(pattern: string): Promise<string[]> {
     const found = new Set<string>();
-    for await (const key of this.client.scanIterator({ MATCH: pattern, COUNT: 200 })) {
+    if (typeof (this.client as any).scan === 'function') {
+      let cursor = 0;
+      do {
+        const reply: { cursor: number | string; keys: string[] } = await (
+          this.client as any
+        ).scan(cursor, {
+          MATCH: pattern,
+          COUNT: 200,
+        });
+        cursor = Number(reply?.cursor ?? 0);
+        for (const k of reply?.keys || []) {
+          found.add(String(k));
+        }
+      } while (cursor !== 0);
+      return Array.from(found);
+    }
+    for await (const key of this.client.scanIterator({
+      MATCH: pattern,
+      COUNT: 200,
+    })) {
       found.add(key as unknown as string);
     }
     return Array.from(found);
@@ -144,7 +163,15 @@ export class RedisStorage implements IStorage {
 
   async registerUser(userName: string, password: string): Promise<void> {
     const hashedPassword = await hashPassword(password);
-    await this.client.set(this.userPwdKey(userName), hashedPassword);
+    // 原子判重：SET NX 只会让同名并发注册中的第一个成功，其余收到 null
+    const created = await this.client.set(
+      this.userPwdKey(userName),
+      hashedPassword,
+      { NX: true }
+    );
+    if (created === null) {
+      throw new UserExistsError();
+    }
   }
 
   async verifyUser(userName: string, password: string): Promise<boolean> {
@@ -440,6 +467,131 @@ export class RedisStorage implements IStorage {
   }
 }
 
+// ---------- 命令超时与快速失败 ----------
+// 以前 Redis 不可用时，node-redis 会把命令一直放在离线队列里，请求会无限期挂起。
+// 这里给每条命令加超时（默认 3 秒，REDIS_COMMAND_TIMEOUT_MS 可调），并限制离线队列长度。
+export class RedisTimeoutError extends Error {
+  constructor(message = 'Redis 命令超时') {
+    super(message);
+    this.name = 'RedisTimeoutError';
+  }
+}
+
+export function getRedisCommandTimeoutMs(): number {
+  const n = Number(process.env.REDIS_COMMAND_TIMEOUT_MS);
+  return Number.isFinite(n) && n >= 200 ? Math.floor(n) : 3000;
+}
+
+export function withCommandTimeout<T>(
+  promise: PromiseLike<T>,
+  timeoutMs = getRedisCommandTimeoutMs()
+): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(
+      () => reject(new RedisTimeoutError(`Redis 命令超过 ${timeoutMs}ms 未响应`)),
+      timeoutMs
+    );
+    promise.then(
+      (v) => {
+        clearTimeout(timer);
+        resolve(v);
+      },
+      (e) => {
+        clearTimeout(timer);
+        reject(e);
+      }
+    );
+  });
+}
+
+function isThenable(v: any): v is PromiseLike<unknown> {
+  return v && typeof v.then === 'function';
+}
+
+export class RedisUnavailableError extends Error {
+  constructor(message = 'Redis 当前不可用') {
+    super(message);
+    this.name = 'RedisUnavailableError';
+  }
+}
+
+// 这些成员不是“发命令”，不经过断路检查
+const UNGATED = new Set([
+  'on', 'once', 'off', 'emit', 'addListener', 'removeListener', 'removeAllListeners',
+  'connect', 'disconnect', 'quit', 'destroy', 'duplicate', 'multi', 'sendCommand',
+]);
+
+/**
+ * 给 client / multi 链上返回 Promise 的方法统一套上超时；
+ * gate（可选）在发命令前调用：抛错或返回被拒绝的 Promise 表示“Redis 不可用，立即失败”，
+ * 避免断线期间每条命令都白等一次超时（一个请求有十几条命令时会拖到十几秒）。
+ */
+export function wrapWithTimeout<T extends object>(
+  target: T,
+  gate?: () => void | Promise<void>,
+  isChain = false
+): T {
+  return new Proxy(target, {
+    get(t, prop, receiver) {
+      const value = Reflect.get(t, prop, t);
+      if (typeof value !== 'function') return value;
+      if (prop === 'scanIterator') {
+        return async function* (...args: any[]) {
+          if (gate) {
+            const g = gate();
+            if (isThenable(g)) {
+              await withCommandTimeout(g);
+            }
+          }
+          const rawIterable = value.apply(t, args);
+          const iterator = rawIterable[Symbol.asyncIterator]();
+          for (;;) {
+            const step: IteratorResult<unknown> = await withCommandTimeout(
+              iterator.next()
+            );
+            if (step.done) break;
+            yield step.value;
+          }
+        };
+      }
+      return (...args: any[]) => {
+        const gated =
+          gate &&
+          typeof prop === 'string' &&
+          (isChain ? prop === 'exec' || prop === 'execAsPipeline' : !UNGATED.has(prop));
+        if (gated) {
+          try {
+            const g = gate!();
+            if (isThenable(g)) {
+              return withCommandTimeout(g.then(() => value.apply(t, args)));
+            }
+          } catch (e) {
+            return Promise.reject(e);
+          }
+        }
+        const result = value.apply(t, args);
+        if (isThenable(result)) return withCommandTimeout(result);
+        // multi() 等链式对象：继续包装，使 exec() 也有超时与断路检查
+        if (
+          result &&
+          typeof result === 'object' &&
+          result !== t &&
+          typeof (result as any).exec === 'function'
+        ) {
+          return wrapWithTimeout(result, gate, true);
+        }
+        if (result === t) return receiver;
+        return result;
+      };
+    },
+  });
+}
+
+// 构建阶段（next build）会加载路由模块做静态分析，此时不应去连接 Redis
+function isBuildPhase(): boolean {
+  return process.env.NEXT_PHASE === 'phase-production-build';
+}
+
 // 单例标准 Redis 客户端
 function getRedisClient(): RedisClientType {
   const globalKey = Symbol.for('__MOONTV_REDIS_CLIENT__');
@@ -448,18 +600,54 @@ function getRedisClient(): RedisClientType {
   if (!client) {
     const redisUrl = process.env.REDIS_URL || 'redis://localhost:6379';
 
-    client = createClient({
+    const raw: RedisClientType = createClient({
       url: redisUrl,
+      socket: {
+        connectTimeout: 5000,
+        // 断线后每 200ms 起递增重连，最长间隔 2 秒，永不放弃（Redis 恢复后自动恢复）
+        reconnectStrategy: (retries: number) => Math.min((retries + 1) * 200, 2000),
+      },
+      // 断线期间最多排队 1000 条命令，超出立刻失败，避免内存与连接被挂起请求占满
+      commandsQueueMaxLength: 1000,
     });
 
-    client.on('error', (err) => console.error('Redis Client Error', err));
+    raw.on('error', (err) => console.error('Redis Client Error', err));
 
-    client.connect().then(() => {
-      console.log('Local Redis client connected successfully');
-    }).catch(err => {
-      console.error('Failed to connect to local Redis:', err);
+    // 断路：曾经连通过或首次连接已失败且当前不 ready → 立即失败；首次连接阶段 → 最多等 5 秒 ready
+    let everReady = false;
+    let initialConnectFailed = false;
+    raw.on('ready', () => {
+      everReady = true;
+      initialConnectFailed = false;
     });
 
+    if (!isBuildPhase()) {
+      raw.connect().then(() => {
+        console.log('Local Redis client connected successfully');
+      }).catch(err => {
+        initialConnectFailed = true;
+        console.error('Failed to connect to local Redis:', err);
+      });
+    }
+
+    const gate = (): void | Promise<void> => {
+      if (raw.isReady) return;
+      if (everReady || initialConnectFailed) throw new RedisUnavailableError();
+      return new Promise<void>((resolve, reject) => {
+        const timer = setTimeout(() => {
+          initialConnectFailed = true;
+          raw.off('ready', onReady);
+          reject(new RedisUnavailableError('Redis 尚未连接成功'));
+        }, 5000);
+        const onReady = () => {
+          clearTimeout(timer);
+          resolve();
+        };
+        raw.once('ready', onReady);
+      });
+    };
+
+    client = wrapWithTimeout(raw, gate);
     (global as any)[globalKey] = client;
   }
 

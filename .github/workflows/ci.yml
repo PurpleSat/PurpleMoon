@@ -1,0 +1,57 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.12.4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+        env:
+          HUSKY: '0'
+
+      - name: Type check
+        run: pnpm typecheck
+
+      - name: Lint (zero warnings)
+        run: pnpm lint:strict
+
+      - name: Unit tests
+        run: pnpm test --ci
+
+      - name: Dependency audit
+        run: pnpm audit --audit-level=moderate
+
+      - name: Build (Docker-equivalent, Node runtime)
+        run: |
+          find ./src -type f -name "route.ts" -print0 \
+            | xargs -0 sed -i "s/export const runtime = 'edge';/export const runtime = 'nodejs';/g"
+          sed -i "/^export const viewport: Viewport = {/i export const dynamic = 'force-dynamic';" src/app/layout.tsx
+          pnpm run build
+        env:
+          DOCKER_ENV: 'true'
+          NEXT_TELEMETRY_DISABLED: '1'
+          NEXT_PUBLIC_STORAGE_TYPE: redis

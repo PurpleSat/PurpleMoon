@@ -9,6 +9,7 @@ import {
   persistNewUserGroup,
   withConfigConflictRetry,
 } from '@/lib/config';
+import { UserExistsError } from '@/lib/config-errors';
 import {
   buildAuthCookieValue,
   readLimitedJson,
@@ -235,16 +236,23 @@ export async function POST(req: NextRequest) {
               if (item && item.usedCount > 0) {
                 item.usedCount -= 1;
               }
-              rollbackConfig.UserConfig.Users =
-                rollbackConfig.UserConfig.Users.filter(
-                  (u) => u.username !== username
-                );
+              // 同名用户已被别人抢先注册时，不能删掉对方在配置里的条目，只回退邀请码次数
+              if (!(regErr instanceof UserExistsError)) {
+                rollbackConfig.UserConfig.Users =
+                  rollbackConfig.UserConfig.Users.filter(
+                    (u) => u.username !== username
+                  );
+              }
               await storage.setAdminConfig(rollbackConfig);
               invalidateConfigCache();
             });
           } catch (rollbackErr) {
             console.error('注册失败后回滚邀请码次数异常:', rollbackErr);
           }
+        }
+        // 原子判重：同名并发注册里输掉的那个请求，明确返回“用户已存在”而不是 500
+        if (regErr instanceof UserExistsError) {
+          return NextResponse.json({ error: '用户已存在' }, { status: 400 });
         }
         throw regErr;
       }

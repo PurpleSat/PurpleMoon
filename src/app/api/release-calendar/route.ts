@@ -30,9 +30,9 @@ async function fetchTmdbPage(url: string, options: RequestInit): Promise<any> {
       ...options,
       signal: controller.signal,
     });
-    return res.ok ? await res.json() : { results: [] };
+    return res.ok ? await res.json() : { results: [], failed: true };
   } catch {
-    return { results: [] };
+    return { results: [], failed: true };
   } finally {
     clearTimeout(timeoutId);
   }
@@ -88,6 +88,16 @@ export async function GET(req: NextRequest) {
       Promise.all(tvPromises),
     ]);
 
+    const allPages = [...moviesDataArray, ...tvDataArray];
+    const failedPages = allPages.filter((d) => d && d.failed).length;
+    // 全部页面都失败（TMDB 不可达/超时/鉴权失败）时明确报错，不再静默返回空日历
+    if (failedPages === allPages.length) {
+      return NextResponse.json(
+        { error: '上映日程数据源暂时不可用，请稍后重试' },
+        { status: 502 }
+      );
+    }
+
     const moviesResults = moviesDataArray.flatMap(data => data.results || []);
     const tvResults = tvDataArray.flatMap(data => data.results || []);
 
@@ -118,6 +128,8 @@ export async function GET(req: NextRequest) {
       items: parsedData.items,
       total: parsedData.items.length,
       hasMore: false,
+      // 部分页面失败时仍返回已拿到的数据，并标记，便于前端或排查使用
+      partial: failedPages > 0,
       filters
     });
   } catch (error) {

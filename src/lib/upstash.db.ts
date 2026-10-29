@@ -3,7 +3,7 @@
 import { Redis } from '@upstash/redis';
 
 import { AdminConfig } from './admin.types';
-import { ConfigConflictError } from './config-errors';
+import { ConfigConflictError, UserExistsError } from './config-errors';
 import { hashPassword, verifyPassword, verifyPasswordDummy } from './password';
 import { Favorite, IStorage, Memo, PlayRecord, SkipConfig } from './types';
 
@@ -180,7 +180,13 @@ export class UpstashRedisStorage implements IStorage {
 
   async registerUser(userName: string, password: string): Promise<void> {
     const hashedPassword = await hashPassword(password);
-    await withRetry(() => this.client.set(this.userPwdKey(userName), hashedPassword));
+    // 原子判重：nx 只允许同名并发注册中的第一个写入成功
+    const created = await withRetry(() =>
+      this.client.set(this.userPwdKey(userName), hashedPassword, { nx: true })
+    );
+    if (created === null) {
+      throw new UserExistsError();
+    }
   }
 
   async verifyUser(userName: string, password: string): Promise<boolean> {

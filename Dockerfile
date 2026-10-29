@@ -2,9 +2,11 @@
 # 🛡️ 全局构建参数定义区
 # ==========================================
 ARG PNPM_VERSION=10.12.4
+# 与 .nvmrc 保持一致；升级 Node 时两处一起改（构建镜像不再使用浮动标签）
+ARG NODE_VERSION=24.15.0
 
 # ---- 第 1 阶段：安装依赖并构建 ----
-FROM node:24-alpine AS builder
+FROM node:${NODE_VERSION}-alpine AS builder
 ARG PNPM_VERSION
 # 国内服务器可在构建时指定镜像源：--build-arg NPM_REGISTRY=https://registry.npmmirror.com
 ARG NPM_REGISTRY=https://registry.npmjs.org
@@ -35,7 +37,7 @@ RUN sed -i "/^export const viewport: Viewport = {/i export const dynamic = 'forc
 RUN pnpm run build
 
 # ---- 第 2 阶段：生成运行时镜像 ----
-FROM node:24-alpine AS runner
+FROM node:${NODE_VERSION}-alpine AS runner
 
 # 创建非 root 用户
 RUN addgroup -g 1001 -S nodejs && adduser -u 1001 -S nextjs -G nodejs

@@ -1,7 +1,7 @@
 /* eslint-disable no-console, @typescript-eslint/no-explicit-any, @typescript-eslint/no-non-null-assertion */
 
 import { AdminConfig } from './admin.types';
-import { ConfigConflictError } from './config-errors';
+import { ConfigConflictError, UserExistsError } from './config-errors';
 import { hashPassword, verifyPassword, verifyPasswordDummy } from './password';
 import { Favorite, IStorage, Memo, PlayRecord, SkipConfig } from './types';
 
@@ -365,6 +365,10 @@ export class D1Storage implements IStorage {
         .bind(userName, hashedPassword)
         .run();
     } catch (err) {
+      // users.username 是主键/唯一键：同名并发注册输掉的一方会触发 UNIQUE 冲突
+      if (/UNIQUE|constraint/i.test(String((err as any)?.message || err))) {
+        throw new UserExistsError();
+      }
       console.error('Failed to register user:', err);
       throw err;
     }

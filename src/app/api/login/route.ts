@@ -6,8 +6,10 @@ import { getConfig } from '@/lib/config';
 import {
   buildAuthCookieValue,
   clearAuthCookies,
+  hasDeviceTrust,
   readLimitedJson,
   setAuthCookies,
+  setDeviceTrustCookie,
 } from '@/lib/cookies';
 import { checkCsrf } from '@/lib/csrf-guard';
 import { db } from '@/lib/db';
@@ -103,7 +105,11 @@ async function checkKeyLimit(key: string, limit: number, windowMs: number): Prom
   }
 }
 
-async function checkLoginAttemptLimits(username: string, ip: string): Promise<boolean> {
+async function checkLoginAttemptLimits(
+  username: string,
+  ip: string,
+  trustedDevice = false
+): Promise<boolean> {
   // 无法识别来源 IP（unknown_ip）时不使用“账号+IP”桶：它会变成全体匿名用户共享的桶，
   // 一个人发 20 次错误密码就能把该账号锁死；此时只用账号级上限兜底
   if (
@@ -112,6 +118,10 @@ async function checkLoginAttemptLimits(username: string, ip: string): Promise<bo
   ) {
     return false;
   }
+  // 带有效设备信任 Cookie 且能识别真实来源 IP（已受上方“账号+IP”桶约束）的本人设备不受“账号级总上限”阻挡，
+  // 防止攻击者用伪造 IP 刷满账号上限把本人锁在门外（N3）；
+  // 没有该 Cookie 或处于 unknown_ip 环境下的请求仍然受账号级上限兜底保护。
+  if (trustedDevice && ip !== UNKNOWN_IP) return true;
   return checkKeyLimit(accountKey(username), ACCOUNT_CEILING, ACCOUNT_WINDOW_MS);
 }
 
@@ -155,7 +165,13 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ error: '密码不能为空' }, { status: 400 });
       }
 
-      if (!(await checkLoginAttemptLimits('admin', getClientIp(req)))) {
+      if (
+        !(await checkLoginAttemptLimits(
+          'admin',
+          getClientIp(req),
+          await hasDeviceTrust(req, 'admin')
+        ))
+      ) {
         return NextResponse.json(
           { error: '尝试登录过于频繁，请 15 分钟后再试' },
           { status: 429 }
@@ -172,6 +188,7 @@ export async function POST(req: NextRequest) {
       const response = NextResponse.json({ ok: true });
       const cookieValue = await buildAuthCookieValue('admin', 'admin');
       setAuthCookies(response, req, cookieValue, 'admin', 'admin');
+      await setDeviceTrustCookie(response, req, 'admin');
       await resetLoginAttemptLimits('admin', getClientIp(req));
 
       return response;
@@ -191,7 +208,13 @@ export async function POST(req: NextRequest) {
     }
 
     const clientIp = getClientIp(req);
-    if (!(await checkLoginAttemptLimits(username, clientIp))) {
+    if (
+      !(await checkLoginAttemptLimits(
+        username,
+        clientIp,
+        await hasDeviceTrust(req, username)
+      ))
+    ) {
       return NextResponse.json(
         { error: '该账号尝试登录过于频繁，请 15 分钟后再试' },
         { status: 429 }
@@ -207,6 +230,7 @@ export async function POST(req: NextRequest) {
       const response = NextResponse.json({ ok: true });
       const cookieValue = await buildAuthCookieValue(username, 'admin');
       setAuthCookies(response, req, cookieValue, username, 'admin');
+      await setDeviceTrustCookie(response, req, username);
       await resetLoginAttemptLimits(username, clientIp);
 
       return response;
@@ -237,6 +261,7 @@ export async function POST(req: NextRequest) {
       const response = NextResponse.json({ ok: true });
       const cookieValue = await buildAuthCookieValue(username, sessionRole);
       setAuthCookies(response, req, cookieValue, username, sessionRole);
+      await setDeviceTrustCookie(response, req, username);
       await resetLoginAttemptLimits(username, clientIp);
 
       return response;
