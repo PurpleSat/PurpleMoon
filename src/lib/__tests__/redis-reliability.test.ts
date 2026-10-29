@@ -32,7 +32,7 @@ const fakeClient: any = {
     return { cursor: 0, keys: [] };
   }),
   scanIterator: jest.fn(async function* () {
-    for (const k of store.keys()) {
+    for (const k of Array.from(store.keys())) {
       yield k;
     }
   }),
