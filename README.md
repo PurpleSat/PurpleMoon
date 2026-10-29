@@ -3,7 +3,10 @@
 <div align="center">
   <img src="public/logo.png" alt="PurpleMoon Logo" width="120">
 </div>
+<<<<<<< HEAD
 
+=======
+>>>>>>> 3011f4b9a38c7c2fcdc35c07981fafa21baf1710
 <div align="center">
 
 ![Next.js](https://img.shields.io/badge/Next.js-15.5.28-000?logo=nextdotjs)
