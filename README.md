@@ -3,10 +3,7 @@
 <div align="center">
   <img src="public/logo.png" alt="PurpleMoon Logo" width="120">
 </div>
-<<<<<<< HEAD
 
-=======
->>>>>>> 3011f4b9a38c7c2fcdc35c07981fafa21baf1710
 <div align="center">
 
 ![Next.js](https://img.shields.io/badge/Next.js-15.5.28-000?logo=nextdotjs)
@@ -1266,9 +1263,6 @@ PurpleMoon 支持标准的苹果 CMS V10 API 格式。
 暂时收藏夹与播放记录和网页端隔离，后续会支持同步用户数据
 
 ## 更新记录
-
-### 2.6.2
-### 2.6.1
 
 - 更新说明见PM更新日志
 
