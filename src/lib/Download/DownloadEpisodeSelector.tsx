@@ -1,6 +1,7 @@
 /* eslint-disable @next/next/no-img-element */
 
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
+import { createPortal } from 'react-dom';
 
 interface DownloadEpisodeSelectorProps {
   /** 是否显示弹窗 */
@@ -44,6 +45,11 @@ const DownloadEpisodeSelector: React.FC<DownloadEpisodeSelectorProps> = ({
   const initialPage = Math.floor(currentEpisodeIndex / episodesPerPage);
   const [currentPage, setCurrentPage] = useState<number>(initialPage);
   const [descending, setDescending] = useState<boolean>(false);
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
   const displayPage = useMemo(() => {
     if (descending) {
@@ -110,10 +116,13 @@ const DownloadEpisodeSelector: React.FC<DownloadEpisodeSelectorProps> = ({
     totalEpisodes - 1
   );
 
-  if (!isOpen) return null;
+  if (!isOpen || !mounted || typeof document === 'undefined') return null;
 
-  return (
-    <div className='fixed inset-0 z-[9999] flex items-center justify-center bg-black/60 backdrop-blur-sm p-3 sm:p-6'>
+  return createPortal(
+    <div
+      className='fixed inset-0 z-[9999] flex items-center justify-center bg-black/60 backdrop-blur-sm p-3 sm:p-6'
+      style={{ zIndex: 9999 }}
+    >
       <div className='bg-white dark:bg-[#1C1E24] rounded-2xl shadow-2xl w-[92vw] max-w-4xl max-h-[82vh] flex flex-col overflow-hidden border border-gray-200 dark:border-white/10'>
         {/* 标题栏 */}
         <div className='flex items-center justify-between px-6 py-4 border-b border-gray-200 dark:border-white/[0.08]'>
@@ -313,7 +322,8 @@ const DownloadEpisodeSelector: React.FC<DownloadEpisodeSelectorProps> = ({
           </div>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 };
 

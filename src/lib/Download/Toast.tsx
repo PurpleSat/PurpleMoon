@@ -50,6 +50,7 @@ export default function Toast({
 
   return (
     <div
+      style={{ zIndex: 10001 }}
       className={`fixed top-20 left-1/2 -translate-x-1/2 z-[9999] transition-all duration-300 ${
         isVisible ? 'opacity-100 translate-y-0' : 'opacity-0 -translate-y-4'
       }`}

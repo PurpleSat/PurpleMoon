@@ -1,6 +1,7 @@
 'use client';
 
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
+import { createPortal } from 'react-dom';
 
 import { useDownload } from './DownloadContext';
 import {
@@ -21,6 +22,11 @@ export function DownloadPanel() {
     getProgress,
   } = useDownload();
   const [logTaskId, setLogTaskId] = useState<string | null>(null);
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
   const [logFilter, setLogFilter] = useState<'all' | M3U8SegmentLogStatus>(
     'all'
   );
@@ -55,7 +61,7 @@ export function DownloadPanel() {
     return [...logs].reverse();
   }, [logFilter, logTask]);
 
-  if (!showDownloadPanel) {
+  if (!showDownloadPanel || !mounted || typeof document === 'undefined') {
     return null;
   }
 
@@ -175,8 +181,11 @@ export function DownloadPanel() {
       }
     : null;
 
-  return (
-    <div className='fixed inset-0 z-[9999] flex items-center justify-center bg-black/60 p-3 backdrop-blur-sm sm:p-6'>
+  return createPortal(
+    <div
+      className='fixed inset-0 z-[9999] flex items-center justify-center bg-black/60 p-3 backdrop-blur-sm sm:p-6'
+      style={{ zIndex: 9999 }}
+    >
       <div className='flex max-h-[86vh] w-full max-w-5xl flex-col overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-2xl dark:border-white/10 dark:bg-[#121316]'>
         {/* 标题栏 */}
         <div className='flex flex-wrap items-center justify-between gap-3 border-b border-gray-200 bg-white/90 p-4 dark:border-white/[0.08] dark:bg-[#1C1E24]'>
@@ -479,7 +488,10 @@ export function DownloadPanel() {
 
       {/* 分片级下载日志弹窗 */}
       {logTask && (
-        <div className='fixed inset-0 z-[10000] flex items-center justify-center bg-black/60 p-3 backdrop-blur-sm sm:p-6'>
+        <div
+          className='fixed inset-0 z-[10000] flex items-center justify-center bg-black/60 p-3 backdrop-blur-sm sm:p-6'
+          style={{ zIndex: 10000 }}
+        >
           <div className='flex max-h-[82vh] w-full max-w-4xl flex-col overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-2xl dark:border-white/10 dark:bg-[#121316]'>
             <div className='border-b border-gray-200 bg-white/95 p-4 dark:border-white/[0.08] dark:bg-[#1C1E24]'>
               <div className='flex items-start justify-between gap-4'>
@@ -627,6 +639,7 @@ export function DownloadPanel() {
           </div>
         </div>
       )}
-    </div>
+    </div>,
+    document.body
   );
 }

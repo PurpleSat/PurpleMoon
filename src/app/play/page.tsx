@@ -398,8 +398,7 @@ function PlayPageClient() {
   const [isEpisodeSelectorCollapsed, setIsEpisodeSelectorCollapsed] =
     useState(false);
   const [showDownloadSelector, setShowDownloadSelector] = useState(false);
-  const { addDownloadTask, setShowDownloadPanel, downloadingCount } =
-    useDownload();
+  const { addDownloadTask, setShowDownloadPanel } = useDownload();
 
   const handleDownloadEpisodes = useCallback(
     async (episodeIndexes: number[]) => {
@@ -2749,21 +2748,7 @@ function PlayPageClient() {
         </div>
 
         <div className='space-y-2'>
-          <div className='flex justify-end items-center gap-2'>
-            <button
-              type='button'
-              onClick={() => setShowDownloadSelector(true)}
-              className='group relative flex items-center space-x-1.5 px-3 py-1.5 rounded-full bg-green-500 hover:bg-green-600 text-white shadow-sm hover:shadow-md transition-all duration-200'
-              title='分片下载视频'
-            >
-              <Download className='w-3.5 h-3.5' />
-              <span className='text-xs font-medium'>分片下载</span>
-              {downloadingCount > 0 && (
-                <span className='ml-1 px-1.5 py-0.2 text-[10px] font-bold bg-white text-green-600 rounded-full'>
-                  {downloadingCount}
-                </span>
-              )}
-            </button>
+          <div className='hidden lg:flex justify-end'>
             <button
               onClick={() =>
                 setIsEpisodeSelectorCollapsed(!isEpisodeSelectorCollapsed)
