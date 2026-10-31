@@ -8,6 +8,9 @@ import { isInviteCodeRequired } from '@/lib/invite';
 
 import { SiteProvider } from '../components/SiteProvider';
 import { ThemeProvider } from '../components/ThemeProvider';
+import { DownloadBubble } from '../lib/Download/DownloadBubble';
+import { DownloadProvider } from '../lib/Download/DownloadContext';
+import { DownloadPanel } from '../lib/Download/DownloadPanel';
 
 // 动态生成 metadata，支持配置更新后的标题变化
 export async function generateMetadata(): Promise<Metadata> {
@@ -97,7 +100,11 @@ export default async function RootLayout({
           disableTransitionOnChange
         >
           <SiteProvider siteName={siteName} announcement={announcement}>
-            {children}
+            <DownloadProvider>
+              {children}
+              <DownloadBubble />
+              <DownloadPanel />
+            </DownloadProvider>
           </SiteProvider>
         </ThemeProvider>
       </body>

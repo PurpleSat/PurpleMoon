@@ -15,7 +15,7 @@
 ![Docker Ready](https://img.shields.io/badge/Docker-ready-blue?logo=docker)
 ![HLS](https://img.shields.io/badge/HLS-1.7.3-8A2BE2)
 ![Artplayer](https://img.shields.io/badge/Artplayer-5.4.0-RED)
-![Version](https://img.shields.io/badge/Version-2.8.5-red)
+![Version](https://img.shields.io/badge/Version-2.8.6-red)
 ![Github](https://img.shields.io/badge/github-PurpleSat-8A2BE2?logo=github)
 
 </div>
@@ -1276,13 +1276,13 @@ PurpleMoon 支持标准的苹果 CMS V10 API 格式。
 
 ## License
 
-[MIT](LICENSE) © 2026 PurpleMoon & Contributors
+[MIT](LICENSE) © 2026 PurpleMoon & Contributors 
 
-本项目基于 [MoonTV](https://github.com/samqin123/MoonTV) 二次开发
 
 ## 致谢
 
 - [ts-nextjs-tailwind-starter](https://github.com/theodorusclarence/ts-nextjs-tailwind-starter) — 项目最初基于该脚手架。
+- [MoonTV](https://github.com/samqin123/MoonTV) — 基于此二次开发。
 - [LibreTV](https://github.com/LibreSpark/LibreTV) — 由此启发，站在巨人的肩膀上。
 - [ArtPlayer](https://github.com/zhw2590582/ArtPlayer) — 提供强大的网页视频播放器。
 - [HLS.js](https://github.com/video-dev/hls.js) — 实现 HLS 流媒体在浏览器中的播放支持。

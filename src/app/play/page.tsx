@@ -4,7 +4,7 @@
 
 import Artplayer from 'artplayer';
 import Hls from 'hls.js';
-import { Heart } from 'lucide-react';
+import { Download, Heart } from 'lucide-react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Suspense, useCallback, useEffect, useRef, useState } from 'react';
 
@@ -26,6 +26,8 @@ import {
   saveSkipConfig,
   subscribeToDataUpdates,
 } from '@/lib/db.client';
+import { useDownload } from '@/lib/Download/DownloadContext';
+import DownloadEpisodeSelector from '@/lib/Download/DownloadEpisodeSelector';
 import {
   filterAdsFromM3U8,
   stripDiscontinuityLegacy,
@@ -395,6 +397,78 @@ function PlayPageClient() {
 
   const [isEpisodeSelectorCollapsed, setIsEpisodeSelectorCollapsed] =
     useState(false);
+  const [showDownloadSelector, setShowDownloadSelector] = useState(false);
+  const { addDownloadTask, setShowDownloadPanel, downloadingCount } =
+    useDownload();
+
+  const handleDownloadEpisodes = useCallback(
+    async (episodeIndexes: number[]) => {
+      if (!detail || !detail.episodes || episodeIndexes.length === 0) {
+        if (artPlayerRef.current) {
+          artPlayerRef.current.notice.show = '无法获取视频地址';
+        }
+        return;
+      }
+
+      let successCount = 0;
+      let failCount = 0;
+
+      for (const episodeIndex of episodeIndexes) {
+        if (episodeIndex >= detail.episodes.length) {
+          failCount++;
+          continue;
+        }
+
+        const episodeUrl = detail.episodes[episodeIndex];
+        const isM3u8 =
+          episodeUrl.toLowerCase().includes('.m3u8') ||
+          episodeUrl.toLowerCase().includes('/m3u8/');
+
+        if (isM3u8) {
+          try {
+            const downloadTitle = `${videoTitle || detail.title}_第${
+              episodeIndex + 1
+            }集`;
+            await addDownloadTask(episodeUrl, downloadTitle, 'TS', {
+              source: currentSource || undefined,
+              videoId: currentId || undefined,
+              episodeIndex,
+            });
+            successCount++;
+          } catch (err) {
+            console.error(`添加分片下载任务失败 (第${episodeIndex + 1}集):`, err);
+            failCount++;
+          }
+        } else {
+          try {
+            const a = document.createElement('a');
+            a.href = episodeUrl;
+            a.download = `${videoTitle || detail.title}_第${episodeIndex + 1}集.mp4`;
+            a.target = '_blank';
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            successCount++;
+            await new Promise((r) => setTimeout(r, 300));
+          } catch (err) {
+            console.error(`下载失败 (第${episodeIndex + 1}集):`, err);
+            failCount++;
+          }
+        }
+      }
+
+      if (artPlayerRef.current) {
+        if (failCount === 0) {
+          artPlayerRef.current.notice.show = `已添加 ${successCount} 个分片下载任务`;
+        } else if (successCount === 0) {
+          artPlayerRef.current.notice.show = '添加下载任务失败，请重试';
+        } else {
+          artPlayerRef.current.notice.show = `成功添加 ${successCount} 个，失败 ${failCount} 个`;
+        }
+      }
+    },
+    [detail, videoTitle, addDownloadTask, currentSource, currentId]
+  );
 
   const [isVideoLoading, setIsVideoLoading] = useState(true);
   const [videoLoadingStage, setVideoLoadingStage] = useState<
@@ -2675,7 +2749,21 @@ function PlayPageClient() {
         </div>
 
         <div className='space-y-2'>
-          <div className='hidden lg:flex justify-end'>
+          <div className='flex justify-end items-center gap-2'>
+            <button
+              type='button'
+              onClick={() => setShowDownloadSelector(true)}
+              className='group relative flex items-center space-x-1.5 px-3 py-1.5 rounded-full bg-green-500 hover:bg-green-600 text-white shadow-sm hover:shadow-md transition-all duration-200'
+              title='分片下载视频'
+            >
+              <Download className='w-3.5 h-3.5' />
+              <span className='text-xs font-medium'>分片下载</span>
+              {downloadingCount > 0 && (
+                <span className='ml-1 px-1.5 py-0.2 text-[10px] font-bold bg-white text-green-600 rounded-full'>
+                  {downloadingCount}
+                </span>
+              )}
+            </button>
             <button
               onClick={() =>
                 setIsEpisodeSelectorCollapsed(!isEpisodeSelectorCollapsed)
@@ -2806,8 +2894,20 @@ function PlayPageClient() {
                     handleToggleFavorite();
                   }}
                   className='ml-3 flex-shrink-0 hover:opacity-80 transition-opacity'
+                  title={favorited ? '取消收藏' : '加入收藏'}
                 >
                   <FavoriteIcon filled={favorited} />
+                </button>
+                <button
+                  type='button'
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setShowDownloadSelector(true);
+                  }}
+                  className='ml-2.5 flex-shrink-0 p-1.5 rounded-lg text-gray-600 hover:text-green-500 dark:text-gray-300 dark:hover:text-green-400 hover:bg-green-500/10 transition-colors'
+                  title='选择集数分片下载'
+                >
+                  <Download className='h-6 w-6 stroke-[1.5]' />
                 </button>
               </h1>
               <div className='flex flex-wrap items-center gap-3 text-base mb-4 opacity-80 flex-shrink-0'>
@@ -2882,6 +2982,17 @@ function PlayPageClient() {
           </div>
         </div>
       </div>
+
+      <DownloadEpisodeSelector
+        isOpen={showDownloadSelector}
+        onClose={() => setShowDownloadSelector(false)}
+        totalEpisodes={totalEpisodes}
+        episodesTitles={(detail as any)?.episodes_titles || []}
+        videoTitle={videoTitle}
+        currentEpisodeIndex={currentEpisodeIndex}
+        onDownload={handleDownloadEpisodes}
+        onOpenDownloadPanel={() => setShowDownloadPanel(true)}
+      />
     </PageLayout>
   );
 }
