@@ -386,7 +386,7 @@ function SearchPageClient() {
     });
 
     const resultEntries = keyOrder.map(
-      (key) => [key, finalMap.get(key)!] as [string, SearchResult[]]
+      (key) => [key, finalMap.get(key) || []] as [string, SearchResult[]]
     );
 
     if (searchResults.length > 0) {

@@ -264,19 +264,24 @@ export async function searchFromApi(
   }
 }
 
-// 兼容旧代码：保留原有的 getDetailFromApi 导出签名
+const M3U8_PATTERN = /(https?:\/\/[^"'\s]+?\.m3u8)/g;
+
 export async function getDetailFromApi(
   apiSite: ApiSite,
   id: string
-): Promise<SearchResult[]> {
+): Promise<SearchResult> {
   if (apiSite.detail) {
     return handleSpecialSourceDetail(id, apiSite);
   }
 
   const detailUrl = `${apiSite.api}${API_CONFIG.detail.path}${id}`;
+
   assertSafeUpstream(detailUrl);
 
-  const { controller, cleanup } = createTimeoutController(10000);
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 10000);
+
+  let data: any;
   try {
     const response = await safeFetch(detailUrl, {
       headers: API_CONFIG.detail.headers,
@@ -287,56 +292,77 @@ export async function getDetailFromApi(
       throw new Error(`详情请求失败: ${response.status}`);
     }
 
-    const data = await readJsonLimited(response);
-
-    if (
-      !data ||
-      !data.list ||
-      !Array.isArray(data.list) ||
-      data.list.length === 0
-    ) {
-      throw new Error('获取到的详情内容无效');
-    }
-
-    const videoDetail = data.list[0];
-    const { episodes, episodes_titles } = extractEpisodesAndTitles(
-      videoDetail.vod_play_url
-    );
-
-    return [
-      {
-        id: videoDetail.vod_id.toString(),
-        title: videoDetail.vod_name,
-        poster: sanitizePosterUrl(videoDetail.vod_pic),
-        episodes,
-        episodes_titles,
-        source: apiSite.key,
-        source_name: apiSite.name,
-        class: videoDetail.vod_class,
-        year: videoDetail.vod_year
-          ? videoDetail.vod_year.match(/\d{4}/)?.[0] || ''
-          : 'unknown',
-        desc: cleanHtmlTags(videoDetail.vod_content),
-        type_name: videoDetail.type_name,
-        douban_id: videoDetail.vod_douban_id,
-        vod_remarks: videoDetail.vod_remarks,
-      },
-    ];
+    data = await readJsonLimited(response);
   } finally {
-    cleanup();
+    clearTimeout(timeoutId);
   }
+
+  if (
+    !data ||
+    !data.list ||
+    !Array.isArray(data.list) ||
+    data.list.length === 0
+  ) {
+    throw new Error('获取到的详情内容无效');
+  }
+
+  const videoDetail = data.list[0];
+  let episodes: string[] = [];
+
+  if (videoDetail.vod_play_url) {
+    const playSources = videoDetail.vod_play_url.split('$$$');
+    if (playSources.length > 0) {
+      const mainSource = playSources[0];
+      const episodeList = mainSource.split('#');
+      episodes = episodeList
+        .map((ep: string) => {
+          const parts = ep.split('$');
+          return parts.length > 1 ? parts[1] : '';
+        })
+        .filter(
+          (url: string) =>
+            url && (url.startsWith('http://') || url.startsWith('https://'))
+        );
+    }
+  }
+
+  if (episodes.length === 0 && videoDetail.vod_content) {
+    const matches = videoDetail.vod_content.match(M3U8_PATTERN) || [];
+    episodes = matches.map((link: string) => link.replace(/^\$/, ''));
+  }
+
+  return {
+    id: id.toString(),
+    title: videoDetail.vod_name,
+    poster: sanitizePosterUrl(videoDetail.vod_pic),
+    episodes,
+    source: apiSite.key,
+    source_name: apiSite.name,
+    class: videoDetail.vod_class,
+    year: videoDetail.vod_year
+      ? videoDetail.vod_year.match(/\d{4}/)?.[0] || ''
+      : 'unknown',
+    desc: cleanHtmlTags(videoDetail.vod_content),
+    type_name: videoDetail.type_name,
+    douban_id: videoDetail.vod_douban_id,
+    vod_remarks: videoDetail.vod_remarks,
+  };
 }
 
 async function handleSpecialSourceDetail(
   id: string,
   apiSite: ApiSite
-): Promise<SearchResult[]> {
-  const detailPageUrl = `${apiSite.detail}/index.php/vod/detail/id/${id}.html`;
-  assertSafeUpstream(detailPageUrl);
+): Promise<SearchResult> {
+  const detailUrl = `${apiSite.detail}/index.php/vod/detail/id/${id}.html`;
 
-  const { controller, cleanup } = createTimeoutController(10000);
+  assertSafeUpstream(detailUrl);
+
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 10000);
+
+  let html: string;
   try {
-    const response = await safeFetch(detailPageUrl, {
+    const response = await safeFetch(detailUrl, {
       headers: API_CONFIG.detail.headers,
       signal: controller.signal,
     });
@@ -345,58 +371,55 @@ async function handleSpecialSourceDetail(
       throw new Error(`详情页请求失败: ${response.status}`);
     }
 
-    const html = await readTextLimited(response);
-    let matches: string[] = [];
-
-    if (apiSite.key === 'ffzy') {
-      const ffzyPattern =
-        /\$(https?:\/\/[^"'\s]+?\/\d{8}\/\d+_[a-f0-9]+\/index\.m3u8)/g;
-      matches = html.match(ffzyPattern) || [];
-    }
-
-    if (matches.length === 0) {
-      const generalPattern = /\$(https?:\/\/[^"'\s]+?\.m3u8)/g;
-      matches = html.match(generalPattern) || [];
-    }
-
-    matches = Array.from(new Set(matches));
-
-    matches = matches.map((link: string) => {
-      link = link.substring(1);
-      const parenIndex = link.indexOf('(');
-      return parenIndex > 0 ? link.substring(0, parenIndex) : link;
-    });
-
-    const titleMatch = html.match(/<h1[^>]*>([^<]+)<\/h1>/);
-    const titleText = titleMatch ? titleMatch[1].trim() : '';
-
-    const descMatch = html.match(
-      /<div[^>]*class=["']sketch["'][^>]*>([\s\S]*?)<\/div>/
-    );
-    const descText = descMatch ? cleanHtmlTags(descMatch[1]) : '';
-
-    const coverMatch = html.match(/(https?:\/\/[^"'\s]+?\.jpg)/g);
-    const coverUrl = coverMatch ? sanitizePosterUrl(coverMatch[0].trim()) : '';
-
-    const yearMatch = html.match(/>(\d{4})</);
-    const yearText = yearMatch ? yearMatch[1] : 'unknown';
-
-    return [
-      {
-        id,
-        title: titleText,
-        poster: coverUrl,
-        episodes: matches,
-        source: apiSite.key,
-        source_name: apiSite.name,
-        class: '',
-        year: yearText,
-        desc: descText,
-        type_name: '',
-        douban_id: 0,
-      },
-    ];
+    html = await readTextLimited(response);
   } finally {
-    cleanup();
+    clearTimeout(timeoutId);
   }
+
+  let matches: string[] = [];
+
+  if (apiSite.key === 'ffzy') {
+    const ffzyPattern =
+      /\$(https?:\/\/[^"'\s]+?\/\d{8}\/\d+_[a-f0-9]+\/index\.m3u8)/g;
+    matches = html.match(ffzyPattern) || [];
+  }
+
+  if (matches.length === 0) {
+    const generalPattern = /\$(https?:\/\/[^"'\s]+?\.m3u8)/g;
+    matches = html.match(generalPattern) || [];
+  }
+
+  matches = Array.from(new Set(matches)).map((link: string) => {
+    link = link.substring(1);
+    const parenIndex = link.indexOf('(');
+    return parenIndex > 0 ? link.substring(0, parenIndex) : link;
+  });
+
+  const titleMatch = html.match(/<h1[^>]*>([^<]+)<\/h1>/);
+  const titleText = titleMatch ? titleMatch[1].trim() : '';
+
+  const descMatch = html.match(
+    /<div[^>]*class=["']sketch["'][^>]*>([\s\S]*?)<\/div>/
+  );
+  const descText = descMatch ? cleanHtmlTags(descMatch[1]) : '';
+
+  const coverMatch = html.match(/(https?:\/\/[^"'\s]+?\.jpg)/g);
+  const coverUrl = coverMatch ? coverMatch[0].trim() : '';
+
+  const yearMatch = html.match(/>(\d{4})</);
+  const yearText = yearMatch ? yearMatch[1] : 'unknown';
+
+  return {
+    id,
+    title: titleText,
+    poster: sanitizePosterUrl(coverUrl),
+    episodes: matches,
+    source: apiSite.key,
+    source_name: apiSite.name,
+    class: '',
+    year: yearText,
+    desc: descText,
+    type_name: '',
+    douban_id: 0,
+  };
 }
