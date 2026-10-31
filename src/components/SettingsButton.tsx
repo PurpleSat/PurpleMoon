@@ -9,6 +9,7 @@ import { createPortal } from 'react-dom';
 export const SettingsButton: React.FC = () => {
   const [isOpen, setIsOpen] = useState(false);
   const [defaultAggregateSearch, setDefaultAggregateSearch] = useState(true);
+  const [exactSearch, setExactSearch] = useState(true);
   const [enableStreamSearch, setEnableStreamSearch] = useState(true);
   const [imageProxyUrl, setImageProxyUrl] = useState('');
   const [enableOptimization, setEnableOptimization] = useState(true);
@@ -27,7 +28,25 @@ export const SettingsButton: React.FC = () => {
         'defaultAggregateSearch'
       );
       if (savedAggregateSearch !== null) {
-        setDefaultAggregateSearch(JSON.parse(savedAggregateSearch));
+        try {
+          setDefaultAggregateSearch(JSON.parse(savedAggregateSearch));
+        } catch {
+          setDefaultAggregateSearch(savedAggregateSearch === 'true');
+        }
+      }
+
+      const savedExactSearch = localStorage.getItem('exactSearch');
+      if (savedExactSearch !== null) {
+        try {
+          const parsed = JSON.parse(savedExactSearch);
+          if (typeof parsed === 'boolean') {
+            setExactSearch(parsed);
+          } else {
+            setExactSearch(savedExactSearch === 'true');
+          }
+        } catch {
+          setExactSearch(savedExactSearch === 'true');
+        }
       }
 
       const savedStreamSearch = localStorage.getItem('enableStreamSearch');
@@ -70,6 +89,23 @@ export const SettingsButton: React.FC = () => {
     setDefaultAggregateSearch(value);
     if (typeof window !== 'undefined') {
       localStorage.setItem('defaultAggregateSearch', JSON.stringify(value));
+      window.dispatchEvent(
+        new CustomEvent('localSettingsChanged', {
+          detail: { defaultAggregateSearch: value },
+        })
+      );
+    }
+  };
+
+  const handleExactSearchToggle = (value: boolean) => {
+    setExactSearch(value);
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('exactSearch', JSON.stringify(value));
+      window.dispatchEvent(
+        new CustomEvent('localSettingsChanged', {
+          detail: { exactSearch: value },
+        })
+      );
     }
   };
 
@@ -77,6 +113,11 @@ export const SettingsButton: React.FC = () => {
     setEnableStreamSearch(value);
     if (typeof window !== 'undefined') {
       localStorage.setItem('enableStreamSearch', JSON.stringify(value));
+      window.dispatchEvent(
+        new CustomEvent('localSettingsChanged', {
+          detail: { enableStreamSearch: value },
+        })
+      );
     }
   };
 
@@ -115,6 +156,7 @@ export const SettingsButton: React.FC = () => {
 
     // 重置所有状态
     setDefaultAggregateSearch(true);
+    setExactSearch(true);
     setEnableStreamSearch(true);
     setEnableOptimization(true);
     setEnableImageProxy(!!defaultImageProxy);
@@ -123,6 +165,7 @@ export const SettingsButton: React.FC = () => {
     // 保存到 localStorage
     if (typeof window !== 'undefined') {
       localStorage.setItem('defaultAggregateSearch', JSON.stringify(true));
+      localStorage.setItem('exactSearch', JSON.stringify(true));
       localStorage.setItem('enableStreamSearch', JSON.stringify(true));
       localStorage.setItem('enableOptimization', JSON.stringify(true));
       localStorage.setItem('doubanProxyUrl', '');
@@ -131,6 +174,15 @@ export const SettingsButton: React.FC = () => {
         JSON.stringify(!!defaultImageProxy)
       );
       localStorage.setItem('imageProxyUrl', defaultImageProxy);
+      window.dispatchEvent(
+        new CustomEvent('localSettingsChanged', {
+          detail: {
+            defaultAggregateSearch: true,
+            exactSearch: true,
+            enableStreamSearch: true,
+          },
+        })
+      );
     }
   };
 
@@ -187,6 +239,30 @@ export const SettingsButton: React.FC = () => {
                   className='sr-only peer'
                   checked={defaultAggregateSearch}
                   onChange={(e) => handleAggregateToggle(e.target.checked)}
+                />
+                <div className='w-11 h-6 bg-gray-300 rounded-full peer-checked:bg-green-500 transition-colors dark:bg-gray-600'></div>
+                <div className='absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full transition-transform peer-checked:translate-x-5'></div>
+              </div>
+            </label>
+          </div>
+
+          {/* 精确搜索 */}
+          <div className='flex items-center justify-between'>
+            <div>
+              <h4 className='text-sm font-medium text-gray-700 dark:text-gray-300'>
+                精确搜索
+              </h4>
+              <p className='text-xs text-gray-500 dark:text-gray-400 mt-1'>
+                开启后，搜索结果将过滤掉不包含搜索词的内容
+              </p>
+            </div>
+            <label className='flex items-center cursor-pointer'>
+              <div className='relative'>
+                <input
+                  type='checkbox'
+                  className='sr-only peer'
+                  checked={exactSearch}
+                  onChange={(e) => handleExactSearchToggle(e.target.checked)}
                 />
                 <div className='w-11 h-6 bg-gray-300 rounded-full peer-checked:bg-green-500 transition-colors dark:bg-gray-600'></div>
                 <div className='absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full transition-transform peer-checked:translate-x-5'></div>

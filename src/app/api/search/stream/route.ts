@@ -10,9 +10,10 @@ export const runtime = 'edge';
 /**
  * 流式搜索：以 NDJSON（每行一个 JSON）逐源推送结果，前端可以边收边渲染。
  *
+ *   {"type":"start","totalSources":30}
  *   {"type":"results","source":"ruyi","results":[...]}
- *   {"type":"results","source":"bfzy","results":[...]}
- *   {"type":"done","total":123}
+ *   {"type":"source_complete","source":"ruyi","completedSources":1,"totalSources":30}
+ *   {"type":"done","total":123,"completedSources":30,"totalSources":30}
  */
 export async function GET(request: Request) {
   const ip = getClientIp(request as { headers: Headers });
@@ -52,13 +53,32 @@ export async function GET(request: Request) {
         }
       };
 
+      const totalSources = apiSites.length;
+      send({ type: 'start', totalSources });
+
       try {
         const all = await runSearch(apiSites, query, {
           signal: request.signal,
           onChunk: (chunk) =>
-            send({ type: 'results', source: chunk.source, results: chunk.results }),
+            send({
+              type: 'results',
+              source: chunk.source,
+              results: chunk.results,
+            }),
+          onSourceComplete: (info) =>
+            send({
+              type: 'source_complete',
+              source: info.source,
+              completedSources: info.completedSources,
+              totalSources: info.totalSources,
+            }),
         });
-        send({ type: 'done', total: all.length });
+        send({
+          type: 'done',
+          total: all.length,
+          completedSources: totalSources,
+          totalSources,
+        });
       } catch {
         send({ type: 'error', error: '搜索失败' });
       } finally {

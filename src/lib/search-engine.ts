@@ -94,9 +94,17 @@ export interface SourceChunk {
   results: SearchResult[];
 }
 
+export interface SourceCompleteInfo {
+  source: string;
+  completedSources: number;
+  totalSources: number;
+}
+
 export interface RunSearchOptions {
   /** 每当某个源有新结果（首页 / 后续页 / 缓存命中）时回调 */
   onChunk?: (chunk: SourceChunk) => void;
+  /** 每当某个源完成检索（含缓存、熔断、空结果或成功）时回调 */
+  onSourceComplete?: (info: SourceCompleteInfo) => void;
   /** 调用方断开连接时中止，不再发起新的上游请求 */
   signal?: AbortSignal;
   deadlineMs?: number;
@@ -119,7 +127,18 @@ export async function runSearch(
   );
   const perSite: SearchResult[][] = sites.map(() => []);
   const normalizedQuery = query.trim().toLowerCase();
+  const totalSources = sites.length;
+  let completedSources = 0;
   let next = 0;
+
+  const markSiteComplete = (sourceKey: string) => {
+    completedSources += 1;
+    opts.onSourceComplete?.({
+      source: sourceKey,
+      completedSources,
+      totalSources,
+    });
+  };
 
   const worker = async () => {
     for (;;) {
@@ -133,10 +152,14 @@ export async function runSearch(
       if (cached) {
         perSite[index] = cached;
         if (cached.length) opts.onChunk?.({ source: site.key, results: cached });
+        markSiteComplete(site.key);
         continue;
       }
 
-      if (isCoolingDown(site.key)) continue;
+      if (isCoolingDown(site.key)) {
+        markSiteComplete(site.key);
+        continue;
+      }
 
       let firstCount = 0;
       const all = await searchFromApi(site, query, {
@@ -155,6 +178,7 @@ export async function runSearch(
       if (!opts.signal?.aborted) {
         cacheSet(key, all);
       }
+      markSiteComplete(site.key);
     }
   };
 

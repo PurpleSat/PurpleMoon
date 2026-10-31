@@ -1,6 +1,6 @@
 /* eslint-disable @typescript-eslint/no-explicit-any, no-console */
 
-import { CheckCircle, Heart, PlayCircleIcon } from 'lucide-react';
+import { CheckCircle, Heart, Link, PlayCircleIcon } from 'lucide-react';
 import Image from 'next/image';
 import { useRouter } from 'next/navigation';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
@@ -26,14 +26,17 @@ interface VideoCardProps {
   poster?: string;
   episodes?: number;
   source_name?: string;
+  source_names?: string[];
   progress?: number;
   year?: string;
   from: 'playrecord' | 'favorite' | 'search' | 'douban';
   currentEpisode?: number;
+  douban_id?: number;
   onDelete?: () => void;
   rate?: string;
   items?: SearchResult[];
   type?: string;
+  isAggregate?: boolean;
 }
 
 export default function VideoCard({
@@ -44,29 +47,40 @@ export default function VideoCard({
   episodes,
   source,
   source_name,
+  source_names,
   progress = 0,
   year,
   from,
   currentEpisode,
+  douban_id,
   onDelete,
   rate,
   items,
   type = '',
+  isAggregate: isAggregateProp = false,
 }: VideoCardProps) {
   const router = useRouter();
   const [favorited, setFavorited] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
 
-  const isAggregate = from === 'search' && !!items?.length;
+  const isAggregate =
+    isAggregateProp || (from === 'search' && !!items?.length);
 
   const aggregateData = useMemo(() => {
-    if (!isAggregate || !items) return null;
+    if (!isAggregate || !items || items.length === 0) return null;
     const episodeCountMap = new Map<number, number>();
-    
+    const doubanCountMap = new Map<number, number>();
+
     items.forEach((item) => {
       const len = item.episodes?.length || 0;
       if (len > 0) {
         episodeCountMap.set(len, (episodeCountMap.get(len) || 0) + 1);
+      }
+      if (item.douban_id && item.douban_id > 0) {
+        doubanCountMap.set(
+          item.douban_id,
+          (doubanCountMap.get(item.douban_id) || 0) + 1
+        );
       }
     });
 
@@ -84,9 +98,15 @@ export default function VideoCard({
       return result;
     };
 
+    const uniqueSourceNames = Array.from(
+      new Set(items.map((item) => item.source_name).filter(Boolean))
+    ) as string[];
+
     return {
       first: items[0],
       mostFrequentEpisodes: getMostFrequent(episodeCountMap) || 0,
+      mostFrequentDoubanId: getMostFrequent(doubanCountMap),
+      sourceNames: uniqueSourceNames,
     };
   }, [isAggregate, items]);
 
@@ -94,14 +114,26 @@ export default function VideoCard({
   const actualPoster = aggregateData?.first.poster ?? poster;
   const actualSource = aggregateData?.first.source ?? source;
   const actualId = aggregateData?.first.id ?? id;
+  const actualDoubanId = aggregateData?.mostFrequentDoubanId ?? douban_id;
   const actualEpisodes = aggregateData?.mostFrequentEpisodes ?? episodes;
   const actualYear = aggregateData?.first.year ?? year;
   const actualQuery = query || '';
-  const actualSearchType = isAggregate
+  const actualSearchType = type
+    ? type
+    : isAggregate
     ? aggregateData?.first.episodes?.length === 1
       ? 'movie'
       : 'tv'
-    : type;
+    : '';
+  const resolvedSourceNames = useMemo(() => {
+    if (source_names && source_names.length > 0) {
+      return Array.from(new Set(source_names.filter(Boolean)));
+    }
+    if (aggregateData?.sourceNames && aggregateData.sourceNames.length > 0) {
+      return aggregateData.sourceNames;
+    }
+    return [];
+  }, [source_names, aggregateData]);
 
   // 获取收藏状态
   useEffect(() => {
@@ -123,7 +155,6 @@ export default function VideoCard({
     const unsubscribe = subscribeToDataUpdates(
       'favoritesUpdated',
       (newFavorites: Record<string, any>) => {
-        // 检查当前项目是否在新的收藏列表中
         const isNowFavorited = !!newFavorites[storageKey];
         setFavorited(isNowFavorited);
       }
@@ -139,11 +170,9 @@ export default function VideoCard({
       if (from === 'douban' || !actualSource || !actualId) return;
       try {
         if (favorited) {
-          // 如果已收藏，删除收藏
           await deleteFavorite(actualSource, actualId);
           setFavorited(false);
         } else {
-          // 如果未收藏，添加收藏
           await saveFavorite(actualSource, actualId, {
             title: actualTitle,
             source_name: source_name || '',
@@ -187,19 +216,23 @@ export default function VideoCard({
   );
 
   const handleClick = useCallback(() => {
-    if (from === 'douban') {
+    const yearParam =
+      actualYear && actualYear !== 'unknown' ? `&year=${actualYear}` : '';
+    if (from === 'douban' || (isAggregate && !actualSource && !actualId)) {
       router.push(
-        `/play?title=${encodeURIComponent(actualTitle.trim())}${
-          actualYear ? `&year=${actualYear}` : ''
-        }${actualSearchType ? `&stype=${actualSearchType}` : ''}`
+        `/play?title=${encodeURIComponent(
+          actualTitle.trim()
+        )}${yearParam}${actualSearchType ? `&stype=${actualSearchType}` : ''}${
+          isAggregate ? '&prefer=true' : ''
+        }${
+          actualQuery ? `&stitle=${encodeURIComponent(actualQuery.trim())}` : ''
+        }`
       );
     } else if (actualSource && actualId) {
       router.push(
         `/play?source=${actualSource}&id=${actualId}&title=${encodeURIComponent(
           actualTitle
-        )}${actualYear ? `&year=${actualYear}` : ''}${
-          isAggregate ? '&prefer=true' : ''
-        }${
+        )}${yearParam}${isAggregate ? '&prefer=true' : ''}${
           actualQuery ? `&stitle=${encodeURIComponent(actualQuery.trim())}` : ''
         }${actualSearchType ? `&stype=${actualSearchType}` : ''}`
       );
@@ -224,6 +257,7 @@ export default function VideoCard({
         showPlayButton: true,
         showHeart: true,
         showCheckCircle: true,
+        showDoubanLink: false,
         showRating: false,
       },
       favorite: {
@@ -232,6 +266,7 @@ export default function VideoCard({
         showPlayButton: true,
         showHeart: true,
         showCheckCircle: false,
+        showDoubanLink: false,
         showRating: false,
       },
       search: {
@@ -240,6 +275,7 @@ export default function VideoCard({
         showPlayButton: true,
         showHeart: !isAggregate,
         showCheckCircle: false,
+        showDoubanLink: !!actualDoubanId && actualDoubanId > 0,
         showRating: false,
       },
       douban: {
@@ -248,11 +284,12 @@ export default function VideoCard({
         showPlayButton: true,
         showHeart: false,
         showCheckCircle: false,
+        showDoubanLink: true,
         showRating: !!rate,
       },
     };
     return configs[from] || configs.search;
-  }, [from, isAggregate, rate]);
+  }, [from, isAggregate, actualDoubanId, rate]);
 
   return (
     <div
@@ -311,6 +348,21 @@ export default function VideoCard({
           </div>
         )}
 
+        {/* 豆瓣链接 */}
+        {config.showDoubanLink && actualDoubanId && actualDoubanId !== 0 && (
+          <a
+            href={`https://movie.douban.com/subject/${actualDoubanId.toString()}`}
+            target='_blank'
+            rel='noopener noreferrer'
+            onClick={(e) => e.stopPropagation()}
+            className='absolute top-2 left-2 opacity-0 -translate-x-2 transition-all duration-300 ease-in-out delay-100 sm:group-hover:opacity-100 sm:group-hover:translate-x-0'
+          >
+            <div className='bg-green-500 text-white text-xs font-bold w-7 h-7 rounded-full flex items-center justify-center shadow-md hover:bg-green-600 hover:scale-[1.1] transition-all duration-300 ease-out'>
+              <Link size={16} />
+            </div>
+          </a>
+        )}
+
         {/* 评分徽章 */}
         {config.showRating && rate && (
           <div className='absolute top-2 right-2 bg-pink-500 text-white text-xs font-bold w-7 h-7 rounded-full flex items-center justify-center shadow-md transition-all duration-300 ease-out group-hover:scale-110'>
@@ -326,6 +378,64 @@ export default function VideoCard({
               : actualEpisodes}
           </div>
         )}
+
+        {/* 聚合播放源指示器 */}
+        {isAggregate &&
+          resolvedSourceNames.length > 0 &&
+          (() => {
+            const uniqueSources = resolvedSourceNames;
+            const sourceCount = uniqueSources.length;
+            const maxDisplayCount = 6;
+            const displaySources = uniqueSources.slice(0, maxDisplayCount);
+            const hasMore = uniqueSources.length > maxDisplayCount;
+            const remainingCount = uniqueSources.length - maxDisplayCount;
+
+            return (
+              <div
+                className='absolute bottom-1 right-1 z-[55] sm:bottom-2 sm:right-2 transition-all duration-300 ease-in-out delay-75 opacity-100'
+                onClick={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                }}
+              >
+                <div className='relative group/sources'>
+                  <div className='bg-gray-700 text-white text-xs font-bold w-6 h-6 sm:w-7 sm:h-7 rounded-full flex items-center justify-center shadow-md hover:bg-gray-600 hover:scale-[1.1] transition-all duration-300 ease-out cursor-pointer'>
+                    {sourceCount}
+                  </div>
+                  <div className='absolute bottom-full right-0 z-[60] mb-2 opacity-0 invisible pointer-events-none transition-all duration-200 ease-out delay-100 group-hover/sources:opacity-100 group-hover/sources:visible'>
+                    <div className='relative rounded-lg border border-white/10 bg-gray-800/95 p-1.5 text-xs text-white shadow-xl backdrop-blur-sm sm:p-2 min-w-[100px] max-w-[140px] sm:min-w-[120px] sm:max-w-[200px]'>
+                      <div className='space-y-0.5 sm:space-y-1'>
+                        {displaySources.map((sName, idx) => (
+                          <div
+                            key={idx}
+                            className='flex items-center gap-1 sm:gap-1.5'
+                          >
+                            <div className='h-1 w-1 flex-shrink-0 rounded-full bg-blue-400'></div>
+                            <span
+                              className='truncate text-[10px] leading-tight sm:text-xs'
+                              title={sName}
+                            >
+                              {sName}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                      {hasMore && (
+                        <div className='mt-1 border-t border-gray-700/50 pt-1 sm:mt-2 sm:pt-1.5'>
+                          <div className='flex items-center justify-center text-gray-400'>
+                            <span className='text-[10px] font-medium sm:text-xs'>
+                              +{remainingCount} 播放源
+                            </span>
+                          </div>
+                        </div>
+                      )}
+                      <div className='absolute top-full right-2 h-0 w-0 border-l-[4px] border-r-[4px] border-t-[4px] border-transparent border-t-gray-800/95 sm:right-3 sm:border-l-[6px] sm:border-r-[6px] sm:border-t-[6px]'></div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            );
+          })()}
       </div>
 
       {/* 进度条 */}

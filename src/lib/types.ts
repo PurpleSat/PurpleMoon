@@ -110,6 +110,7 @@ export interface SearchResult {
   title: string;
   poster: string;
   episodes: string[];
+  episodes_titles?: string[];
   source: string;
   source_name: string;
   class?: string;
@@ -117,6 +118,7 @@ export interface SearchResult {
   desc?: string;
   type_name?: string;
   douban_id?: number;
+  vod_remarks?: string;
 }
 
 // --- 日历相关 ---
