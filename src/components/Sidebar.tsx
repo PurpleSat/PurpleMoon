@@ -36,7 +36,7 @@ export const useSidebar = () => useContext(SidebarContext);
 
 // 友情链接配置列表
 const FRIEND_LINKS = [
-  { name: '紫月主站', url: 'https://400821.xyz' },
+  { name: '紫月·主', url: 'https://400821.xyz' },
   { name: 'My-Cloud', url: 'https://200805.xyz' },
   { name: 'My-CMS', url: 'https://today.400823.xyz' },
   { name: 'API中转代理', url: 'https://timis.dpdns.org' },
