@@ -15,7 +15,7 @@ const postSchema = z.object({
     .string()
     .trim()
     .min(1, '内容不能为空')
-    .max(256000, '内容超长，最多允许 256000 个字符'),
+    .max(25600, '内容超长，最多允许 25600 个字符'),
 });
 
 const deleteSchema = z.object({

@@ -381,8 +381,8 @@ export class RedisStorage implements IStorage {
     if (!trimmed || trimmed.length === 0) {
       throw new Error('留言内容不能为空');
     }
-    if (trimmed.length > 256000) {
-      throw new Error('留言内容不能超过 256000 个字符');
+    if (trimmed.length > 25600) {
+      throw new Error('留言内容不能超过 25600 个字符');
     }
 
     const isAllowed = await this.checkRateLimit(`memo:rate:${userName}`, 2, 600000);

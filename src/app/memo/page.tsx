@@ -53,7 +53,7 @@ function MemoPageClient() {
   // 添加便利贴
   const handleAddMemo = async () => {
     const content = inputValue.trim();
-    if (!content || isSubmitting || content.length > 256000) return;
+    if (!content || isSubmitting || content.length > 25600) return;
 
     setIsSubmitting(true);
     setErrorMessage(null);
@@ -123,11 +123,11 @@ function MemoPageClient() {
               </span>
             </div>
 
-            {/* 多行文本框：对齐后端 500 字上限 */}
+            {/* 多行文本框：对齐后端 25600 字上限 */}
             <textarea
               ref={textareaRef}
               rows={1}
-              maxLength={256000}
+              maxLength={25600}
               className="flex-1 max-h-[160px] bg-transparent border-0 focus:ring-0 focus:border-transparent outline-none resize-none py-3 px-3 text-base text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-500 [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:bg-gray-200 dark:[&::-webkit-scrollbar-thumb]:bg-gray-700 [&::-webkit-scrollbar-thumb]:rounded-full"
               placeholder="想说点儿啥？留个言..."
               value={inputValue}
@@ -146,10 +146,10 @@ function MemoPageClient() {
             {/* 右侧：保存按钮 */}
             <button
               onClick={handleAddMemo}
-              disabled={!inputValue.trim() || isSubmitting || inputValue.length > 256000}
+              disabled={!inputValue.trim() || isSubmitting || inputValue.length > 25600}
               title="发布记录"
               className={`p-1 mr-2 rounded-full transition-all duration-300 flex-shrink-0 ${
-                inputValue.trim() && !isSubmitting && inputValue.length <= 256000
+                inputValue.trim() && !isSubmitting && inputValue.length <= 25600
                   ? 'hover:scale-110 active:scale-95 opacity-100 drop-shadow-md cursor-pointer'
                   : 'opacity-40 grayscale cursor-not-allowed'
               }`}
@@ -178,10 +178,10 @@ function MemoPageClient() {
             </div>
             <span
               className={`font-mono transition-colors duration-300 ${
-                inputValue.length >= 256000 ? 'text-red-500 dark:text-red-400 font-bold' : 'opacity-70'
+                inputValue.length >= 25600 ? 'text-red-500 dark:text-red-400 font-bold' : 'opacity-70'
               }`}
             >
-              {inputValue.length} / 256000
+              {inputValue.length} / 25600
             </span>
           </div>
         </div>
