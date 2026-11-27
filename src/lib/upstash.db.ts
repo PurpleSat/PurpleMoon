@@ -414,8 +414,8 @@ export class UpstashRedisStorage implements IStorage {
     if (!trimmed || trimmed.length === 0) {
       throw new Error('留言内容不能为空');
     }
-    if (trimmed.length > 500) {
-      throw new Error('留言内容不能超过 500 个字符');
+    if (trimmed.length > 256000) {
+      throw new Error('留言内容不能超过 256000 个字符');
     }
 
     // 限流校验：基于 ZSET 滑动窗口检查单用户 10 分钟（600000ms）内最多 2 条
