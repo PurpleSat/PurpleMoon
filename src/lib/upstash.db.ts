@@ -7,8 +7,8 @@ import { ConfigConflictError, UserExistsError } from './config-errors';
 import { hashPassword, verifyPassword, verifyPasswordDummy } from './password';
 import { Favorite, IStorage, Memo, PlayRecord, SkipConfig } from './types';
 
-// 🛡️ 逻辑修复 (LOG-07)：前后端统一搜索历史最大条数为 20 条
-const SEARCH_HISTORY_LIMIT = 20;
+// 🛡️ 逻辑修复 (LOG-07)：前后端统一搜索历史最大条数为 40 条
+const SEARCH_HISTORY_LIMIT = 40;
 
 // 🛡️ 安全加固 (SEC-07 / SEC-NEW-06)：转义 Redis Glob 通配符，防止跨租户键名遍历注入
 function escapeRedisPattern(str: string): string {
@@ -16,7 +16,7 @@ function escapeRedisPattern(str: string): string {
 }
 
 // Memo留言板全站最大条数限制
-const MEMO_LIMIT = 60;
+const MEMO_LIMIT = 256;
 
 // 添加Upstash Redis操作重试包装器
 async function withRetry<T>(

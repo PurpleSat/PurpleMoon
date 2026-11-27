@@ -5,11 +5,11 @@ import { ConfigConflictError, UserExistsError } from './config-errors';
 import { hashPassword, verifyPassword, verifyPasswordDummy } from './password';
 import { Favorite, IStorage, Memo, PlayRecord, SkipConfig } from './types';
 
-// 🛡️ 逻辑修复 (LOG-07)：前后端统一搜索历史最大条数为 20 条，避免缓存比对不一致引发重复重绘
-const SEARCH_HISTORY_LIMIT = 20;
+// 🛡️ 逻辑修复 (LOG-07)：前后端统一搜索历史最大条数为 40 条，避免缓存比对不一致引发重复重绘
+const SEARCH_HISTORY_LIMIT = 40;
 
 // Memo留言板最大条数限制，防止恶意刷库占用空间
-const MEMO_LIMIT = 60;
+const MEMO_LIMIT = 256;
 
 // D1 数据库接口
 interface D1Database {

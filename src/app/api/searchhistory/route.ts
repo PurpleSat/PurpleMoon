@@ -11,8 +11,8 @@ import { rejectIfLocalStorageMode } from '@/lib/storage-mode';
 
 export const runtime = 'edge';
 
-// 最大保存条数（前后端统一为 20）
-const HISTORY_LIMIT = 20;
+// 最大保存条数
+const HISTORY_LIMIT = 40;
 
 const searchHistorySchema = z.object({
   keyword: z.string().trim().min(1, '关键字不能为空').max(100, '关键字长度不能超过100字符'),

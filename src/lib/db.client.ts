@@ -86,8 +86,8 @@ const STORAGE_TYPE = (() => {
 })();
 
 // ---------------- 搜索历史相关常量 ----------------
-// 搜索历史最大保存条数（与服务端统一为 20）
-const SEARCH_HISTORY_LIMIT = 20;
+// 搜索历史最大保存条数
+const SEARCH_HISTORY_LIMIT = 40;
 
 // ---- 缓存管理器 ----
 class HybridCacheManager {
